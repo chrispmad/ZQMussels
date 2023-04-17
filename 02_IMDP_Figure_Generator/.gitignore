@@ -1,4 +1,4 @@
 **.html
 **.jpg
-data/
-output/
+data/**
+output/**
