@@ -1,0 +1,227 @@
+---
+title: "Rapid Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+  orientation: rows
+  vertical_layout: fill
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+knitr::opts_chunk$set(echo = F)
+#devtools::install_github("kent37/summarywidget")
+pacman::p_load(
+  tidyverse,       # data management and visualization
+  flexdashboard,   # dashboard versions of R Markdown reports
+  plotly,          # interactive figures
+  sf,
+  ggthemes,
+  ggpubr,
+  ggstatsplot,
+  leaflet,
+  crosstalk,
+  summarywidget
+)
+theme_set(theme_light())
+```
+
+```{r load_data}
+#FLNRO fisheries boundaries
+flnro = read_sf("W:/CMadsen/SpatialData/FLNRO_Fishing_Boundaries.shp")
+#Inspections summarised at the station level
+insp = read_sf("W:/CMadsen/2021 Invasive Mussel Program Final Report Maps/data/ShapeLayers/Inspections_Summarised_at_Station_level.shp")
+```
+
+```{r clean_data}
+insp_t = insp %>%
+  filter(TtlInsp != 0) %>% 
+  rename(`Total Inspections` = TtlInsp,
+         `High-risk Inspections` = HighRsk,
+         `Mussel-fouled Inspections` = MsslFld) %>% 
+  pivot_longer(c(`Total Inspections`,
+                 `High-risk Inspections`,
+                 `Mussel-fouled Inspections`), 
+               names_to = "InspectionType", values_to = "NumberInsp") %>% 
+  filter(NumberInsp > 0) %>% 
+  group_by(Year,InspectionType) %>%
+  mutate(binned_insp = as.numeric(cut(NumberInsp, breaks = 3))) %>% 
+  arrange(binned_insp) %>% 
+  #mutate(binned_insp = factor(binned_insp, levels = c(3:1))) %>% 
+  mutate(binned_size = as.numeric(cut(NumberInsp, breaks = 3))) %>% 
+  filter(Station != "Scheduled Inspection")
+```
+
+# British Columbia - Invasive Mussel Defence Program (IMDP)
+
+Data from 2015 - 2021 (2022 data collection in progress)
+
+## Column 1 {data-width=500}
+
+### Maps
+
+```{r}
+#Establish shared data.
+#This comes from the crosstalk package!
+shared_data = insp_t %>% 
+  mutate(Year = as.numeric(Year)) %>% 
+  ungroup() %>% 
+  mutate(Grouper = 1) %>% 
+  SharedData$new(group = "data")
+
+shared_data_no_coords = insp_t %>% 
+  st_drop_geometry() %>% 
+  mutate(Year = as.numeric(Year)) %>% 
+  ungroup() %>% 
+  SharedData$new(group = "data")
+```
+
+```{js}
+function filter_default() {
+    document.getElementById("Year").getElementsByClassName("selectized") 
+[0].selectize.setValue("2021", false);
+    document.getElementById("Station_Search").getElementsByClassName("selectized") 
+[0].selectize.setValue(["Golden","Mt. Robson","Osoyoos"], false);
+    document.getElementById("InspectionType").getElementsByClassName("selectized") 
+[0].selectize.setValue("Total Inspections", false);
+ }
+window.onload = filter_default;
+```
+
+```{r}
+my.pal = c("#58BA2F","#E37A12","#F02000")
+
+leaflet(data = shared_data) %>% 
+  leaflet::addProviderTiles(providers$Stamen.Terrain) %>% 
+  addCircleMarkers(data = shared_data,
+                   stroke = T,
+                   radius = ~binned_size*5,
+                   weight = 1,                    
+                   fillOpacity = 0.99,
+                   color = "black",
+                   fillColor = ~colorNumeric(
+                              palette = my.pal,
+                              domain = binned_insp)(binned_insp),
+                   label = ~paste0(Station,": ",NumberInsp, " (",Year,")")) %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 50.5, lng = -122, zoom = 5) %>% 
+  setMaxBounds(-110,48,-136,58) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+## Column 2 {data-width=700}
+
+### Interactive Figures {data-icon="ion-stats-bars"}
+
+```{r}
+#Original plotly figure.
+p = shared_data %>%
+  plot_ly(x = ~Year, y = ~NumberInsp,
+          color = ~Station,
+          hoverinfo = "text",
+          text = ~paste(Station,":",NumberInsp),
+          alpha = 1) %>%
+  #group_by(Year,Station) %>%
+  add_bars() %>%
+  layout(yaxis = list(title = ~paste0("Number of ",InspectionType)))
+
+  #add_text(x = 2016, y = ~max(NumberInsp), label = ~sum(NumberInsp))
+#   add_fun(function(p) {
+#     p %>% 
+#       add_text(x = 2018, 
+#                y = 10000, 
+#                text = p %>% 
+#                  plotly_data() %>%
+#                  st_drop_geometry() %>%
+#                  mutate(InspectionType = str_remove(InspectionType, " Inspections")) %>% 
+#                  mutate(InspectionType = factor(InspectionType, levels = c("Mussel-fouled",
+#                                                                            "High-risk",
+#                                                                            "Total"))) %>% 
+#                  group_by(InspectionType) %>%
+#                  summarise(total = sum(NumberInsp)) %>%
+#                  mutate(total_text = paste0(InspectionType, ": ",total)) %>% 
+#                  summarise(total = paste0(total_text, collapse = ", ")) %>% 
+#                  pull(total))
+#   }
+# )
+
+# p = shared_data %>% 
+#   ggplot(aes(Year,NumberInsp,fill = Station, group = Station),
+#            position = "dodge") + 
+#   geom_col() #position_dodge(preserve = "single"))
+  #scale_x_continuous(breaks = c(2015:2021))
+
+#p$data
+#ggpubr::ggsummarystats()
+
+
+bscols(widths = c(1,3,8),
+       list(), #A blank margin on the left, nice for spacing.
+       list(
+         filter_select(id = "Year", label = "Year",
+                         sharedData = shared_data,shared_data_no_coords, group = ~Year),
+         filter_select(id = "Station_Search", label = "Station",
+                         sharedData = shared_data, group = ~Station),
+         filter_slider(id = "slider_insp", label = "Inspections",
+                       sep = NA, step = 500,
+                         sharedData = shared_data, column = ~NumberInsp),
+         filter_select(id = "InspectionType", label = "Inspection Type",
+                         sharedData = shared_data, multiple = F,
+                       group = ~InspectionType)),
+       p)
+```
+
+## Column 3 {data-width=200}
+
+### Total Inspections
+
+```{r}
+summarywidget::summarywidget(shared_data,statistic = "sum",column = "NumberInsp", digits = 0)
+```
+
+### High-risk Inspections
+
+```{r}
+summarywidget::summarywidget(shared_data,statistic = "sum",column = "NumberInsp", digits = 0)
+```
+
+### Mussel-fouled Inspections
+
+```{r}
+summarywidget::summarywidget(shared_data,statistic = "sum",column = "NumberInsp", digits = 0)
+```
+```{r}
+
+
+### Quick Stats
+
+#### Number of Inspections
+
+# shared_data_no_coords$data() %>% 
+#   mutate(Year = as.character(Year)) %>% 
+#   mutate(InspectionType = str_remove(InspectionType, " Inspections")) %>% 
+#   mutate(InspectionType = str_remove(InspectionType, "-")) %>% 
+#   pivot_wider(names_from = c(InspectionType,Year), values_from = NumberInsp) %>% 
+#   mutate(TotalN = across(Total_2015:Musselfouled_2016, sum, na.rm=T)) %>% 
+#   pull(TotalN)
+  
+# plotly::add_markers()
+  # add_text(x = rnorm(173,mean = 1, sd = 1), y = 1, text = ~NumberInsp)
+  # add_bars() %>%
+  # layout(yaxis = list(title = ~paste0("Number of ",InspectionType)))
+
+# shared_data %>% 
+#   plot_ly() %>% 
+#   plotly::filter(InspectionType == "Total Inspections") %>% 
+#   plotly::add_text(x = 1, y = 1, text = ~sum(NumberInsp), size = 50) %>% 
+#   plotly::layout(
+#     xaxis = list(
+#       visible = FALSE
+#     ),
+#     yaxis = list(
+#       visible = FALSE
+#     )
+#   )
+```

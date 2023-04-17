@@ -1,0 +1,71 @@
+---
+title: "Test"
+author: "Chris Madsen"
+date: "2023-04-17"
+output: html_document
+---
+
+```{r, echo = FALSE}
+library(htmltools)
+```
+
+<!-- ```{css, echo = FALSE} -->
+<!-- .legend { -->
+<!--     font-size: large; -->
+<!-- } -->
+<!-- .leaflet-control-scale-line { -->
+<!--     font-size: large; -->
+<!-- } -->
+<!-- ``` -->
+
+
+```{r}
+library(leaflet)
+
+my_pal = colorBin(
+  palette = 'Spectral',
+  domain = quakes$mag
+)
+
+m = leaflet(quakes,
+        ) %>%
+  addTiles() %>% 
+  addCircleMarkers(
+    color = ~my_pal(mag)
+  ) %>% 
+  addLegend(pal = my_pal,
+            values = ~mag#,
+            # className = 'bigger-text'
+            ) %>% 
+  addScaleBar('bottomleft',
+              options = scaleBarOptions(maxWidth = 300))
+```
+
+```{r dpi=300}
+# htmltools::withTags(
+#   tagList(
+#     list(
+#       tags$head(
+#         tags$style(".leaflet-control {
+#     font-size: large;
+# }
+# .leaflet-control-scale-line {
+#     font-size: large;
+# }")
+#       )
+#     ),
+# m
+#  )
+# )
+
+m %>% 
+  mapview::mapshot2(file = "test.png",
+                   remove_controls = c("zoomControl","layersControl","homeButton"),
+                   knitrOptions = list(dpi = 300)
+  )
+```
+
+```{r}
+mapshot(m, file = 'test.html', knitrOptions = list(dpi = 1200))
+```
+

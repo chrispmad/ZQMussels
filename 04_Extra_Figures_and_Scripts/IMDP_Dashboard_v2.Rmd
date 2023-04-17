@@ -1,0 +1,316 @@
+---
+title: "IMDP Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+  orientation: columns
+  theme: paper
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+gc()
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(size = 15)
+#devtools::install_github("kent37/summarywidget")
+pacman::p_load(
+  tidyverse,       # data management and visualization
+  flexdashboard,   # dashboard versions of R Markdown reports
+  plotly,          # interactive figures
+  sf,
+  ggthemes,
+  ggpubr,
+  ggstatsplot,
+  leaflet,
+  crosstalk,
+  summarywidget
+)
+theme_set(theme_light())
+```
+
+```{r load_data}
+#FLNRO fisheries boundaries
+flnro = read_sf("W:/CMadsen/shared_data_sets/FLNRO_Fishing_Boundaries.shp") %>% 
+  st_transform(crs = 4326)
+#Make flnro labels.
+flnro_labs = flnro %>% 
+  st_transform(crs = 4326) %>% 
+  st_centroid()
+
+#Inspections summarised at the station level
+insp = read_sf("W:/CMadsen/Projects/ZQMussels/2021 IMDP Final Report/data/spatial/Inspections_Summarised_at_Station_level.gpkg")
+```
+
+```{r clean_data}
+insp_t = insp %>%
+  filter(TotalInspections != 0) %>% 
+  rename(`Total Inspections` = TotalInspections,
+         `High-risk Inspections` = HighRisk,
+         `Mussel-fouled Inspections` = MusselFouled) %>% 
+  pivot_longer(c(`Total Inspections`,
+                 `High-risk Inspections`,
+                 `Mussel-fouled Inspections`), 
+               names_to = "InspectionType", values_to = "NumberInsp") %>% 
+  filter(NumberInsp > 0) %>% 
+  group_by(Year,InspectionType) %>%
+  mutate(binned_insp = as.numeric(cut(NumberInsp, breaks = 3))) %>% 
+  arrange(binned_insp) %>% 
+  #mutate(binned_insp = factor(binned_insp, levels = c(3:1))) %>% 
+  mutate(binned_size = as.numeric(cut(NumberInsp, breaks = 3))) %>% 
+  filter(Station != "Scheduled Inspection")
+```
+
+```{r}
+#Establish shared data.
+#This comes from the crosstalk package!
+shared_data = insp_t %>% 
+  pivot_wider(names_from = InspectionType, 
+              values_from = NumberInsp,
+              values_fill = 0) %>% 
+  rename(TotalInsp = `Total Inspections`,
+         HighRiskInsp = `High-risk Inspections`,
+         MusselfouledInsp = `Mussel-fouled Inspections`) %>% 
+  mutate(Year = as.numeric(Year)) %>% 
+  ungroup() %>% 
+  mutate(Grouper = 1) %>% 
+  SharedData$new(group = "data")
+
+# shared_data_no_coords = insp_t %>% 
+#   st_drop_geometry() %>% 
+#   mutate(Year = as.numeric(Year)) %>% 
+#   ungroup() %>% 
+#   SharedData$new(group = "data")
+```
+
+# British Columbia - Invasive Mussel Defence Program (IMDP) 
+
+Selection Criteria {.sidebar data-width=200}
+-------------------------------------------------------------------------------
+
+Change the data selection with these interactive tools.
+
+```{r}
+bscols(widths = c(2,8,2),
+       list(),
+       list(
+         filter_select(id = "Year", label = "Year",
+                         sharedData = shared_data, group = ~Year),
+         filter_select(id = "Station_Search", label = "Station",
+                         sharedData = shared_data, group = ~Station),
+         filter_slider(id = "slider_insp", label = "Total Inspections",
+                       sep = NA, step = 500,
+                       sharedData = shared_data, column = ~TotalInsp)
+       ),
+       list())
+```
+
+```{js}
+function filter_default() {
+    document.getElementById("Year").getElementsByClassName("selectized") 
+[0].selectize.setValue("2021", false);
+    document.getElementById("Station_Search").getElementsByClassName("selectized") 
+[0].selectize.setValue(["Golden","Mt. Robson","Osoyoos"], false);
+ }
+window.onload = filter_default;
+```
+
+Column {.tabset data-width=600 data-icon="ion-stats-bars"}
+-------------------------------------------------------------------------------
+
+### Total Inspections
+
+```{r}
+my.pal = c("#58BA2F","#E37A12","#F02000")
+
+flnro.pal = colorFactor(palette = "plasma",
+                        domain = flnro$REGION_N)
+
+shared_data %>% 
+  leaflet() %>% 
+  addProviderTiles(providers$Stamen.Terrain, group = "Terrain") %>% 
+  addProviderTiles(providers$CartoDB,group = "CartoDB") %>%
+  addProviderTiles("Esri.WorldImagery",group = "Sat") %>%
+  addProviderTiles(providers$Stamen.Toner,group = "Stamen") %>%
+  addPolygons(data = flnro, 
+              fillColor = ~flnro.pal(REGION_N),
+              fillOpacity = 0.35,
+              weight = 1,
+              label = ~REGION_N,
+              labelOptions = labelOptions(clickable = T,
+                                          permanent = F),
+              group = "FLNRORD Fisheries Regions"
+              ) %>% 
+  addCircleMarkers(stroke = T,
+                   radius = ~binned_size*5,
+                   weight = 1,                    
+                   fillOpacity = 0.99,
+                   color = "black",
+                   fillColor = ~colorNumeric(
+                              palette = my.pal,
+                              domain = binned_insp)(binned_insp),
+                   label = ~paste0(Station,": ",TotalInsp, " (",Year,")")) %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 50.5, lng = -122, zoom = 5) %>% 
+  addLayersControl(baseGroups = c("Terrain","CartoDB","Sat","Stamen"),
+                   overlayGroups = "FLNRORD Fisheries Regions",
+                   options = layersControlOptions(collapsed = F)) %>% 
+  setMaxBounds(-110,48,-136,58) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+### High-risk Inspections
+
+```{r}
+shared_data %>% 
+  leaflet() %>% 
+  addProviderTiles(providers$Stamen.Terrain, group = "Terrain") %>% 
+  addProviderTiles(providers$CartoDB,group = "CartoDB") %>%
+  addProviderTiles("Esri.WorldImagery",group = "Sat") %>%
+  addProviderTiles(providers$Stamen.Toner,group = "Stamen") %>%
+  addPolygons(data = flnro, 
+              fillColor = ~flnro.pal(REGION_N),
+              fillOpacity = 0.35,
+              weight = 1,
+              label = ~REGION_N,
+              labelOptions = labelOptions(clickable = T,
+                                          permanent = F),
+              group = "FLNRORD Fisheries Regions"
+  ) %>% 
+  addCircleMarkers(data = shared_data,
+                   stroke = T,
+                   radius = ~binned_size*5,
+                   weight = 1,
+                   fillOpacity = 0.99,
+                   color = "black",
+                   fillColor = ~colorNumeric(
+                              palette = my.pal,
+                              domain = binned_insp)(binned_insp),
+                   label = ~paste0(Station,": ",HighRiskInsp, " (",Year,")")) %>%
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 50.5, lng = -122, zoom = 5) %>% 
+  addLayersControl(baseGroups = c("Terrain","CartoDB","Sat","Stamen"),
+                   overlayGroups = "FLNRORD Fisheries Regions",
+                   options = layersControlOptions(collapsed = F)) %>% 
+  setMaxBounds(-110,48,-136,58) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+### Mussel-fouled Inspections
+
+```{r}
+shared_data %>% 
+  leaflet() %>% 
+  addProviderTiles(providers$Stamen.Terrain, group = "Terrain") %>% 
+  addProviderTiles(providers$CartoDB,group = "CartoDB") %>%
+  addProviderTiles("Esri.WorldImagery",group = "Sat") %>%
+  addProviderTiles(providers$Stamen.Toner,group = "Stamen") %>%
+  addPolygons(data = flnro, 
+              fillColor = ~flnro.pal(REGION_N),
+              fillOpacity = 0.35,
+              weight = 1,
+              label = ~REGION_N,
+              labelOptions = labelOptions(clickable = T,
+                                          permanent = F),
+              group = "FLNRORD Fisheries Regions"
+  ) %>% 
+  addCircleMarkers(data = shared_data,
+                   stroke = T,
+                   radius = ~binned_size*5,
+                   weight = 1,
+                   fillOpacity = 0.99,
+                   color = "black",
+                   fillColor = ~colorNumeric(
+                              palette = my.pal,
+                              domain = binned_insp)(binned_insp),
+                   label = ~paste0(Station,": ",MusselfouledInsp, " (",Year,")")) %>%
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 50.5, lng = -122, zoom = 5) %>% 
+  addLayersControl(baseGroups = c("Terrain","CartoDB","Sat","Stamen"),
+                   overlayGroups = "FLNRORD Fisheries Regions",
+                   options = layersControlOptions(collapsed = F)) %>% 
+  setMaxBounds(-110,48,-136,58) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+Column {.tabset data-width=700}
+-------------------------------------------------------------------------------
+
+### Total Inspections
+
+```{r}
+#Total Inspections plotly figure.
+p1 = shared_data %>%
+  plot_ly(x = ~Year, y = ~TotalInsp,
+          color = ~Station,
+          hoverinfo = "text",
+          text = ~paste(Station,":",TotalInsp),
+          alpha = 1
+  ) %>%
+  add_bars() %>%
+  layout(yaxis = list(title = ~paste0("Number of ",TotalInsp)))
+
+p1
+```
+
+### High-risk Inspections
+```{r}
+#HR plotly figure.
+p2 = shared_data %>%
+  plot_ly(x = ~Year, y = ~HighRiskInsp,
+          color = ~Station,
+          hoverinfo = "text",
+          text = ~paste(Station,":",HighRiskInsp),
+          alpha = 1) %>%
+  add_bars() %>%
+  layout(yaxis = list(title = ~paste0("Number of ",HighRiskInsp)))
+
+p2
+```
+
+### Mussel-fouled Inspections
+```{r}
+#HR plotly figure.
+p3 = shared_data %>%
+  plot_ly(x = ~Year, y = ~MusselfouledInsp,
+          color = ~Station,
+          hoverinfo = "text",
+          text = ~paste(Station,":",MusselfouledInsp),
+          alpha = 1) %>%
+  add_bars() %>%
+  layout(yaxis = list(title = ~paste0("Number of ",MusselfouledInsp)))
+
+p3
+```
+
+Column {data-width=200}
+-------------------------------------------------------------------------------
+
+### Total Inspections {style="font-size: 60px; text-align:center;"}
+ 
+```{r}
+knitr::opts_chunk$set(size = 20)
+
+summarywidget::summarywidget(shared_data, 
+                             statistic = "sum",
+                             column = "TotalInsp", 
+                             digits = 0)
+```
+
+### High-risk Inspections {style="font-size: 60px; text-align:center;"}
+
+```{r}
+summarywidget::summarywidget(shared_data, 
+                             statistic = "sum",
+                             column = "HighRiskInsp", 
+                             digits = 0)
+```
+
+### Mussel-fouled Inspections {style="font-size: 60px; text-align:center;"}
+
+```{r}
+summarywidget::summarywidget(shared_data, 
+                             statistic = "sum",
+                             column = "MusselfouledInsp", 
+                             digits = 0)
+```

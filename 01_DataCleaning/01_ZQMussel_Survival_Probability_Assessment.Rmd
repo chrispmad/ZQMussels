@@ -1,0 +1,422 @@
+---
+title: "01_ZQMussel_Survival_Probability_Assessment"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+This script assesses the probability of survival of Zebra and Quagga Mussels in freshwater subwatersheds of BC, using environmental data (dissolved and total calcium, and water temperature from the environmental monitoring database). It is modelled after the 2017 DFO risk assessment of Canada for invasion of these species and Adam Sepulveda et al's more recent methodology. Quagga mussels are assessed first, a temperature correction factor is calculated, and this factor is then applied to the estimated risk factor of Zebra mussels.
+
+# Sections {.tabset}
+
+## Cleaning 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+
+# Load libraries
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(ggspatial)
+library(ggthemes)
+library(bcdata)
+
+rm(list=ls())
+gc()
+```
+
+Set options...
+
+```{r read_and_set_options}
+my_opts = read_csv("Options.csv") %>% 
+  as.data.frame()
+
+my.year = my_opts$year
+
+temp_limit = my_opts$zqm_risk_temp_limit
+climate_model = my_opts$zqm_risk_climate_model
+
+#Do we want to make monitoring location and water body level calcium shapefiles?
+#interim_shapefile_output = F #F if no, T if yes.
+
+setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+mywd = getwd()
+
+#Create organizational folders in your working directory, if they don't exist.
+#data...
+if(!dir.exists(paste0(getwd(),"/data/"))) {
+  dir.create(paste0(getwd(),"/data/"))
+}
+
+#shapefiles...
+data.path = paste0(getwd(),"/data/")
+
+# if(!dir.exists(paste0(data.path,"shapefiles"))) {
+#   dir.create(paste0(data.path,"shapefiles"))
+# }
+
+#output...
+if(!dir.exists(paste0(getwd(),"/output/"))) {
+  dir.create(paste0(getwd(),"/output/"))
+}
+```
+
+Step 1. Read in shapefiles.
+```{r load_in_shapefiles}
+# BC shapefile
+bc_shp = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/bc_simple.shp")) %>% 
+  st_transform(crs = 4326)
+
+# WorldClim future temperature raster data. 
+if(my_opts$zqm_risk_climate_model == "ssp245"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+} else if(my_opts$zqm_risk_climate_model == "ssp370"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+}
+
+#Environmental Monitoring System calcium data (total and dissolved)
+#Load in the first dataset (last 2 years) - downloaded at the beginning of 2021, will need to be re-downloaded when run in the future!
+df <- read_csv(paste0(data.path,"ems_sample_results_current_expanded.csv"), 
+                col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
+                                 COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
+                                 UPPER_DEPTH = col_integer(),
+                                 LOWER_DEPTH = col_integer(),
+                                 TIDE = col_integer(),
+                                 AIR_FILTER_SIZE = col_integer(),
+                                 AIR_FLOW_VOLUME = col_integer(),
+                                 FLOW_UNIT = col_character(),
+                                 COMPOSITE_ITEMS = col_integer(),
+                                 CONTINUOUS_AVERAGE = col_integer(),
+                                 CONTINUOUS_MAXIMUM = col_integer(),
+                                 CONTINUOUS_MINIMUM = col_integer(),
+                                 CONTINUOUS_UNIT_CODE = col_integer(),
+                                 CONTINUOUS_DURATION = col_integer(),
+                                 CONTINUOUS_DURATION_UNIT = col_character())) %>% 
+  filter(is.na(LATITUDE)==F) %>% 
+  mutate(UNIT = MDL_UNIT) %>% 
+  filter(PARAMETER_CODE %in% c("CA-T","CA-D"))
+
+#Get rid of columns 29 to 60, which we do not need.
+df = df[,c(1:28)]
+
+### Load in the mammoth dataset ###
+mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium.csv"),
+                           col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
+                                            COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
+                                            UPPER_DEPTH = col_integer(),
+                                            LOWER_DEPTH = col_integer(),
+                                            TIDE = col_integer(),
+                                            AIR_FILTER_SIZE = col_integer(),
+                                            AIR_FLOW_VOLUME = col_integer(),
+                                            FLOW_UNIT = col_character(),
+                                            COMPOSITE_ITEMS = col_integer(),
+                                            CONTINUOUS_AVERAGE = col_integer(),
+                                            CONTINUOUS_MAXIMUM = col_integer(),
+                                            CONTINUOUS_MINIMUM = col_integer(),
+                                            CONTINUOUS_UNIT_CODE = col_integer(),
+                                            CONTINUOUS_DURATION = col_integer(),
+                                            CONTINUOUS_DURATION_UNIT = col_character())) 
+
+mammoth_dataset = mammoth_dataset[,c(1:28)]
+```
+
+Step 2: Combine the 2-year dataset and the historical data set.
+
+```{r combine_data}
+df = bind_rows(df, mammoth_dataset) %>% 
+  dplyr::select(EMS_ID, MONITORING_LOCATION,LOCATION_TYPE,COLLECTION_START,COLLECTION_END,SAMPLING_AGENCY,COLLECTION_METHOD,PARAMETER,ANALYTICAL_METHOD,RESULT,UNIT,LONGITUDE,LATITUDE)
+rm(mammoth_dataset)
+
+hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
+```
+
+```{r load_in_freshwater_atlas}
+# Cast our dataframe as an 'sf' shapefile then reproject it to BC Albers projection.
+df_sp = st_as_sf(df %>% filter(!is.na(LATITUDE)), coords = c("LONGITUDE","LATITUDE"),
+                 crs = 4326)
+df_sp = st_transform(df_sp, 3005)
+
+#Read in the water body shapefiles
+#(4: waterbody groups, lakes, rivers and streams)
+watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
+lakes = bcdc_query_geodata("freshwater-atlas-lakes") %>% collect()
+rivers = bcdc_query_geodata("freshwater-atlas-rivers") %>% collect()
+manmade = bcdc_query_geodata("freshwater-atlas-manmade-waterbodies") %>% collect() %>% 
+  mutate(across(starts_with("GNIS_ID_"), as.character))
+
+#Combine lakes and man-made water bodies
+lakes = bind_rows(lakes, manmade)
+```
+
+Remove extra columns of freshwater atlas spatial objects.
+```{r remove_extra_cols}
+watershed = watershed %>% dplyr::select("WATERSHED_") %>% rename(WATERSHED_GROUP_ID = WATERSHED_)
+lakes = lakes %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
+  rename(LakeName = GNIS_NAME_1, LakeNumber = WATERBODY_KEY)
+rivers = rivers %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
+  rename(RiverName = GNIS_NAME_1, RiverNumber = WATERBODY_KEY)
+```
+
+Step 3: Identify in which water body each record is located. Do a spatial match between calcium data and freshwater atlas layers.
+```{r spatial_match}
+df_sp = st_join(df_sp, watershed, st_intersects)
+df_sp = st_join(df_sp, lakes, st_intersects)
+df_sp = st_join(df_sp, rivers, st_intersects)
+```
+
+```{r clean_up_df}
+df = df_sp %>% st_drop_geometry() %>% as_tibble()
+
+#Drop records that didn't match to any lake or river.
+df = df %>% 
+  filter(!(is.na(LakeNumber) & is.na(RiverNumber)))
+
+df = df %>%
+  mutate(Year = lubridate::year(COLLECTION_END))
+
+df = df %>% filter(RESULT <= 60)
+
+df = df %>% rename(Watershed = WATERSHED_GROUP_ID)
+```
+
+Average calcium levels for each monitoring location, then for each waterbody, then for each subwatershed.
+```{r}
+av_df = rbind(
+  df %>% 
+    filter(is.na(LakeNumber)==F) %>% 
+    group_by(Watershed, LakeNumber, MONITORING_LOCATION) %>% 
+    summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
+    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-LakeNumber),
+  df %>% 
+    filter(is.na(RiverNumber)==F) %>% 
+    group_by(Watershed, RiverNumber, MONITORING_LOCATION) %>% 
+    summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
+    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-RiverNumber)
+) %>% 
+  summarise(Watershed_Mean = mean(Waterbody_Mean)) %>% 
+  left_join(df %>% 
+              filter(is.na(LakeNumber)==F) %>%
+              dplyr::select(Watershed, LakeNumber) %>%
+              distinct() %>%
+              group_by(Watershed) %>%
+              summarise(lakes_with_data = n())
+  ) %>%
+  left_join(df %>% 
+              filter(is.na(RiverNumber)==F) %>%
+              dplyr::select(Watershed, RiverNumber) %>%
+              distinct() %>%
+              group_by(Watershed) %>%
+              summarise(rivers_with_data = n())
+  ) %>%
+  left_join(df %>% 
+              filter(is.na(RiverNumber)==F) %>%
+              dplyr::select(Watershed, MONITORING_LOCATION) %>%
+              distinct() %>%
+              group_by(Watershed) %>%
+              summarise(river_monit_locs = n())) %>%
+  left_join(df %>% 
+              filter(is.na(LakeNumber)==F) %>%
+              dplyr::select(Watershed, MONITORING_LOCATION) %>%
+              distinct() %>%
+              group_by(Watershed) %>%
+              summarise(lake_monit_locs = n())) %>% 
+  mutate(across(everything(), \(x) replace_na(x, 0))) %>% 
+  group_by(Watershed) %>%
+  mutate(Waterbody_Number = sum(lakes_with_data,rivers_with_data),
+         Monitoring_Loc_Number = sum(lake_monit_locs, river_monit_locs)) %>%
+  ungroup() %>% 
+  # mutate(lakes_with_data = factor(lakes_with_data, levels = c(1:max(.$lakes_with_data))),
+  #        rivers_with_data = factor(rivers_with_data, levels = c(1:max(.$rivers_with_data)))
+  # ) %>% 
+  filter(is.na(Watershed_Mean)==F)
+
+#Bin values (less than 8, between 8 and 20, and greater than 20)
+av_df = av_df %>% 
+  mutate(bin = case_when(
+    Watershed_Mean < 8 ~ "1",
+    Watershed_Mean >= 8 & Watershed_Mean < 20 ~ "2",
+    Watershed_Mean >= 20 ~ "3",
+    T ~ "NA"
+  ))
+  #mutate(bin = factor(bin, levels = c(1:3)))
+
+av_df = av_df %>% 
+  mutate(waterbody_number_bin = case_when(
+    Waterbody_Number == 1 ~ "1",
+    Waterbody_Number > 1 & Waterbody_Number <= 3 ~ "2 to 3",
+    Waterbody_Number > 3 & Waterbody_Number <= 5 ~ "4 to 5",
+    Waterbody_Number > 5 & Waterbody_Number <= 10 ~ "6 to 10",
+    Waterbody_Number > 10 & Waterbody_Number <= 3 ~ "11+",
+    T ~ "No Data"
+  )) 
+  # mutate(waterbody_number_bin = factor(waterbody_number_bin, levels = c("No Data","1","2 to 3",
+  #                                                                          "4 to 5","6 to 10",
+  #                                                                          "11+")))
+
+av_df = av_df %>% 
+  mutate(monit_loc_number_bin = case_when(
+    Monitoring_Loc_Number >= 1 & Monitoring_Loc_Number <= 5 ~ "1 to 5",
+    Monitoring_Loc_Number > 5 & Monitoring_Loc_Number <= 5 ~ "6 to 10",
+    Monitoring_Loc_Number > 10 & Monitoring_Loc_Number <= 20 ~ "11 to 20",
+    Monitoring_Loc_Number > 20 & Monitoring_Loc_Number <= 40 ~ "21 to 40",
+    Monitoring_Loc_Number > 40 ~ "41+",
+    T ~ "No Data"
+  ))
+  # mutate(waterbody_number_bin = factor(waterbody_number_bin, levels = c("No Data","1 to 5","6 to 10",
+  #                                                                          "11 to 20","21 to 40",
+  #                                                                          "41+")))
+
+#Grab the temperature data from the worldclim predicted temperature raster we read in at the top of the script.
+watershed = watershed %>% 
+  mutate(temp = terra::extract(tempr, vect(watershed %>% st_transform(crs = 4326)), fun = mean, na.rm=T)[,2])
+
+watershed = watershed %>% 
+  mutate(temp_group = case_when(
+    temp < temp_limit ~ paste0("< ", temp_limit),
+    temp >=  temp_limit ~ paste0(">= ", temp_limit),
+    T ~ "NA"
+  ))
+
+watdat = watershed %>% 
+  rename(Watershed = WATERSHED_GROUP_ID) %>% 
+  left_join(av_df) %>% 
+  mutate(across(lakes_with_data:Monitoring_Loc_Number, replace_na, 0)) %>% 
+  mutate(across(ends_with("_bin"), replace_na, "No Data"))
+
+watdat = watdat %>%
+  arrange(temp) %>%
+  mutate(bin_bumped = as.numeric(as.character(bin))) %>%
+  mutate(bin_bumped = replace(bin_bumped, temp < temp_limit, bin_bumped - 1))  
+  # mutate(bin_bumped = factor(bin_bumped, levels = c(1,2,3)))
+
+```
+
+```{r}
+temp_vars = c(paste0("< ",temp_limit),paste0(">= ",temp_limit))
+```
+
+## Visualize!
+
+### Quagga Mussel Introduction Risk Factor
+
+```{r visualize quagga}
+# BINNED Calcium for watersheds - Quagga Mussels
+my_plot = ggplot() +
+  geom_sf(data = watdat,
+          aes(fill = bin), col = "black") +
+  scale_fill_manual(values = c("NA" = "grey",
+                               "1" = "green",
+                               "2" = "yellow",
+                               "3" = "red"),
+                    labels = c("NA" = "Insufficient Data",
+                               "1" = "Minimal (less than 8 mg/L)",
+                               "2" = "Moderate (between 8 and 20 mg/L)",
+                               "3" = "High (greater than 20 mg/L)")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Calcium Risk Factor",
+       title = "Analysis of Calcium Risk Factor (Quagga Mussel) at Subwatershed Scale",
+       subtitle = paste0("Data up to and Including ",max(df$Year)))
+
+my_plot
+
+ggsave(filename = paste0(mywd,"/output/QuaggaMussel_RiskMap",max(df$Year),".png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+```
+
+### Zebra Mussel Introduction Risk Factor
+```{r visualize zebra}
+my_plot = ggplot() +
+  geom_sf(data = watdat,
+          aes(fill = as.character(bin_bumped)), col = "black") +
+  scale_fill_manual(values = c("NA" = "white",
+                               "1" = "green",
+                               "2" = "yellow",
+                               "3" = "red"),
+                    labels = c("NA" = "Insufficient Data",
+                               "1" = "Minimal (less than 8 mg/L)",
+                               "2" = "Moderate (between 8 and 20 mg/L)",
+                               "3" = "High (greater than 20 mg/L)")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Calcium Risk Factor",
+       title = "Analysis of Calcium Risk Factor (Quagga Mussel) at Subwatershed Scale",
+       subtitle = paste0("Data up to and Including ",max(df$Year)))
+
+my_plot 
+
+ggsave(filename = paste0(mywd,"/output/ZebraMussel_",max(df$Year),"_",climate_model,"_ClimateModel_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+```
+
+### Temperature Correction Risk Map
+
+```{r temp_correction_map}
+my_plot = ggplot() +
+  geom_sf(data = watershed, col = "black", aes(fill = temp_group)) +
+  scale_fill_manual(values = c("< 10" = "red",
+                               "> 10" = "transparent")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Air Temperature (C)")
+
+my_plot
+
+ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",max(df$Year),"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+```
+
+### Number of Waterbodies per Watershed
+
+```{r number_waterbodies_per_watershed}
+my_plot = watdat %>% 
+  mutate(monit_loc_number_bin = case_when(
+    monit_loc_number_bin == "NA" ~ "No Data",
+    T ~ monit_loc_number_bin)) %>% 
+  mutate(monit_loc_number_bin = replace_na(monit_loc_number_bin, "No Data")) %>% 
+  ggplot() +
+  #geom_sf(data = watershed, col = "black", fill = "lightgrey") +
+  geom_sf(data = watdat,
+          col = "black",
+          aes(fill = monit_loc_number_bin)) +
+  #scale_fill_brewer(palette = "Greens") +
+  scale_fill_manual(values = c("No Data" = "darkgrey",
+                               "1 to 5" = "#edf8e9",
+                               "6 to 10" = "#bae4b3",
+                               "11 to 20" = "#74c476",
+                               "21 to 40" = "#31a354",
+                               "41+" = "#31a354"),
+                    labels = c("No Data" = "No Data",
+                               "1 to 5" = "1 to 5",
+                               "6 to 10" = "6 to 10",
+                               "11 to 20" = "11 to 20",
+                               "21 to 40" = "21 to 40",
+                               "41+" = "41+")) +
+  theme_map() +
+  labs(title = 'Number of EMS Calcium Sampling Sites',
+       fill = "Number of Sites") +
+  theme(text = element_text(size = 13))
+
+my_plot
+
+ggsave(filename = paste0(mywd,"/output/Quantity of Sites per Subwatershed",max(df$Year),".png"),
+       plot = my_plot, dpi = 150, 
+       width = 10, height = 7)
+```
+
+```{r write_sf_to_disk}
+### Produce excel files and shapefiles
+watdat = watdat %>% 
+  mutate(Quagga_Risk = "NA") %>%
+  mutate(Quagga_Risk = replace(Quagga_Risk, bin == 1, "Minimal (less than 8 mg/L)"),
+         Quagga_Risk = replace(Quagga_Risk, bin == 2, "Moderate (between 8 and 20 mg/L)"),
+         Quagga_Risk = replace(Quagga_Risk, bin == 3, "High (greater than 20 mg/L)"),
+         Zebra_Risk = "NA",
+         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 1, "Minimal (less than 8 mg/L)"),
+         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 2, "Moderate (between 8 and 20 mg/L)"),
+         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 3, "High (greater than 20 mg/L)"))
+
+write_sf(watdat, 
+         paste0(mywd,"/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_Subwatershed.gpkg"))
+```

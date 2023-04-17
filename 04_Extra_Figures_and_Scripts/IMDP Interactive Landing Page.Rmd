@@ -1,0 +1,490 @@
+---
+title: "IMDP Interactive Landing Page"
+output:
+  html_document:
+    theme: flatly
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+library(sf)
+library(leaflet)
+library(leaflet.extras)
+library(plotly)
+library(tidyverse)
+library(viridis) # My favorite palette for maps
+library(ggsflabel)
+
+rm(list = ls())
+
+# wb_risk = read_sf("W:/CMadsen/ZQM Waterbody Prioritization/Waterbodies_with_binned_and_original_values.shp")
+
+insp_stations = read_sf("W:/CMadsen/2021 Invasive Mussel Program Final Report Maps/data/ShapeLayers/Inspections_Summarised_at_Station_level.shp")
+
+insp_sources = read_sf("W:/CMadsen/2021 Invasive Mussel Program Final Report Maps/data/ShapeLayers/Inspections_by_source_centroid.shp")
+
+monitor_sites = read_sf("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/Combined Years/shapefile/LakeMonitoringdata_2013_2021_Combined.gpkg")
+
+bc = read_sf("W:/CMadsen/SpatialData/bc_shapefile.shp")
+
+subw = read_sf("W:/CMadsen/SpatialData/WatershedGroups_lowres.shp")
+#Simplify the subw shapefile.
+# subw = rmapshaper::ms_simplify(input = as(subw, 'Spatial')) %>%
+#   st_as_sf()
+
+number.bins = 5
+```
+
+```{r cleaning}
+monitor_sites = monitor_sites %>% 
+  mutate(SamplingGroup = replace_na(SamplingGroup, "NA"))
+```
+
+# Invasive Mussel Defence Program
+
+The B.C. Invasive Mussel Defence Program’s goal is to prevent the introduction of zebra and quagga mussels (ZQM) into B.C. The program’s prevention efforts are focused on inspecting boats, monitoring lakes, educating the public and coordinating actions with neighbouring jurisdictions. 
+
+The Invasive Mussel Defence Program (IMDP) was piloted in 2015 and consists of three main components:
+
+1. A **watercraft inspection program** to detect and respond to high-risk watercraft potentially transporting invasive mussels into B.C. from infested waterways
+2. [**Lake monitoring**](https://www2.gov.bc.ca/gov/content/invasive-mussels/early-detection-lake-monitoring) to assess for the continued absence of invasive mussels in B.C. waters
+3. **Outreach and education** to change behaviour and promote the message of clean, drain, dry to the boating community, in collaboration with partners
+
+Provincial legislation gives the Province authority to take action on ZQM. The [Controlled Alien Species (CAS) Regulation](http://www.bclaws.ca/EPLibraries/bclaws_new/document/ID/freeside/94_2009) under the Wildlife Act is the principle legislation that defines, lists, and affords provisions to regulate invasive mussels in B.C. 
+
+Under the CAS Regulation, prohibitions apply in relation to any mussel listed in Schedule 4 (Zebra, Quagga, and Conrad’s False Mussel). Specifically, it is illegal for a person to: 
+
+-possess, breed, ship, or transport prohibited mussels
+-release prohibited mussels into B.C. waters
+-allow a prohibited mussel to be released or escape into B.C. waters
+
+Inspectors are trained to deliver the watercraft inspection program and have been designated as auxiliary conservation officers under the Environmental Management Act. This designation provides powers to intercept/stop, inspect, search, question, obtain information, and issue decontamination orders. See the [Zebra and Quagga Mussel Early Detection and Rapid Response (ZQM EDRR) Plan (PDF)](https://www2.gov.bc.ca/assets/gov/environment/plants-animals-and-ecosystems/invasive-species/invasive-mussels/prov_zqm_edrr_plan.pdf) for more information on the CAS Regulation as it pertains to ZQM. 
+
+# 2015-2020 Watercraft Inspection Seasons
+
+The provincial Invasive Mussel Defence Program was piloted in 2015 and has since adapted and expanded operationally and geographically each year through additional funding through partnerships with BC Hydro, Columbia Power Corporation, Fortis BC, and Columbia Basin Trust and the BC Government. The tables below provide a summary of the 2015-2020 watercraft inspection seasons operations and inspection findings.
+
+# Inspection Summary
+
+```{r inspection_summary_ggplotly, fig.width=10,fig.height=5}
+#OG definition of OverallFindings table.
+OverallFindings = tibble(Year = c(2015:2021),
+       `Total Inspections` = c(4350,24500,35000,40700,52000,29900,33142),
+       `High-Risk Inspections` = c(70,685,2071,1652,1290,158,255),
+       `Mussel-Fouled Inspections` = c(15,17,25,25,22,16,17)) %>%
+  pivot_longer(-Year) %>%
+  mutate(name = factor(name, levels = c("Total Inspections",
+                                        "High-Risk Inspections",
+                                        "Mussel-Fouled Inspections"))) %>%
+             rename(`Inspection Number` = value,
+                    `Inspection Type` = name)
+          
+#This is the OG code for a 3-facet ggplot transformed into a #ggplotly
+plotly::ggplotly(
+  ggplot() +
+  geom_col(data = OverallFindings,
+           aes(x = Year,
+               y = `Inspection Number`,
+               fill = `Inspection Type`)) +
+  facet_wrap(~ `Inspection Type`, scales = "free", nrow = 1, ncol = 3) +
+  theme_classic() +
+  scale_x_continuous(breaks = 2015:2021) +
+  scale_fill_brewer(palette = "Dark2") +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, vjust = .7, hjust = 1),
+        axis.title.x = element_blank()) +
+  labs(fill = "Inspection Type", y = "Number of Inspections"))
+
+dat = OverallFindings %>% 
+  # pivot_wider(names_from = `Inspection Type`,
+  #             values_from = `Inspection Number`) %>% 
+  mutate(Year = factor(Year, levels = c(2013:2021)))
+
+#The below code makes a plotly graph with a drop-down menu, with which
+# the viewer can choose from total, HR and MF inspections.
+# plot_ly(
+#   data = dat,
+#   x = ~Year,
+#   y = ~`Inspection Number`,
+#   type = "bar",
+#   name = "Inspection Summary",
+#   text = ~`Inspection Number`,
+#   hoverinfo = 'text',
+#   transforms=list(
+#     list(
+#       type = 'filter',
+#         target = ~`Inspection Type`,
+#         operation = '=',
+#         value = unique(dat$`Inspection Type`)[1]
+#     )
+#   )
+# ) %>% 
+#   # add_trace(
+#   #   y = ~`Total Inspections`,
+#   #   name = "Total Inspections") %>% 
+#   # add_trace(
+#   #   y = ~`High-Risk Inspections`,
+#   #   name = "High-Risk Inspections") %>% 
+#   # add_trace(
+#   #   y = ~`Mussel-Fouled Inspections`,
+#   #   name = "Mussel-Fouled Inspections") %>% 
+#   layout(
+#     xaxis = list(title = "", 
+#                  tickangle = -45,
+#                  range = c(2015:2021)),
+#     yaxis = list(title = "Number of Inspections"),
+#     title = "Inspection Summary", 
+#     updatemenus = list(
+#       list(
+#         y = 0.6,
+#         x = 1.4,
+#         buttons = list(
+#           list(method = "restyle",
+#                args = list(
+#                  "transforms[0].value",
+#                  unique(dat$`Inspection Type`)[1]
+#                  ),
+#                label = unique(dat$`Inspection Type`)[1]),
+#           list(method = "restyle",
+#                args = list("transforms[0].value", 
+#                            unique(dat$`Inspection Type`)[2]),
+#                label = unique(dat$`Inspection Type`)[2]),
+#           list(method = "restyle",
+#                args = list("transforms[0].value", 
+#                            unique(dat$`Inspection Type`)[3]),
+#                label = unique(dat$`Inspection Type`)[3])))
+#     )
+#   )
+```
+
+We could group the above data by year, station, etc.
+
+```{r add binned inspection and binned size fields}
+insp_stations_total = insp_stations %>%
+  filter(TtlInsp != 0) %>% 
+  mutate(binned_insp = as.numeric(cut(TtlInsp, breaks = number.bins))) %>% 
+  arrange(binned_insp) %>% 
+  mutate(binned_insp = factor(binned_insp, levels = c(number.bins:1))) %>% 
+  mutate(binned_size = as.numeric(cut(TtlInsp,number.bins))) %>% 
+  filter(Station != "Scheduled Inspection")
+
+insp_stations_hr = insp_stations %>%
+  filter(MsslFld != 0) %>% 
+  mutate(binned_insp = as.numeric(cut(MsslFld, breaks = number.bins))) %>% 
+  arrange(binned_insp) %>% 
+  mutate(binned_insp = factor(binned_insp, levels = c(number.bins:1))) %>% 
+  mutate(binned_size = as.numeric(cut(MsslFld,number.bins))) %>% 
+  filter(Station != "Scheduled Inspection")
+
+insp_stations_mf = insp_stations %>%
+  filter(MsslFld != 0) %>% 
+  mutate(binned_insp = as.numeric(cut(MsslFld, breaks = number.bins))) %>% 
+  arrange(binned_insp) %>% 
+  mutate(binned_insp = factor(binned_insp, levels = c(number.bins:1))) %>% 
+  mutate(binned_size = as.numeric(cut(MsslFld,number.bins))) %>% 
+  filter(Station != "Scheduled Inspection")
+
+pal_total <- colorNumeric(
+  palette = "Spectral",
+  domain = insp_stations_total$TtlInsp,
+  reverse = T)
+
+pal_hr <- colorNumeric(
+  palette = "Spectral",
+  domain = insp_stations_hr$MsslFld,
+  reverse = T)
+
+pal_mf <- colorNumeric(
+  palette = "Spectral",
+  domain = insp_stations_mf$MsslFld,
+  reverse = T)
+
+addCMInsp = function(my.map, dat, year,inspection){
+  my.map %>% 
+  addCircleMarkers(data = dat %>% filter(Year == year),
+                   stroke = T,
+                   radius = ~binned_size*3,
+                   weight = 1,                    
+                   fillOpacity = 0.6,
+                   color = "black",
+                   fillColor = ~colorNumeric(
+                              palette = "Spectral",
+                              domain = dat %>% 
+                                filter(Year == year) %>% 
+                                pull(inspection),
+                              reverse = T)(dat %>% 
+                                filter(Year == year) %>% 
+                                pull(inspection)),
+                   label = ~paste0(Station,": ",dat %>% 
+                                filter(Year == year) %>% 
+                                pull(inspection)),
+                   group = year)
+}
+```
+
+# Inspections by Station {.tabset .tabset-fade .tabset-pills}
+
+## Total Inspections
+
+```{r plots using leaflet total insp by station, fig.width=10, fig.height = 6}
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB,
+                     group = "CartoDB", 
+                     options = providerTileOptions(minZoom = 4, maxZoom = 8)) %>%
+  addCMInsp(insp_stations_total,"2015",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2016",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2017",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2018",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2019",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2020",'TtlInsp') %>% 
+  addCMInsp(insp_stations_total,"2021",'TtlInsp') %>% 
+  addLegend(pal = pal_total, 
+            values = insp_stations_total$TtlInsp,
+            title = "Total Inspections") %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 51.5, lng = -119, zoom = 5) %>% 
+  setMaxBounds(-107,47,-132,58) %>% 
+  addLayersControl(baseGroups = rev(c(2015:2021)),
+                   options = layersControlOptions(collapsed = F)) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+Potential explanation of figure one.
+
+## High-risk Inspections
+
+```{r plots using leaflet high risk insp by station, fig.width=10, fig.height = 6}
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB,
+                     group = "CartoDB", 
+                     options = providerTileOptions(minZoom = 4, maxZoom = 8)) %>% 
+    addCMInsp(insp_stations_hr,"2015",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2016",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2017",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2018",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2019",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2020",'MsslFld') %>% 
+    addCMInsp(insp_stations_hr,"2021",'MsslFld') %>% 
+  addLegend(pal = pal_hr, 
+            values = insp_stations_hr$MsslFld,
+            title = "High-Risk Inspections") %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 51.5, lng = -119, zoom = 5) %>% 
+  setMaxBounds(-107,47,-132,58) %>% 
+  addLayersControl(baseGroups = rev(c(2015:2021)),
+                   options = layersControlOptions(collapsed = F)) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+Potential explanation of figure two.
+
+## Mussel-Fouled Inspections
+
+```{r plots using leaflet musselfouled insp by station, fig.width=10, fig.height = 6}
+leaflet() %>% 
+  addProviderTiles(providers$CartoDB,
+                     group = "CartoDB", 
+                     options = providerTileOptions(minZoom = 4, maxZoom = 8)) %>% 
+  addCMInsp(insp_stations_mf,"2015",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2016",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2017",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2018",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2019",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2020",'MsslFld') %>% 
+  addCMInsp(insp_stations_mf,"2021",'MsslFld') %>%
+  addLegend(pal = pal_mf, 
+            values = insp_stations_mf$MsslFld,
+            title = "Mussel-Fouled Inspections") %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 51.5, lng = -119, zoom = 5) %>% 
+  setMaxBounds(-107,47,-132,58) %>% 
+  addLayersControl(baseGroups = rev(c(2015:2021)),
+                   options = layersControlOptions(collapsed = F)) %>% 
+  leaflet.extras::addResetMapButton()
+```
+
+Potential explanation of figure three.
+
+# Lake Monitoring (2013 - 2021) {.tabset .tabset-fade .tabset-pills}
+
+## Specific Lake Monitoring Locations
+
+```{r lake monitoring data by monitoring location, echo=F,fig.width=10, fig.height = 6}
+monitor_sites = st_transform(monitor_sites, crs = 4326)
+
+#Set up colour palette with 18 colours!
+my.palette = c(RColorBrewer::brewer.pal(12, "Paired"),
+               RColorBrewer::brewer.pal(8, "Dark2"))
+
+addCMSamp = function(my.map, dat, year, sampler){
+  my.map %>% 
+  addCircleMarkers(data = dat %>% filter(Year == year),
+                   stroke = T,
+                   weight = 1, 
+                   radius = 5,
+                   fillOpacity = 0.6,
+                   color = "black",
+                   fillColor = ~colorFactor(
+                              palette = my.palette,
+                              domain = dat %>% 
+                                filter(Year == year) %>% 
+                                pull(sampler),
+                              reverse = T)(dat %>% 
+                                filter(Year == year) %>% 
+                                pull(sampler)),
+                   label = ~dat %>% 
+                             filter(Year == year) %>% 
+                             pull(sampler),
+                   group = year)
+}
+
+l = leaflet() %>% 
+  addProviderTiles(providers$CartoDB,
+                     group = "CartoDB", 
+                     options = providerTileOptions(minZoom = 4,
+                                                   maxZoom = 8)) %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 52.5, lng = -122, zoom = 5) %>% 
+  setMaxBounds(-110,50,-136,58) %>% 
+  addLayersControl(overlayGroups = rev(c(2013:2021)),
+                   options = layersControlOptions(collapsed = F)) %>% 
+  leaflet.extras::addResetMapButton()
+  
+for(year in unique(monitor_sites$Year)){
+l = l %>% 
+  addCMSamp(monitor_sites, as.character(year),'SamplingGroup') %>% 
+  addLegend(position = "bottomleft",
+            pal = colorFactor(palette = my.palette,
+                              domain = monitor_sites %>% 
+                                filter(Year == year) %>% 
+                                pull(SamplingGroup)),
+            values = monitor_sites %>% 
+                                filter(Year == year) %>% 
+                                pull(SamplingGroup),
+            group = as.character(year))
+if(year > 2013){l = l %>% hideGroup(as.character(year))}
+}
+  
+l
+```
+
+## Lake Monitoring by Subwatershed
+
+```{r monitoring_by_subwatershed, message=F, echo=F,fig.width=10, fig.height = 6}
+monitor_sites = st_transform(monitor_sites, crs = 3005)
+
+subw_w_samplers = subw %>% 
+  #Join the number of uniquer samplers and also the names of those samplers
+  #to the subwatersheds of BC.
+  left_join(monitor_sites %>% 
+  #Add subwatershed here.
+  st_join(subw %>% 
+            #st_transform(crs = 4326) %>% 
+            select(WATERSHE_1), st_intersects) %>% 
+  st_drop_geometry() %>% 
+  group_by(WATERSHE_1) %>% 
+  summarise(NumberSamples = n(),
+            Samplers = paste0(unique(SamplingGroup), collapse = ", "))) %>%
+  #st_transform(crs = 4326) %>% 
+  filter(!is.na(NumberSamples)) %>% 
+  left_join(monitor_sites %>% 
+    st_join(subw %>% 
+                #st_transform(crs = 4326) %>% 
+                select(WATERSHE_1), st_intersects) %>% 
+    st_drop_geometry() %>% 
+    group_by(WATERSHE_1,Year) %>% 
+    summarise(NumberSamplesPerYear = n()) %>% 
+    summarise(NumberYearsSampled = n(),
+              YearsSampled = paste0(Year, collapse = ", "))) %>% 
+  st_transform(crs = 4326)
+
+subw_w_samplers = subw_w_samplers %>% 
+  arrange(NumberYearsSampled) %>% 
+  mutate(NumberYearsSampled = as.factor(NumberYearsSampled))
+
+pal_sub_totalsamples = colorBin(palette = "Spectral",
+                   bins = c(0,5,10,50,100,200,400,700))
+pal_sub_yearssampled = colorFactor(palette = "Spectral",
+                   domain = subw_w_samplers$NumberYearsSampled)
+
+leaflet(subw_w_samplers) %>% 
+  addProviderTiles(providers$CartoDB,
+                     group = "CartoDB", 
+                     options = providerTileOptions(minZoom = 4,
+                                                   maxZoom = 8)) %>% 
+  addScaleBar(position = "bottomright") %>% 
+  setView(lat = 51.5, lng = -119, zoom = 5) %>% 
+  setMaxBounds(-108,49,-128,60) %>% 
+  addPolygons(
+            fillOpacity = 0.5,
+            fillColor = ~pal_sub_totalsamples(NumberSamples),
+            label = ~paste0(NumberSamples," sample(s) (",Samplers,")"),
+            color = "black",
+            weight = 1,
+            group = "Samples"
+  ) %>% 
+  addLegend(position = "topright",
+            title = "Number of Samples per Subwatershed",
+            pal = pal_sub_totalsamples,
+            values = subw_w_samplers$NumberSamples,
+            group = "Samples",
+            layerId = "Samples") %>% 
+  addPolygons(
+            fillOpacity = 0.5,
+            fillColor = ~pal_sub_yearssampled(NumberYearsSampled),
+            label = ~paste0(NumberYearsSampled," (",YearsSampled,")"),
+            color = "black",
+            weight = 1,
+            group = "Years"
+  ) %>% 
+  addLegend(position = "topright",
+            title = "Number of Years Sampled",
+            pal = pal_sub_yearssampled,
+            values = subw_w_samplers$NumberYearsSampled,
+            group = "Years",
+            layerId = "Years") %>% 
+  #hideGroup("Years") %>% 
+  addLayersControl(baseGroups = c("Samples","Years"),
+                   options = layersControlOptions(collapsed = F)) %>% 
+  leaflet.extras::addResetMapButton() %>% 
+  leaflet.extras::suspendScroll() 
+  #leaflet.extras::addMeasurePathToolbar(options = measurePathOptions(showOnHover = T)) %>% 
+  # htmlwidgets::onRender("
+  #   function() {
+  #     var map = this;
+  #     var legends = map.controls._controlsById;
+  #     function addActualLegend() {
+  #        var sel = $('.leaflet-control-layers-base').find('input[type=\"radio\"]:checked').siblings('span').text().trim();
+  #        $.each(map.controls._controlsById, (nm) => map.removeControl(map.controls.get(nm)));
+  #        map.addControl(legends[sel]);
+  #     }
+  #     $('.leaflet-control-layers-base').on('click', addActualLegend);
+  #     addActualLegend();
+  #  }")
+```
+
+# Photo Gallery
+
+```{r}
+# setwd("C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/")
+library(bsplus)
+bs_carousel(id = "k9_unit") %>% 
+  bs_append(content = bs_carousel_image(src = "C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/kilo1.jpg")) %>% 
+  bs_append(content = bs_carousel_image(src = "C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/kilo2.jpg")) %>% 
+  bs_append(content = bs_carousel_image(src = "C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/kilo3.jpg")) %>% 
+  bs_append(content = bs_carousel_image(src = "C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/kilo4.jpg")) %>% 
+  bs_append(content = bs_carousel_image(src = "C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/k9_unit.jpg"))
+# ![ ZQM Photograph ](I:/SPECIES/1_Factsheets & Web Content/Active Alert Sheets/ZQ Mussels/images_zebra and quagga mussels/MainSplash_BCRackCard.png)
+```
+
+## Program Funders
+
+![ ](C:/Users/CMADSEN/Downloads/LocalRwork/data/photos/program_funders.jpg)
+
+```{r  out.width = "20%"}
+#include_graphics(img1_path) 
+```
+

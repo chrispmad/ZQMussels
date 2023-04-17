@@ -1,0 +1,430 @@
+---
+title: "Watercraft Inspection Data Gaps"
+subtitle: "2022 Inspection Data"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+knitr::opts_chunk$set(warning = F)
+knitr::opts_chunk$set(message = F)
+knitr::opts_chunk$set(fig.height = 8,fig.width = 12)
+
+library(tidyverse)
+library(readxl)
+library(snakecase)
+library(ggrepel)
+
+rm(list = ls())
+```
+
+## Which fields in the IMDP Watercraft Inspection form have some missing data? { .tabset}
+
+This is a breakdown of the destination and previous waterbody information fields from the watercraft inspection form. This analysis splits these fields into what kind of data was reported, e.g. waterbody name, or one of the toggles that can be activated if the waterbody name is unknown, or a total lack of data. 
+
+```{r read in dat}
+dat = read_csv('C:/Users/CMADSEN/Downloads/LocalRWork/data/metabase_2022_query.csv')
+```
+
+```{r clean dat}
+dat = dat %>% 
+  setNames(snakecase::to_snake_case(colnames(.))) %>% 
+  mutate(across(everything(), as.character)) %>% 
+  select(destination_waterbody_1_name,
+         unknown_destination_waterbody_ind,
+         unknown_previous_water_body_ind,
+         commercial_manufacturer_as_destination_water_body_ind,
+         commercial_manufacturer_as_previous_water_body_ind,
+         destination_dry_storage_ind,
+         destination_major_city,
+         destination_waterbody_1_closest_city,
+         previous_major_city,
+         previous_waterbody_1_name,
+         previous_dry_storage_ind,
+         start_time,
+         station,
+         email) %>% 
+  rename(waterbody_name = destination_waterbody_1_name,
+         commercial_manufacturer_toggle = commercial_manufacturer_as_destination_water_body_ind,
+         dry_storage_toggle = destination_dry_storage_ind,
+         unknown_destination_toggle = unknown_destination_waterbody_ind,
+         unknown_previous_toggle = unknown_previous_water_body_ind,
+         dest_waterbody_city = destination_waterbody_1_closest_city)
+```
+
+### Destination Waterbody Info.
+
+```{r, fig.width=10, fig.height = 8}
+dat %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_destination_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & destination_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  group_by(name) %>%
+  count(value) %>% 
+  ungroup() %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle","Dest. major city known","No data"))) %>% 
+  arrange(desc(value)) %>% 
+  mutate(cumulative = cumsum(n)-n/2) %>% 
+  mutate(total = sum(n)) %>% 
+  ggplot() +
+  geom_col(aes(x = name, y = n, fill = value), 
+           width = 0.8) + 
+  geom_text(aes(x = name, y = cumulative,
+                 #label = paste0(n, "\n(",round(100*n/total,1),"%)"),
+                 #label = paste0("(",round(100*n/total,1),"%)"),
+                label = paste0(n))) +
+  theme_light() + 
+  theme(axis.text.x = element_blank()) +
+  theme(text = element_text(size = 14)) +
+  labs(x = "Destination Waterbody Info",
+       y = "Number of Inspection Records",
+       fill = "Data Entry Type")
+```
+
+### Destination Waterbody Info by Month
+
+```{r, fig.width=10, fig.height = 8}
+dat %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_destination_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & destination_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  mutate(month = lubridate::month(start_time, label = T)) %>% 
+  mutate(month = fct_rev(month)) %>% 
+  group_by(name,month) %>% 
+  count(value) %>% 
+  mutate(proportion = paste0(round(100*n / sum(n),1), "%")) %>% 
+  ungroup() %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle","No data"))) %>% 
+  ggplot() +
+  geom_col(aes(x = month, y = n, fill = value), 
+           width = 0.8,) + 
+  geom_label(aes(x = month, y = 6500, 
+                 #label = paste0("No data:\n",proportion), 
+                 label = paste0("No data: ",n),
+                 group = month), 
+             width = 0.8, data = . %>% filter(value == "No data")) + 
+  theme_light() + 
+  labs(x = "Month of 2022",
+       y = "Number of Inspection Records",
+       fill = "") + 
+  theme(legend.position = "bottom") + 
+  theme(text = element_text(size = 14)) +
+  coord_flip()
+```
+
+### Destination Waterbody by Station
+
+```{r, fig.width=10, fig.height = 8}
+dest_station_dat = dat %>% 
+  filter(!station %in% c("Other","Sumas Border","Fraser Valley Roving")) %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_destination_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & destination_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  group_by(station,name) %>%
+  count(value) %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle","Dest. major city known","No data"))) %>% 
+  arrange(station,desc(value)) %>% 
+  group_by(station) %>% 
+  mutate(cumulative = cumsum(n)-n/2) %>% 
+  mutate(total = sum(n))
+  
+dest_station_dat %>%
+  group_by(station) %>% 
+  arrange(desc(total)) %>% 
+  mutate(station = factor(station, levels = unique(.$station))) %>% 
+  ggplot() +
+  geom_col(aes(x = station, y = n, fill = value), 
+           width = 0.8) + 
+  geom_label(aes(x = station, y = cumulative,
+                 #label = paste0(n, "\n(",round(100*n/total,1),"%)"),
+                 #label = paste0(round(100*n/total,1),"%"),
+                 label = n,
+                 fill = value),
+                 data = . %>% 
+                   filter(station %in% c("Golden","Olsen (Hwy 3)","Radium"),
+                          value == "No data")) +
+  theme_light() + 
+  theme(axis.text.x = element_text(size = 14, angle = 45, vjust = 1, hjust = 1)) +
+  theme(text = element_text(size = 14),
+        legend.position = "bottom") +
+  labs(x = "Station",
+       y = "Number of Inspection Records",
+       fill = "")
+```
+
+### Destination Waterbody by Email
+
+```{r, fig.width=10, fig.height = 8}
+dest_email_dat = dat %>% 
+  mutate(email = str_remove(email, "@.*$")) %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_destination_toggle == "TRUE" & !is.na(destination_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & destination_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  count(email,value) %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle","Dest. major city known","No data"))) %>% 
+  arrange(email,desc(value)) %>% 
+  group_by(email) %>% 
+  mutate(cumulative = cumsum(n)-n/2) %>% 
+  mutate(total = sum(n)) %>% 
+  arrange(desc(total)) # %>% 
+  #filter(total >= 100)
+  
+dest_email_dat %>%
+  # group_by(email) %>% 
+  # mutate(order = cur_group_id())
+  #mutate(email = fct_reorder(email, n, .desc = T)) %>% 
+  mutate(email = factor(email, levels = unique(.$email))) %>% 
+ggplot() +
+  geom_col(aes(x = email, y = n, fill = value), 
+           width = 0.8,) + 
+  geom_label(aes(x = email, y = cumulative, 
+                       #label = paste0(round(100*n/total,1),"%"), 
+                       label = n,
+                       fill = value), 
+             width = 0.8, data = . %>% filter(total >= 400,
+                                              value == "No data")) + 
+  theme_light() + 
+  theme(axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 1)) + 
+  theme(text = element_text(size = 14),
+        legend.position = "bottom") +  
+  labs(x = "Email",
+       y = "Number of Inspection Records",
+       fill = "")
+```
+
+### Previous Waterbody Info.
+
+```{r, fig.width=10, fig.height = 8}
+dat %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE") ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE") ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_previous_toggle == "TRUE") ~ "Unknown prev. waterbody toggle",
+    (is.na(waterbody_name) & previous_major_city != "None") ~ "Prev. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  group_by(name) %>% 
+  count(value) %>% 
+  ungroup() %>% 
+  #This might need to be removed if we find that we really do want to visualize the factor level
+  # of 'previous major city known'
+  filter(value != "Prev. major city known") %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown prev. waterbody toggle",
+                                          #"Prev. major city known",
+                                          "No data"))) %>% 
+  mutate(total = sum(n)) %>% 
+  arrange(desc(value)) %>% 
+  mutate(cumulative = cumsum(n) - n/2) %>% 
+  ggplot() +
+  geom_col(aes(x = name, y = n, fill = value), 
+           width = 0.8,) + 
+  geom_text(aes(x = name, y = cumulative, 
+                #label = paste0(round(100*n/total,1),"%")
+                label = n,
+                ), 
+             width = 0.8) + 
+  theme_light() + 
+  theme(axis.text.x = element_blank()) + 
+  theme(text = element_text(size = 14)) +
+  labs(x = "Previous Waterbody Info",
+       y = "Number of Inspection Records",
+       fill = "Data Entry Type")
+```
+
+### Previous Waterbody Info by Month
+
+```{r, fig.width = 10, fig.height = 8}
+dat %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_previous_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Unknown prev. waterbody toggle",
+    (is.na(waterbody_name) & previous_major_city != "None") ~ "Prev. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  mutate(month = lubridate::month(start_time, label = T)) %>% 
+  mutate(month = fct_rev(month)) %>% 
+  group_by(name,month) %>% 
+  count(value) %>% 
+  mutate(proportion = paste0(round(100*n / sum(n),1), "%")) %>% 
+  ungroup() %>% 
+  #This might need to be removed if we find that we really do want to visualize the factor level
+  # of 'previous major city known'
+  filter(value != "Prev. major city known") %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown prev. waterbody toggle",
+                                          #"Prev. major city known",
+                                          "No data"))) %>% 
+  ggplot() +
+  geom_col(aes(x = month, y = n, fill = value), 
+           width = 0.8,) + 
+  geom_label(aes(x = month, y = 6000, 
+                 #label = paste0("No data:\n",proportion)), 
+                 label = paste0("No data: ",n)),
+             width = 0.8, data = . %>% filter(value == "No data")) + 
+  theme_light() + 
+  theme(text = element_text(size = 14)) +
+  labs(x = "Month of 2022",
+       y = "Number of Inspection Records",
+       fill = "") + 
+  theme(legend.position = "bottom") + 
+  coord_flip()
+```
+
+### Previous Waterbody by Station
+```{r fig.width = 10, fig.height = 8}
+prev_stat_dat = dat %>% 
+  filter(!station %in% c("Other","Sumas Border","Fraser Valley Roving")) %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_previous_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & previous_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  group_by(station,name) %>%
+  count(value) %>% 
+  #This might need to be removed if we find that we really do want to visualize the factor level
+  # of 'previous major city known'
+  filter(value != "Dest. major city known") %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle",
+                                          #"Dest. major city known",
+                                          "No data"))) %>% 
+  arrange(station,desc(value)) %>% 
+  group_by(station) %>% 
+  mutate(cumulative = cumsum(n)-n/2) %>% 
+  mutate(total = sum(n))
+  
+prev_stat_dat %>% 
+  group_by(station) %>% 
+  arrange(desc(total)) %>% 
+  mutate(station = factor(station, levels = unique(.$station))) %>%  
+ggplot() +
+  geom_col(aes(x = station, y = n, fill = value), 
+           width = 0.8) + 
+  geom_label(aes(x = station, y = cumulative,
+                 #label = paste0(round(100*n/total,1),"%"),
+                label = n,
+                 fill = value),
+                 data = . %>% filter(station %in% c("Golden","Olsen (Hwy 3)","Radium"),
+                                     value == "No data")) +
+  theme_light() + 
+  theme(axis.text.x = element_text(size = 14, angle = 45, vjust = 1, hjust = 1)) +
+  theme(text = element_text(size = 14),
+        legend.position = "bottom") +
+  labs(x = "Station",
+       y = "Number of Inspection Records",
+       fill = "")
+```
+
+### Previous Waterbody by Email
+
+```{r fig.width = 10, fig.height = 8}
+prev_email_dat = dat %>% 
+  mutate(email = str_remove(email, "@.*$")) %>% 
+  mutate(waterbody_name = case_when(
+    !is.na(waterbody_name) ~ "Waterbody name recorded",
+    (is.na(waterbody_name) & commercial_manufacturer_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Comm. manu. toggle",
+    (is.na(waterbody_name) & dry_storage_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Dry Storage toggle",
+    (is.na(waterbody_name) & unknown_previous_toggle == "TRUE" & !is.na(previous_major_city)) ~ "Unknown dest. waterbody toggle",
+    (is.na(waterbody_name) & previous_major_city != "None") ~ "Dest. major city known",
+    T ~ "No data"
+  )) %>% 
+  pivot_longer(cols = waterbody_name) %>% 
+  #This might need to be removed if we find that we really do want to visualize the factor level
+  # of 'previous major city known'
+  filter(value != "Dest. major city known") %>% 
+  count(email,value) %>% 
+  mutate(value = factor(value, levels = c("Waterbody name recorded","Comm. manu. toggle","Dry Storage toggle","Unknown dest. waterbody toggle",
+                                          #"Dest. major city known",
+                                          "No data"))) %>% 
+  arrange(email,desc(value)) %>% 
+  group_by(email) %>% 
+  mutate(cumulative = cumsum(n)-n/2) %>% 
+  mutate(total = sum(n)) %>% 
+  arrange(desc(total)) # %>% 
+  #filter(total >= 100)
+  
+prev_email_dat %>% 
+  mutate(email = factor(email, levels = unique(.$email))) %>% 
+ggplot() +
+  geom_col(aes(x = email, y = n, fill = value), 
+           width = 0.8,) + 
+  geom_label(aes(x = email, y = cumulative, 
+                 # label = paste0(round(100*n/total,1),"%"), 
+                 label = n,
+                 fill = value), 
+             width = 0.8, data = . %>% filter(total >= 400,
+                                              value == "No data")) + 
+  #facet_wrap(~ email, nrow = 1)+
+  theme_light() + 
+  theme(axis.text.x = element_text(size = 14, angle = 45, hjust = 1, vjust = 1)) + 
+  theme(text = element_text(size = 14),
+        legend.position = "bottom") +
+  labs(x = "previous Waterbody Info",
+       y = "Number of Inspection Records",
+       fill = "Email")
+```
+
+### Destination Major City - Do Toggles Work?
+
+After removing records from stations including Sumas Border, Fraser Valley Roving, and Other, this figure splits records into two groups: the first group has one of the dry storage / commercial manufacturer / unknown destination waterbody toggles activated for the watercraft's destination, while the second group has none of these toggles activated. Within each of these groups, we then test to see if either 'destination_major_city' or 'destination_waterbody_1_nearest_city' have information or not.
+```{r}
+dat %>% 
+  filter(!station %in% c("Other","Sumas Border","Fraser Valley Roving")) %>% 
+  mutate(toggle = case_when(
+    unknown_destination_toggle == "TRUE" | commercial_manufacturer_toggle == "TRUE" | dry_storage_toggle == "TRUE" ~ "Desitination Toggle(s) Activated",
+    T ~ "No Toggle Activated")) %>% 
+  mutate(destination_major_city = replace(destination_major_city, destination_major_city != "None", "Info Entered")) %>% 
+  mutate(destination_major_city = replace(destination_major_city, destination_major_city == "None", NA)) %>% 
+  mutate(dest_waterbody_city = coalesce(dest_waterbody_city, destination_major_city)) %>% 
+  mutate(dest_waterbody_city = replace_na(dest_waterbody_city, "None")) %>% 
+  mutate(dest_waterbody_city = replace(dest_waterbody_city, dest_waterbody_city != "None", "Info Entered")) %>% 
+  count(toggle, dest_waterbody_city, sort = T) %>% 
+  ggplot() + 
+  geom_col(aes(x = toggle, y = n, fill = dest_waterbody_city)) + 
+  geom_label(aes(x = toggle, y = n/2, label = n)) +
+  scale_fill_brewer(palette = "Dark2") + 
+  theme_light() + 
+  theme(axis.text.x = element_text(size = 14)) + 
+  theme(text = element_text(size = 14),
+        legend.position = "bottom") +
+  labs(title = "Destination Toggles Prevent Data Gaps",
+       subtitle = "in Destination Major City Field",
+       x = "",
+       y = "Number of Inspections",
+       fill = "Destination Major City Info")
+```
+

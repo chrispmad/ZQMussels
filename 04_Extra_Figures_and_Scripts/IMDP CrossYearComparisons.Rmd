@@ -1,0 +1,484 @@
+---
+title: "IMDP Crossyear Comparison"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: 
+  prettydoc::html_pretty:
+    theme: lumen
+    highlight: github
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+library(tidyverse)
+rm(list = ls())
+```
+
+## IMDP Cross-year Comparison
+
+This R Markdown document compares data from watercraft inspections carried out as part of the Invasive Mussel Defence Program (IMDP). 
+
+The following comparisons between years are generated:
+
+1. High Risk Inspections by Station 
+2. Decontamination Orders Issued by Station
+3. Decontaminations Performed by Station
+4. Previously Inspected by Station
+5. Commercially Hauled by Station
+6. Previous Inspection/Referral of Scheduled Inspections
+7. Percent Previously Inspected for Boat Launch Records
+8. Number of Previously Inspected (or not) High-risk Inspections
+9. Hwy 97C - Boat Source Jurisdiction
+10. Hwy 97C - Number and Source of Previously Inspected Craft
+
+Please note: for best results, download the 2021 .csv file summary of all of the data from metabase and place it in the data folder inside the LocalRWork folder.
+
+
+```{r load_in_data, include=FALSE, cache=TRUE}
+#Look for all .csv files in the folder "IMDP_metabase" - same their names.
+myfiles = list.files("data/IMDP_metabase/", 
+           pattern = ".csv", full.names = T)
+
+#Read in each .csv file that was found above. All columns read as character data.
+dat = lapply(myfiles, read.csv, colClasses = "character")
+
+#Combine the .csv files into one big table.
+dat = dat %>% 
+  bind_rows()
+
+#Read in 2019 data for a couple figures.
+dat2019 = openxlsx::read.xlsx("C:/Users/CMADSEN/Downloads/LocalRWork/output/IMDP_2019_HighRisk_DeconOrdIss_DeconPerf.xlsx")
+
+#Do some obligatory data cleaning to remove test records, correct some things.
+dat = dat %>% 
+  filter(duplicated(raw_timestamp) != T,
+         str_detect(Shift.Start.Comment, "TEST") == F,
+         str_detect(Shift.Start.Comment, "Test") == F) %>% 
+  mutate(Station = replace(Station, str_detect(Station, "Scheduled"), "Scheduled Inspection")) %>% 
+  mutate(Station = replace(Station, str_detect(Station, "Olsen"), "Olsen (Hwy 3)")) %>% 
+  mutate(Station = replace(Station, str_detect(Station, "Pacific", "Pacific"))) %>% 
+  mutate(Year = lubridate::year(as.Date(raw_timestamp))) %>% 
+  mutate(Year = factor(Year,levels = c(2019,2020,2021)))
+
+dat2019 = dat2019 %>% 
+  mutate(Station = replace(Station, str_detect(Station, "Schedule"), "Scheduled Inspection")) %>% 
+  mutate(Station = replace(Station, str_detect(Station, "Olsen"), "Olsen (Hwy 3)")) %>% 
+  mutate(Station = replace(Station, Station == "Pacific Surrey", "Pacific"),
+         Station = replace(Station, Station == "Pacific Border", "Pacific")) %>% 
+  filter(!Station %in% c("Scheduled Inspection","Cascade Border","Kamloops Road Check","Sumas Border")) %>% 
+  rename(Watercraft.Risk.Assessment.ID = Watercraft_Risk_Assessment_ID,
+         High.Risk.AIS.Ind = High_Risk_AIS_Ind,
+         Shift.Start.Comment = Shift_Start_Comment,
+         Decontamination.order.issued.Ind = Decontamination_order_issued_Ind,
+         Decontamination.Performed.Ind = Decontamination_Performed_Ind)
+
+#Save the complete dataset and put it aside - we'll use it below for just a couple of figures.
+dat_all = dat
+
+#Filter out stations that are not central.
+dat = dat %>% 
+  filter(!Station %in% c("Penticton Roving","Hwy 97C","Keremeos (Hwy 3)","Greenwood","Kaleden","Other","Scheduled Inspection","Midway","Boat Launch - Okanagan"))
+```
+
+Comparison 
+Martina asked for the maximum number of inspections in a day for each station in 2021.
+
+```{r max_insp_2021, error=TRUE}
+MaxInspDaily_Station = dat %>% 
+  filter(Year == "2021") %>% 
+  mutate(MyDay = str_extract(Inspection.Date,"^[0-9]{2}"),
+         MyMonth = str_remove_all(str_remove_all(Inspection.Date, "[0-9]*"),"-")) %>%
+  group_by(Station,MyMonth,MyDay) %>% 
+  summarise(DailyCount = n()) %>%
+  group_by(Station) %>% 
+  mutate(MaxCount = max(DailyCount)) %>% 
+  dplyr::select(Station, MaxCount) %>% 
+  distinct() %>% 
+  arrange(desc(MaxCount))
+
+openxlsx::write.xlsx(MaxInspDaily_Station,"I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/2021 data/Max Inspections in a day by station for 2021 data.xlsx")
+```
+
+
+Martina also asked to see all of the records that were scheduled inspections. This excel file is saved to SPECIES -> Zebra_Quagga_Mussel -> Operations -> Watercraft Inspection Data -> 2021 data folder.
+
+```{r scheduled_insp, echo = T, error=TRUE}
+SchedInsp = dat_all %>%
+  filter(Year == "2021") %>% 
+  filter(str_detect(Station, "Scheduled"))
+
+openxlsx::write.xlsx(SchedInsp, 
+"I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/2021 data/Scheduled Inspections 2021.xlsx",
+overwrite = TRUE)
+```
+
+# High Risk Inspections by Station
+
+
+```{r high_risk, echo=FALSE}
+highriskdat = dat %>% 
+  bind_rows(dat2019 %>% 
+              mutate(Year = 2019) %>% 
+              mutate(Year = factor(Year, levels = c(2019,2020,2021)))) %>% 
+  filter(High.Risk.AIS.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Count = n()) %>% 
+  mutate(TotalStationCount = sum(Count)) %>% 
+  ungroup() %>% 
+  arrange(desc(TotalStationCount))
+
+highriskdat$Station = factor(highriskdat$Station, 
+                             levels = unique(highriskdat$Station))  
+
+highriskdat %>% 
+  ggplot() + 
+  geom_col(aes(x = Station, y = Count, fill = Year),
+           position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Station, y = Count+15), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of High-risk Inspections") +
+  #scale_y_continuous(breaks = c(0,15,30,60,90,120)) +
+  scale_x_discrete() +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+# Decontamination Orders Issued by Station
+
+
+```{r decon_orders, echo=FALSE}
+decondat = dat %>% 
+  bind_rows(dat2019 %>% 
+              mutate(Year = 2019) %>% 
+              mutate(Year = factor(Year, levels = c(2019,2020,2021)))) %>% 
+  filter(Decontamination.order.issued.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Count = n()) %>% 
+  mutate(TotalStationCount = sum(Count)) %>% 
+  ungroup() %>% 
+  arrange(desc(TotalStationCount))
+
+decondat$Station = factor(decondat$Station, 
+                             levels = unique(decondat$Station))  
+
+decondat %>% 
+  ggplot() + 
+  geom_col(aes(x = Station, y = Count, fill = Year), 
+           position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Station, y = Count+3), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Decontamination Orders Issued") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+# Decontaminations Performed by Station	
+
+
+```{r decon_performed, echo=FALSE}
+decondat = dat %>%
+  bind_rows(dat2019 %>% 
+              mutate(Year = 2019) %>% 
+              mutate(Year = factor(Year, levels = c(2019,2020,2021)))) %>% 
+  filter(Decontamination.Performed.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Count = n()) %>% 
+  mutate(TotalStationCount = sum(Count)) %>% 
+  ungroup() %>% 
+  arrange(desc(TotalStationCount))
+
+decondat$Station = factor(decondat$Station, 
+                             levels = unique(decondat$Station))  
+
+decondat %>% 
+  ggplot() + 
+  geom_col(aes(x = Station, y = Count, fill = Year), 
+           position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Station, y = Count+3), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Decontaminations Performed") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+# Extra Figure
+## Number of Decontamination Orders Issued Vs. Performed
+
+```{r decon_comp,echo=FALSE}
+decondat = dat %>%
+  filter(Year == 2021) %>% 
+  filter(Decontamination.order.issued.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Ordered = n()) %>% 
+  left_join(dat %>%
+  filter(Year == 2021) %>% 
+  filter(Decontamination.Performed.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Performed = n())) %>% 
+  mutate(Performed = replace_na(Performed,0)) %>% 
+  mutate(Total = sum(Ordered, Performed)) %>% 
+  pivot_longer(cols = c(Ordered,Performed)) %>% 
+  arrange(desc(Total))
+
+decondat$Station = factor(decondat$Station, 
+                             levels = unique(decondat$Station))  
+
+decondat %>% 
+  ggplot() + 
+  geom_col(aes(x = Station, y = value, fill = name), 
+           position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = value, x = Station, y = value+2), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Decontaminations Performed", fill = "Decontamination") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+#	Previously Inspected by Station
+
+
+```{r prev_insp, echo=FALSE}
+prevdat = dat %>%
+  filter(Previous.Inspection.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(PreviousInspectedCount = n()) %>% 
+  left_join(
+  dat %>% 
+  group_by(Station,Year) %>% 
+  summarise(TotalInspectedCount = n())
+  ) %>% 
+  mutate(Perc_Prev_Insp = round(100*(PreviousInspectedCount/(TotalInspectedCount)),2)) %>% 
+  arrange(desc(Perc_Prev_Insp))
+
+prevdat$Station = factor(prevdat$Station, 
+                             levels = unique(prevdat$Station))  
+
+prevdat %>% 
+  ggplot(aes(x = Station, y = Perc_Prev_Insp, fill = Year)) + 
+  geom_col(position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = round(Perc_Prev_Insp,1), x = Station, y = Perc_Prev_Insp+2), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Inspections w/ Previous Inspections (%)") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+#	Commercially Hauled by Station
+
+
+```{r comm_haul, echo=FALSE}
+commdat = dat %>% 
+  filter(Commercially.Hauled.Ind == "true") %>% 
+  group_by(Station,Year) %>% 
+  summarise(Count = n()) %>% 
+  mutate(TotalStationCount = sum(Count)) %>% 
+  ungroup() %>% 
+  arrange(desc(Count))
+
+commdat$Station = factor(commdat$Station, 
+                             levels = unique(commdat$Station))  
+
+commdat %>% 
+  ggplot(aes(x = Station, y = Count, fill = Year)) + 
+  geom_col(position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Station, y = Count+5), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Commercially Hauled Inspections") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+# Previous Inspection/Referral of Scheduled Inspections
+
+
+```{r source_scheduled_inspec, echo=FALSE,fig.width = 14,fig.height=8}
+schedinsp_source = dat_all %>% 
+  filter(str_detect(Station, "cheduled Inspection.*")) %>% 
+  rename(Source = Previous.Inspection.Source.Name) %>% 
+  mutate(Source = replace(Source, Source == "", "Data Missing")) %>% 
+  group_by(Year,Source) %>% 
+  summarise(Count = n()) %>% 
+  arrange(desc(Count)) %>% 
+  ungroup()
+  
+schedinsp_source$Source = factor(schedinsp_source$Source, 
+                             levels = unique(schedinsp_source$Source))  
+
+schedinsp_source %>% 
+  ggplot(aes(x = Source, y = Count, fill = Year)) + 
+  geom_col(position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Source, y = Count+2), 
+            colour = "black",
+            size = 5,
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Previous Inspection/Referral") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 40)) +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 18),
+        axis.text.x = element_text(size=18,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+# Percent Previously Inspected for Boat Launch Records
+
+
+```{r perc_prev_insp, echo = FALSE}
+previnsp = dat_all %>%
+  filter(Station == "Boat Launch - Okanagan") %>% 
+  filter(Previous.Inspection.Ind == "true") %>% 
+  group_by(Year,Previous.Inspection.Source.Name) %>% 
+  summarise(PreviousInspectedCount = n()) %>% 
+  left_join(
+  dat_all %>% 
+  filter(Station == "Boat Launch - Okanagan") %>% 
+  group_by(Year) %>% 
+  summarise(TotalInspectedCount = n())
+  ) %>% 
+  mutate(Perc_Prev_Insp = round(100*(PreviousInspectedCount/(TotalInspectedCount)),2)) %>% 
+  arrange(desc(Perc_Prev_Insp))
+
+previnsp$Previous.Inspection.Source.Name = factor(previnsp$Previous.Inspection.Source.Name, 
+                             levels = unique(previnsp$Previous.Inspection.Source.Name))  
+
+previnsp %>% 
+  ggplot(aes(x = Previous.Inspection.Source.Name, y = Perc_Prev_Insp, fill = Year)) + 
+  geom_col(position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = round(Perc_Prev_Insp,1), x = Previous.Inspection.Source.Name, y = Perc_Prev_Insp+1), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Proportion of Previous Inspections (%)",
+       x = "Previous Inspection Location",
+       title = "Boat Launch - Okanagan") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+
+# Number of Previously Inspected (or not) High-risk Inspections
+
+
+```{r insp_or_not_high_risk, echo=FALSE}
+highrisk_insp_or_not = dat_all %>% 
+  filter(Station == "Boat Launch - Okanagan") %>% 
+  filter(High.Risk.AIS.Ind == "true") %>% 
+  group_by(Year,Previous.Inspection.Ind) %>% 
+  summarise(Count = n()) %>% 
+  arrange(desc(Count))
+
+highrisk_insp_or_not %>% 
+  ggplot(aes(x = Previous.Inspection.Ind, y = Count, fill = Previous.Inspection.Ind)) + 
+  geom_col(position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Previous.Inspection.Ind, y = Count+1), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Previously Inspected Watercraft", x = "Previous Inspection", title = "Boat Launch - Okanagan") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+# Hwy 97C - Boat Source Jurisdiction
+
+
+```{r hwy97_boat_source, echo=FALSE}
+hwy97_boatsource = dat_all %>% 
+  filter(Station == "Hwy 97C") %>% 
+  group_by(Station,Province.Code) %>% 
+  summarise(Count = n()) %>% 
+  arrange(desc(Count))
+
+hwy97_boatsource$Province.Code = factor(hwy97_boatsource$Province.Code, 
+                             levels = unique(hwy97_boatsource$Province.Code))  
+
+hwy97_boatsource %>% 
+  ggplot() + 
+  geom_col(aes(x = Province.Code, y = Count, fill = Station), 
+           position = position_dodge2(preserve = "single")) +
+  geom_text(aes(label = Count, x = Province.Code, y = Count+20), 
+            colour = "black",
+            position = position_dodge2(1, preserve = "single")) +
+  labs(y = "Number of Inspections", x = "Boat Source Jurisdiction") +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank(),
+        text = element_text(size = 13),
+        axis.text.x = element_text(size=13,angle = 60,hjust=1)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+```{r hwy97_prev_craft, include = FALSE, echo=FALSE,fig.width = 14,fig.height=8}
+dat_all %>% 
+  filter(Station == "Hwy 97C") %>% 
+  group_by(Previous.Inspection.Ind) %>% 
+  summarise(Numba = n()) 
+
+dat_all %>% 
+  filter(Station == "Hwy 97C") %>% 
+  filter(High.Risk.AIS.Ind == "true") %>% 
+  select(Previous.Waterbody.1.Name)
+# hwy97_prevcraft = dat_all %>% 
+#   rename(insp_name = Previous.Inspection.Source.Name) %>% 
+#   filter(Station == "Hwy 97C",
+#          Previous.Inspection.Ind == "true") %>% 
+#   group_by(Station,insp_name) %>% 
+#   summarise(Count = n()) %>% 
+#   arrange(desc(Count)) %>% 
+#   slice(1:15)
+
+# hwy97_prevcraft$insp_name = factor(hwy97_prevcraft$insp_name, 
+#                              levels = unique(hwy97_prevcraft$insp_name))  
+# 
+# hwy97_prevcraft %>% 
+#   ggplot() + 
+#   geom_col(aes(x = insp_name, y = Count, fill = Station),
+#            position = position_dodge2(preserve = "single")) +
+#   geom_text(aes(label = Count, x = insp_name, y = Count+3), 
+#             colour = "black",
+#             size = 5,
+#             position = position_dodge2(1, preserve = "single")) +
+#   labs(y = "Number of Inspections", x = "Location of Previous Inspection") +
+#   theme_minimal() +
+#   theme(panel.grid.minor = element_blank(),
+#         text = element_text(size = 18),
+#         axis.text.x = element_text(size=16,angle = 60,hjust=1)) #+
+#  scale_fill_brewer(palette = "Set1")
+```

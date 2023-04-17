@@ -1,0 +1,839 @@
+---
+title: "Dawson Figures"
+author: "Chris Madsen"
+date: "08/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(ggpubr)
+library(ggrepel)
+library(tidyverse)
+library(sf)
+library(RColorBrewer)
+library(openxlsx)
+library(lubridate)
+library(plotrix)
+
+rm(list=ls())
+
+#These lines below set options for all of the code for the rest of this script. You probably don't need to change any of these.
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(fig.width = 8)
+knitr::opts_chunk$set(fig.height = 4)
+knitr::opts_knit$set(root.dir = "C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/DawsonStation/")
+theme_set(theme_light())
+```
+
+# IMDP Final Report Figures
+## Dawson Creek, Mt. Robson and Olsen Stations
+
+```{r import_data}
+#Read in data (cleaned). These data do not have any of the "test" records from metabase.
+dat_all = read_excel("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/WatercraftInspectionData_AllYears_Selected_Columns.xlsx",
+                     col_type = "text")
+```
+
+```{r calculate_total_boats_and_convert_to_datetime}
+#Add total boats (multiply inspections by boat type counters)
+dat_all = dat_all %>% 
+  mutate(TotalBoats = as.numeric(Non_Motorized_Counter) + 
+                      as.numeric(Simple_Counter) + 
+                      as.numeric(Complex_Counter) + 
+                      as.numeric(Very_Complex_Counter)) %>% 
+  mutate(TotalBoats = replace(TotalBoats, TotalBoats == 0, 1))
+
+#Convert start_time, end_time and raw_timestamp to datetime format.
+dat_all$Start_Time = convertToDateTime(dat_all$Start_Time)
+dat_all$End_Time = convertToDateTime(dat_all$End_Time)
+dat_all$TimeOfInspection = convertToDateTime(dat_all$TimeOfInspection)
+
+dat_all = dat_all %>% 
+  mutate(Shift_hours = as.numeric(End_Time - Start_Time)/3600)
+```
+
+```{r}
+#Narrow down our column selection.
+dat_all = dat_all %>% 
+  select(Station,Year,
+         TimeOfInspection,
+         Start_Time,High_Risk_AIS_Ind,
+         Clean_Drain_Dry_After_Inspection_Ind) %>% 
+  filter(Station %in% c("Dawson Creek", "Mt. Robson", "Olsen", "Radium", "Pacific"))
+
+#Make day of week and hour of day columns.
+dat_all = dat_all %>% 
+  mutate(DayOfWeek = wday(TimeOfInspection, abbr = F, week_start = 1, label = T)) %>% 
+  mutate(HourOfDay = hour(TimeOfInspection))
+
+#We use the below data for years 2017 - 2019
+# dat_timestamp = dat_timestamp %>% 
+#   mutate(DayOfWeek = wday(Timestamp, abbr = F, week_start = 1, label = T)) %>% 
+#   mutate(HourOfDay = hour(Timestamp))
+```
+
+```{r make_hr_and_lowr}
+#Set aside the records for high-risk boats.
+dat_hr = dat_all %>% filter(High_Risk_AIS_Ind == T) %>% 
+  filter(Clean_Drain_Dry_After_Inspection_Ind == F | Year <= 2020) %>% 
+  select(-Clean_Drain_Dry_After_Inspection_Ind, -High_Risk_AIS_Ind) %>% 
+  mutate(Type = "HighRisk")
+#478 rows
+
+# dat_hr_timestamp = dat_timestamp %>% 
+#   filter(High_Risk_AIS_Ind == T) %>% 
+#   select(-High_Risk_AIS_Ind) %>% 
+#   mutate(Type = "HighRisk")
+
+#And for non-highrisk boats.
+dat_lowr = dat_all %>% filter(High_Risk_AIS_Ind == F) %>% 
+  select(-Clean_Drain_Dry_After_Inspection_Ind, -High_Risk_AIS_Ind) %>% 
+  mutate(Type = "LowRisk")
+#4931 rows.
+
+# dat_lowr_timestamp = dat_timestamp %>% 
+#   filter(High_Risk_AIS_Ind == F) %>% 
+#   select(-High_Risk_AIS_Ind) %>% 
+#   mutate(Type = "LowRisk")
+
+dat = bind_rows(dat_lowr, dat_hr)
+# dat_timestamp = bind_rows(dat_lowr_timestamp, dat_hr_timestamp)
+
+```
+
+### Dawson Creek
+
+```{r plots}
+plotly::ggplotly(
+  dat %>% 
+  filter(Type == "LowRisk", Station == "Dawson Creek") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "",
+       title = paste0("Dawson Creek - Low Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65))
+#)
+
+
+#Dawson Creek - Low Risk by Hour
+plotly::ggplotly(
+dat %>% 
+  filter(Type == "LowRisk", Station == "Dawson Creek") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Dawson Creek - Low Risk Inspections by Hour")) + 
+  theme(legend.position = "none")
+#)
+
+#Dawson Creek - High Risk by Day
+
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Dawson Creek") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "",
+       title = paste0("Dawson Creek - High Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Dawson Creek - High Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Dawson Creek") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Dawson Creek - High Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+```
+
+```{r dawson creek all years}
+# Dawson Creek
+#Low Risk
+d1 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Dawson Creek") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#81d2e2") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Day of Week",
+       title = paste0("Dawson Creek - Low Risk Inspections by Day (all years)"))
+
+ggsave("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/Figures_Using_Timestamp/LowRisk_DayOfWeek_AllYears.png",
+       d1,
+       device = "png", height = 3.5, width = 6)
+
+print(d1)
+
+d2 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Dawson Creek") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dc9a71") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour Of Day",
+       title = "Dawson Creek - Low Risk Inspections by Hour (all years)")
+
+ggsave("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/Figures_Using_Timestamp/LowRisk_HourOfDay_AllYears.png",
+       d2,
+       device = "png", height = 3.5, width = 6)
+
+print(d2)
+
+#High Risk
+d3 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Dawson Creek") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#97dc71") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Day of Week",
+       title = "Dawson Creek - High Risk Inspections by Day (all years)")
+
+ggsave("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/Figures_Using_Timestamp/HighRisk_DayOfWeek_AllYears.png",
+       d3,
+       device = "png", height = 3.5, width = 6)
+
+print(d3)
+
+d4 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Dawson Creek") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dadc47") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Hour Of Day",
+       title = "Dawson Creek - High Risk Inspections by Hour (all years)")
+
+ggsave("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/Figures_Using_Timestamp/HighRisk_HourOfDay_AllYears.png",
+       d4,
+       device = "png", height = 3.5, width = 6)
+print(d4)
+```
+
+### Mt. Robson
+
+```{r mt.robson plots}
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Mt. Robson") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "",
+       title = paste0("Mt. Robson - Low Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Mt. Robson - Low Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Mt. Robson") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Mt. Robson - Low Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+
+#Mt. Robson - High Risk by Day
+
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Mt. Robson") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "",
+       title = paste0("Mt. Robson - High Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Mt. Robson - High Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Mt. Robson") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Mt. Robson - High Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+```
+
+```{r Mt. Robson all years}
+# Mt. Robson
+#Low Risk
+d1 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Mt. Robson") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#81d2e2") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Day of Week",
+       title = paste0("Mt. Robson - Low Risk Inspections by Day (all years)"))
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Mt.Robson/Mt.Robson_LowRisk_DayOfWeek_AllYears.png",
+       d1,
+       device = "png", height = 3.5, width = 6)
+
+print(d1)
+
+d2 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Mt. Robson") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dc9a71") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour Of Day",
+       title = "Mt. Robson - Low Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Mt.Robson/Mt.Robson_LowRisk_HourOfDay_AllYears.png",
+       d2,
+       device = "png", height = 3.5, width = 6)
+
+print(d2)
+
+#High Risk
+d3 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Mt. Robson") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#97dc71") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Day of Week",
+       title = "Mt. Robson - High Risk Inspections by Day (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Mt.Robson/Mt.Robson_HighRisk_DayOfWeek_AllYears.png",
+       d3,
+       device = "png", height = 3.5, width = 6)
+
+print(d3)
+
+d4 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Mt. Robson") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dadc47") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Hour Of Day",
+       title = "Mt. Robson - High Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Mt.Robson/Mt.Robson_HighRisk_HourOfDay_AllYears.png",
+       d4,
+       device = "png", height = 3.5, width = 6)
+print(d4)
+```
+
+### Olsen
+
+```{r olsen plots}
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Olsen") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "",
+       title = paste0("Olsen - Low Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Olsen - Low Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Olsen") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Olsen - Low Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+
+#Olsen - High Risk by Day
+
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Olsen") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "",
+       title = paste0("Olsen - High Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Olsen - High Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Olsen") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Olsen - High Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+```
+
+
+```{r Olsen all years}
+# Olsen
+#Low Risk
+d1 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Olsen") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#81d2e2") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Day of Week",
+       title = paste0("Olsen - Low Risk Inspections by Day (all years)"))
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Olsen/Olsen_LowRisk_DayOfWeek_AllYears.png",
+       d1,
+       device = "png", height = 3.5, width = 6)
+
+print(d1)
+
+d2 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "Olsen") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dc9a71") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour Of Day",
+       title = "Olsen - Low Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Olsen/Olsen_LowRisk_HourOfDay_AllYears.png",
+       d2,
+       device = "png", height = 3.5, width = 6)
+
+print(d2)
+
+#High Risk
+d3 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Olsen") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#97dc71") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Day of Week",
+       title = "Olsen - High Risk Inspections by Day (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Olsen/Olsen_HighRisk_DayOfWeek_AllYears.png",
+       d3,
+       device = "png", height = 3.5, width = 6)
+
+print(d3)
+
+d4 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "Olsen") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dadc47") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Hour Of Day",
+       title = "Olsen - High Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/Olsen/Olsen_HighRisk_HourOfDay_AllYears.png",
+       d4,
+       device = "png", height = 3.5, width = 6)
+print(d4)
+```
+
+### Radium
+
+```{r radium plots}
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Radium") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "",
+       title = paste0("Radium - Low Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Radium - Low Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Radium") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Radium - Low Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+
+#Radium - High Risk by Day
+
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Radium", Year != 2015) %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "",
+       title = paste0("Radium - High Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#Radium - High Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "Radium", Year != 2015) %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("Radium - High Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+```
+
+### Pacific
+
+```{r pacific plots}
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "Pacific") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "",
+       title = paste0("pacific - Low Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#pacific - Low Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "LowRisk", Station == "pacific") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("pacific - Low Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+
+#pacific - High Risk by Day
+
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "pacific") %>% 
+  group_by(Year, Type, DayOfWeek) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "",
+       title = paste0("pacific - High Risk Inspections by Day")) + 
+  theme(legend.position = "none") + 
+  theme(axis.text.x = element_text(angle = 60, vjust = 0.65)))
+
+
+#pacific - High Risk by Hour
+plotly::ggplotly(dat %>% 
+  filter(Type == "HighRisk", Station == "pacific") %>% 
+  group_by(Year, Type, HourOfDay) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp, fill = Year)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  facet_wrap( ~ Year) +
+  labs(y = "High Risk Inspections",
+       x = "Hour of Day",
+       title = paste0("pacific - High Risk Inspections by Hour")) + 
+  theme(legend.position = "none"))
+```
+
+
+```{r pacific all years}
+# pacific
+#Low Risk
+d1 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "pacific") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#81d2e2") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Day of Week",
+       title = paste0("pacific - Low Risk Inspections by Day (all years)"))
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/pacific/pacific_LowRisk_DayOfWeek_AllYears.png",
+       d1,
+       device = "png", height = 3.5, width = 6)
+
+print(d1)
+
+d2 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "LowRisk", Station == "pacific") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dc9a71") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "Low Risk Inspections",
+       x = "Hour Of Day",
+       title = "pacific - Low Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/pacific/pacific_LowRisk_HourOfDay_AllYears.png",
+       d2,
+       device = "png", height = 3.5, width = 6)
+
+print(d2)
+
+#High Risk
+d3 = dat %>% 
+  group_by(Type, DayOfWeek, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "pacific") %>% 
+  ggplot() +
+  geom_col(aes(DayOfWeek, NumberInsp), fill = "#97dc71") + 
+  geom_text(aes(DayOfWeek, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Day of Week",
+       title = "pacific - High Risk Inspections by Day (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/pacific/pacific_HighRisk_DayOfWeek_AllYears.png",
+       d3,
+       device = "png", height = 3.5, width = 6)
+
+print(d3)
+
+d4 = dat %>% 
+  group_by(Type, HourOfDay, Station) %>% 
+  summarise(NumberInsp = n()) %>% 
+  ungroup() %>% 
+  filter(Type == "HighRisk", Station == "pacific") %>% 
+  mutate(Under6 = HourOfDay - 6 < 0) %>% 
+  arrange(Under6, HourOfDay) %>% 
+  mutate(HourOfDay = as.factor(HourOfDay)) %>%
+  mutate(HourOfDay = fct_inorder(HourOfDay)) %>% 
+  ggplot() +
+  geom_col(aes(HourOfDay, NumberInsp), fill = "#Dadc47") + 
+  geom_text(aes(HourOfDay, NumberInsp + max(NumberInsp)*0.05,label = NumberInsp)) + 
+  theme(panel.grid = element_blank(),
+        text = element_text(colour = "#484d4e")) +
+  labs(y = "High Risk Inspections",
+       x = "Hour Of Day",
+       title = "pacific - High Risk Inspections by Hour (all years)")
+
+ggsave("C:/Users/CMADSEN/Downloads/LocalRWork/output/MartinaFigures/pacific/pacific_HighRisk_HourOfDay_AllYears.png",
+       d4,
+       device = "png", height = 3.5, width = 6)
+print(d4)
+```

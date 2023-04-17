@@ -1,0 +1,625 @@
+---
+title: "ZQM Waterbody Prioritization"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+library(MASS)
+library(rgdal)
+library(mltools)
+library(readxl)
+library(raster)
+library(iterators)
+library(tidyverse)
+library(sf)
+library(ggrepel)
+
+rm(list=ls())
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = "C:/Users/CMADSEN/Downloads/LocalRWork/")
+
+#Number of bins for binning predictor variables.
+#numberBins = 3
+
+recount.features = F
+```
+
+Start time:
+
+```{r start_time}
+Sys.time()
+```
+
+This R Markdown document assigns a risk category of invasion by ZQ Mussels to waterbodies in BC. The risk calculation takes a range of variables into account, including:
+
+  - The number of inspections (total, high-risk and mussel-fouled) of boaters heading to a given waterbody.
+  - The population and proximity of provincial urban centres
+  - The number of boat access and angler locations
+  - For a subset of lakes (n = 5,981), we use several variables from Sam Fischer's work in the article *A hybrid gravity and route choice model to assess vector traffic in large-scale road networks* (Fischer, Beck, Herborg and Lewis, 2020), including the presence of marinas, campgrounds, and other facilities (public toilets, tourist info, viewpoints, parks, attractions and picnic sites) within 500 m of the lakes, and the population living within 5 km of the lakes.
+  
+```{r import_waterbody_data_and_filtering}
+# Waterbodies with inspection data summaries (these are made in 
+# the R script "Cleaning Past Watercraft Inspection Data" on my local machine)
+# If it's on my local machine's C drive, load it in from there. Otherwise, 
+# load it in from the W: drive (very slow to do it this way.)
+
+waterb = read_sf("W:/CMadsen/SpatialData/Waterbodies_with_Inspection_Data_Summaries.shp") 
+
+#Fraser and Dease Rivers have an extra row with with a WATERSHED that doesn't match the BCG waterbody huge layer. Remove those rows.
+waterb = waterb %>% 
+  filter(!GNIS_NA %in% c("Fraser River", "Dease River")) %>% 
+  bind_rows(waterb %>% 
+            filter(GNIS_NA %in% c("Fraser River", "Dease River")) %>% 
+            group_by(GNIS_NA) %>% 
+            slice(1)
+  ) %>% mutate(WATERSH = ifelse(GNIS_NA == "Dease River", 
+                                   41, 
+                                   WATERSH))
+  
+SamDonLakeList = read_csv("W:/CMadsen/SpatialData/Lake_data.csv")
+
+#Urban centres with population estimates. We use this to generate a plot,
+#and to add population to the distance matrix created in QGIS, which
+#we read in around line 150.
+urb = read_sf("W:/CMadsen/SpatialData/Census_Cities_2016.shp") %>% 
+  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
+
+# Angling locations
+ang = read_sf("W:/CMadsen/SpatialData/AnglingLocations.shp")
+
+# Boat Launch Locations
+boatl = read_sf("W:/CMadsen/SpatialData/BoatLaunchLocations.shp")
+
+# FLNRO fishing regions
+fln = read_sf("W:/CMadsen/SpatialData/FLNRO_Fishing_Boundaries.shp")
+
+# Add in data from Sam Fischer et al.s work.
+samdon = SamDonLakeList %>%
+  rename(WATERBO = `Waterbody ID`) %>%
+  mutate(WATERBO = as.numeric(str_remove_all(WATERBO, "[A-Z]+"))) %>%
+  group_by(WATERBO) %>%
+    summarise(across(!contains("WATERBO"), sum)) %>%
+  dplyr::select(-Area, -Perimeter)
+
+# Waterbodies from BCG Warehouse
+if(file.exists("C:/Users/CMADSEN/Downloads/LocalRWork/data/shapefiles/all_bcg_waterbodies_cleaned.shp")){
+  bcg_waterbodies = read_sf("C:/Users/CMADSEN/Downloads/LocalRWork/data/shapefiles/all_bcg_waterbodies_cleaned.shp")
+}
+if(!file.exists("C:/Users/CMADSEN/Downloads/LocalRWork/data/shapefiles/all_bcg_waterbodies_cleaned.shp")){
+  
+bcglakes = read_sf("data/shapefiles/LakePoly.shp")
+
+bcgrivers = read_sf("data/shapefiles/RiverPoly.shp")
+
+bcgmanmade = read_sf("data/shapefiles/ManmadePoly.shp")
+
+bcg_waterbodies = bcglakes %>% 
+  bind_rows(bcgrivers) %>% 
+  bind_rows(bcgmanmade)
+
+rm(bcglakes); rm(bcgrivers); rm(bcgmanmade)
+gc()
+# 
+# # Clean up loaded data #
+# 
+# # Some waterbodies are truly massive and can be identified a priori as being the same body of water just by their name.
+# bigboy_names = c("Fraser River","Williston Lake","Thompson River","Skeena River","Fort Nelson River","Dease River")
+# 
+# #Merge the geometries, keep just the first row for watershed and unique polygon identifier number.
+# bigboys = bcg_waterbodies %>% 
+#     filter(GNIS_NAME_ %in% bigboy_names) %>% 
+#     group_by(GNIS_NAME_) %>% 
+#     summarise(WATERSHED_ = first(WATERSHED_),
+#            WATERBODY_ = first(WATERBODY_),
+#            AREA_HA = sum(AREA_HA)) %>% 
+#     left_join(bcg_waterbodies %>% 
+#               st_drop_geometry() %>% 
+#               filter(GNIS_NAME_ %in% bigboy_names) %>% 
+#               #Drop the area field that is just for each little piece.
+#               dplyr::select(-AREA_HA))
+# 
+# bcg_waterbodies = bcg_waterbodies %>% 
+#   filter(!GNIS_NAME_ %in% bigboy_names) %>% 
+#   bind_rows(bigboys)
+#   
+# #Pick out waterbodies that need to be fused together.
+# fused_wbs = bcg_waterbodies %>% 
+#   filter(duplicated(WATERBOD_1)) %>% 
+#   group_by(WATERBOD_1) %>% 
+#   summarise(AREA_HA = sum(AREA_HA))
+# 
+# #Fused lakes need some WATERSHED_ value.
+# fused_wbs = fused_wbs %>% 
+#   left_join(bcg_waterbodies %>% 
+#               st_drop_geometry() %>% 
+#               filter(duplicated(WATERBOD_1)) %>% 
+#               select(WATERSHED_,WATERBOD_1) %>% 
+#               group_by(WATERSHED_,WATERBOD_1) %>% 
+#               slice(1))
+# 
+# #Add the fused lakes as new rows to the bcg_waterbodies layer.
+# bcg_waterbodies = bcg_waterbodies %>% 
+#   filter(!duplicated(WATERBOD_1)) %>% 
+#   bind_rows(fused_wbs)
+
+write_sf(bcg_waterbodies, "C:/Users/CMADSEN/Downloads/LocalRWork/data/shapefiles/all_bcg_waterbodies_cleaned.shp")
+}
+
+# Get the unique polygon IDs of each waterbody, add to the waterb object.
+# Note that some waterbodies are split into many pieces in the bcg warehouse.
+# For such waterbodies, I take only the first unique polygon number for a given GNIS name + subwatershed combination. This avoids inflating our dataset with duplicates.
+waterb = waterb %>% 
+  left_join(bcg_waterbodies %>% 
+              st_drop_geometry() %>% 
+              dplyr::select(WATERSHED_,WATERBOD_1,GNIS_NAME_) %>% 
+              group_by(WATERSHED_,GNIS_NAME_) %>% 
+              slice(1) %>% 
+              rename(WATERSH = WATERSHED_,
+                     WATERBO = WATERBOD_1,
+                     GNIS_NA = GNIS_NAME_))
+
+#Start a filter tracking table that we use for transparency.
+filter_steps = data.frame(Step = "Initial data load - note that this includes rivers and man-made waterbodies", 
+                          Numb_waterb_tot = nrow(bcg_waterbodies),
+                          Numb_waterb_data = nrow(waterb))
+```
+
+```{r rbind_waterb_with_all_waterbodies,include=F}
+#The waterb shapefile is composed of only those lakes for which we have inspection data.
+#In this step, we bind the rows of those lakes with the huge bcg warehouse layer of waterbodies.
+
+waterb = waterb %>% 
+  bind_rows(bcg_waterbodies %>% 
+              filter(!paste0(GNIS_NAME_,WATERBOD_1,WATERSHED_) %in% paste0(waterb$GNIS_NA,waterb$WATERBO,waterb$WATERSH)) %>% 
+              dplyr::select(WATERSHED_, GNIS_NAME_, WATERBOD_1) %>% 
+              rename(WATERSH = WATERSHED_,
+                     GNIS_NA = GNIS_NAME_,
+                     WATERBO = WATERBOD_1)) %>% 
+   mutate(across(!contains("geometry"), replace_na, 0))
+```
+
+
+```{r join_sams_data_and_cadastral_development_measures, include=F}
+
+#2,323 waterbodies for which we have Sam's data on campgrounds etc.
+waterb = waterb %>% 
+  left_join(samdon) %>% 
+  mutate(Campgrounds = replace_na(Campgrounds, 0),
+         Facilities = replace_na(Facilities, 0),
+         Marinas = replace_na(Marinas, 0),
+         Population = replace_na(Population, 0))
+
+#Write this iteration of 'waterb' to our local machine so that we can add perimeter and developed shoreline measures.
+if(!file.exists("W:/CMadsen/SpatialData/BCG_waterbodies_to_measure.shp")){ write_sf(waterb,"W:/CMadsen/SpatialData/BCG_waterbodies_to_measure.shp")
+}
+
+#To calculate the development measures for each waterbody, I did the following in QGIS:
+#1. Read in the Cadastral file ("Cadastral_valid_no_crown_unknown") and the waterb layer in this step ("BCG_waterbodies_to_measure").
+#2. Buffered 10m around bcg_cleaned shapefile.
+#3. Converted buffered 10m layer to lines.
+#4. Opened attribute table of this line layer, manually added new field using "$length"; saved excel file with perimeter.
+#5. Used cadastral layer to calculate Difference, input layer is All_BCG_lines.
+#6. Added another field in the attribute table, called "Undeveloped".
+#7. Exported attribute table as xlsx file to T: drive of GIS computer, kept only the following fields:
+  # WATERSHED_, WATERBOD_1, GNIS_NAME_, Perimeter, Developed
+
+#Perimeter.
+peri_xl = openxlsx::read.xlsx("W:/CMadsen/SpatialData/waterbody_lines_perimeter.xlsx")
+  
+dev_xl = openxlsx::read.xlsx("W:/CMadsen/SpatialData/waterbody_polygons_cut_by_cadastral.xlsx")
+
+peri_xl = peri_xl %>% 
+  left_join(dev_xl) %>% 
+  mutate(Undeveloped = replace_na(Undeveloped, 0),
+         Developed = Perimeter - Undeveloped,
+         DevProp = 100*Developed/Perimeter) %>% 
+  mutate(Undeveloped = as.numeric(Undeveloped),
+         Developed = as.numeric(Developed),
+         DevProp = as.numeric(DevProp)) %>% 
+  mutate(Undeveloped = Undeveloped/1000,
+         Developed = Developed/1000,
+         Perimeter = Perimeter/1000)
+
+#Add the perimeter and development measures to the waterb layer.
+waterb = waterb %>% arrange(WATERSH,WATERBO)
+
+peri_xl = peri_xl %>% 
+  select(-GNIS_NA,-TtlInsp) %>% 
+  arrange(WATERSH,WATERBO)
+
+waterb$Perimeter = peri_xl$Perimeter
+waterb$Developed = peri_xl$Developed
+waterb$Undeveloped = peri_xl$Undeveloped
+waterb$DevProp = peri_xl$DevProp
+
+rm(bcg_waterbodies); rm(peri_xl); rm(dev_xl)
+gc()
+```
+
+## Filter Tracking
+There are is a sequence filtering that we should take a look at. 
+
+When cleaning the inspection data, I removed records that were headed to the ocean or dry storage, etc, and some inspection records did not match to a waterbody. Note that in this filtering phase, I kept ALL mussel-fouled boats, regardless of whether they "passed the test" of the filtering step. However, some of the mussel-fouled inspections did not match with a BC waterbody, in the end, and such inspections have been saved to four place-holder polygons: "No Match", "Dry Storage", "NA", and "Pacific Ocean". 
+
+```{r inspection_filter_tracker}
+inspect_filter = read_excel("C:/Users/CMADSEN/Downloads/LocalRWork/output/Inspection_filter_tracker.xlsx")
+inspect_filter %>% 
+  rename(`Total Inspections` = TotalInspection,
+         `High-Risk Insp.` = HighRisk,
+         `Mussel-Fouled Insp.` = MusselFouled)
+```
+
+And it is important to note the number of waterbodies included in this analysis, as well as the number of waterbodies for which we have watercraft inspection data.
+
+```{r filter_steps}
+filter_steps = filter_steps %>% 
+  add_row(Step = "Joined inspection data to waterbodies and retained only waterbodies with 'valid geometries'", 
+                          Numb_waterb_tot = nrow(waterb),
+                          Numb_waterb_data = filter_steps[1,3])
+row.names(filter_steps) = NULL
+filter_steps %>% 
+  rename(`Number of waterbodies with inspection data` = Numb_waterb_data,
+         `Total number of waterbodies` = Numb_waterb_tot)
+
+```
+
+## Calculation of population density
+
+We calculate an estimate of population pressure *P* on a given waterbody with the following formula:
+$$P_i,_j = \sum_{n=1}^{50}m_i/d_i,_j^2$$
+Where *m~i~* is a given city or town's population, and *d~i~,~j~* is the linear distance (*(N)(k)(3)*) in meters between a given city/town and a given waterbody. The fifty cities and towns in British Columbia with the largest populations (census in 2016) were considered in this model.
+
+```{r calc_pop_pressure}
+#First, calculate waterbody centroids. This greatly speeds up the process.
+waterbody_centroids = st_centroid(waterb)
+city_centroids = st_centroid(urb)
+
+#Second, calculate the population pressure for each waterbody.
+waterb$PpPrss = colSums(urb$POP_TOTAL/(st_distance(city_centroids,waterbody_centroids)^2))
+
+```
+
+
+```{r counting_features, echo = F}
+#How far from a given water body's polygon should we look for a given feature?
+my.distance = 10 #meters
+
+#This function calculates how many of each of our variables/covariates lie
+#within this buffer.
+CountFeat = function(layer, feature, distance = my.distance){
+  buffered_layer = st_buffer(layer, dist = distance)
+  pres_matrix = st_intersects(buffered_layer, feature)
+  #Get number of 'hits' for the selected feature within each lake buffer.
+  return(unlist(lapply(pres_matrix, length)))
+}
+
+if(recount.features == T){
+# OpenStreetMaps for BC. These have been stripped of their extra info.
+#OSM = read_sf("W:/CMadsen/SpatialData/BC_OpenStreetMap_allregions_linestrings.shp")
+
+waterb$AngFeat = CountFeat(waterb,ang)
+waterb$BoatLaunchFeat = CountFeat(waterb,boatl)
+#waterb$OSMFeat = CountFeat(waterb,OSM,distance = 50)
+
+#Write out the results of these field calculations to a .csv file.
+waterb %>% 
+    st_drop_geometry() %>% 
+    select(WATERBO,GNIS_NA,AngFeat,BoatLaunchFeat) %>% 
+    distinct() %>% 
+    openxlsx::write.xlsx(., "W:/CMadsen/SpatialData/WaterbodyFeatures_Counted.xlsx",
+                         overwrite = T)
+}
+if(recount.features == F){
+waterb = waterb %>% 
+    left_join(read_excel("W:/CMadsen/SpatialData/WaterbodyFeatures_Counted.xlsx"))
+}
+```
+
+## Cadastral Layer - Developed Perimeter
+
+We calculate the proportion and total developed shoreline for each waterbody. To do this, we use the Cadastral layer from the BCG warehouse, filter it for parcels of land that are not classified as "CROWN" or "UNKNOWN", and measure the length of each waterbody's perimeter that touches these land parcels. 
+
+Here is an example for Langford Lake.
+
+```{r developed_perimeter_langford_lake_example,fig.width=12,fig.height=10}
+#This code block just gives the example of Langford lake.
+
+#waterbody...
+ll = waterb %>% filter(GNIS_NA == "Langford Lake")
+
+#Load the merged cadastral bits for Langford Lake.
+ll_cad = read_sf("data/shapefiles/LangfordLake_cad_merged.shp")
+
+#Calculate the perimeter of the lake that is developed.
+ll_string = st_cast(st_buffer(ll, dist = 20), "LINESTRING")
+ll_string_cut = st_crop(ll_string, ll_cad)
+
+#Developed shoreline:
+#Langford lake with privately owned land within 20 meters highlighted in red.
+ggplot() + 
+  geom_sf(data = ll %>% mutate(id = "Langford Lake"), 
+          aes(col = id, fill = id), alpha = 0.5) + 
+  geom_sf(data = st_buffer(ll, dist = 20), alpha=0.1) +
+  geom_sf(data = ll_cad %>% mutate(id = "Land parcels"), 
+          aes(col = id, fill = id)) + 
+  geom_sf(data = ll_string_cut %>% mutate(id = "Developed shoreline"), 
+          aes(col = id, fill = id), size = 2) +
+  geom_sf_text(data = ll, aes(label = GNIS_NA)) +
+  ggtitle(paste0(round(ll$DevProp,2),"% of Langford Lake's shoreline is non-Crown land"),
+  subtitle = "(most is privately owned land)") +
+  labs(fill = "Legend", col = "") +
+  scale_fill_manual(values = c("Langford Lake" = "#2ea0c5",
+                               "Land parcels" = "#eab676",
+                               "Developed shoreline" = "#F31424")) +
+  scale_color_manual(values = c("Langford Lake" = "#2ea0c5",
+                                "Land parcels" = "#eab676",
+                                "Developed shoreline" = "#F31424"),
+                     guide = "none") +
+  theme_classic() +
+  theme(
+    axis.text = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank()
+  )
+
+```
+
+## The 50 urban centres
+
+```{r plot_urb, fig.width=12,fig.height=10}
+ggplot() + 
+  geom_sf(data = fln, aes(fill = REGION_N)) +
+  geom_sf(data = urb) +
+  geom_sf_label(data = urb, aes(label = CENSUS_S_1),
+                label.padding = unit(0.5, "lines"))
+```
+
+## Description of Data
+To begin, we need to see what the ranges of our different variables are. To do this, we'll count the number of each feature within/close to each water body. Then we will assess minimum, mean, median and maximum values for each variable, and produce some exploratory graphs.
+
+```{r data_exploration, echo = F}
+#Produce a little table showing the min,max,median and mean values.
+VariableLong = c("Mussel-fouled Insp",
+                 "High-risk Insp",
+                 "Tot Insp",
+                 #"Area",
+                 "Angling Spots",
+                 "Boat Launches",
+                 #"OSM Roads",
+                 "Perimeter (km)",
+                 "Development (%)",
+                 "Pop. Pressure",
+                 "Campgrounds",
+                 "Facilities",
+                 "Marinas",
+                 "Population")
+                 #"Connectivity")
+
+VariableShort = c("NmbrMsF","NmbrHgR","TtlInsp",
+  "AngFeat","BoatLaunchFeat","Perimeter","DevProp","PpPrss","Campgrounds",
+                 "Facilities",
+                 "Marinas",
+                 "Population")
+
+VarType = c("Dependent","Dependent",rep("Predictor",length(VariableShort)-2))
+
+data_summary = data.frame(VariableLong,
+           VarType) %>% 
+bind_cols(
+  waterb %>% 
+  st_drop_geometry() %>% 
+  select(all_of(VariableShort)) %>% 
+  summarise_all(list(LakesWithData = function(x){length(x[x!=0])}, Min = min, Max = max, Mean = mean, Median = median)) %>%
+  tidyr::pivot_longer(cols = everything(),
+               names_sep = "_",
+               names_to  = c("variable", ".value"))
+) %>% 
+  select(-variable)
+
+data_summary %>% 
+  filter(VariableLong != "Pop. Pressure") %>% 
+  mutate_if(is.numeric, round, digits = 2) %>% 
+  bind_rows(data_summary %>% filter(VariableLong == "Pop. Pressure")) %>% 
+  mutate(LakesWithData = case_when(
+    VariableLong == "Development (%)" ~ 424909,
+    TRUE ~ LakesWithData
+  ))
+```
+
+## Who's who in the zoo
+### The 10 biggest players in each category.
+
+```{r top_10_lists}
+waterb %>% 
+  st_drop_geometry() %>% 
+  select(GNIS_NA,WATERBO,VariableShort) %>% 
+  pivot_longer(cols = all_of(VariableShort)) %>% 
+  group_by(name) %>% 
+  arrange(desc(value)) %>% 
+  slice(1:10) %>% 
+  ungroup() %>% 
+  mutate(GNIS_NA = coalesce(GNIS_NA, 
+                              as.character(WATERBO))) %>% 
+  select(-WATERBO) %>% 
+  group_by(name) %>% 
+  summarise(TopPlayers = str_c(GNIS_NA,collapse = ", "))
+```
+
+## Histograms of variables.
+
+
+```{r histograms,echo=T,fig.width=12,fig.height=12}
+#Histograms of all variables. We remove 0's and then log-transform the data.
+waterb %>% 
+  st_drop_geometry() %>% 
+  select(all_of(VariableShort)) %>% 
+  pivot_longer(cols = everything()) %>% 
+  filter(value > 0) %>% 
+  mutate(value_log = log(value)) %>% 
+  ggplot() + 
+  geom_histogram(aes(value_log), bins = 15) +
+  facet_wrap(~ name, scales = "free")
+```
+
+## Boxplots of data - do we see any outliers?
+
+```{r scatterplots, echo = F, fig.width=12, fig.height=10}
+outlier.multiple = 100
+
+scatterdata = waterb %>% 
+  st_drop_geometry() %>% 
+  select(GNIS_NA, WATERBO, all_of(VariableShort)) %>% 
+  pivot_longer(-c(GNIS_NA,WATERBO)) %>% 
+  group_by(name) %>% 
+  mutate(Outlier = case_when(
+    value > outlier.multiple*mean(value,na.rm=T) ~ "Outlier",
+    TRUE ~ "Normal"    
+  )) %>%
+  ungroup()  %>% 
+  mutate(Outlier_label = case_when(
+    is.na(GNIS_NA) == T ~ as.character(WATERBO),
+    is.na(GNIS_NA) == F ~ GNIS_NA,
+    TRUE ~ "No Label"
+  ))
+
+ggplot() + 
+  geom_boxplot(data = scatterdata, aes(x = name, y = value)) +
+  geom_point(data = scatterdata %>% filter(Outlier == "Outlier"),
+             aes(x = name, y = value, col = Outlier)) +
+  ggrepel::geom_label_repel(data = scatterdata %>% filter(Outlier == "Outlier"),
+             aes(x = name, y = value, label = Outlier_label),
+             size=4,size=3, box.padding=unit(0.5,"lines")) +
+  labs(x = "Variable", y = "Value", col = paste0("Outlier (>",outlier.multiple,"x mean)")) + 
+  facet_wrap(~ name, scales = "free")
+  
+```
+
+# Correlation matrix of all variables.
+
+```{r cor_matrix,echo=F}
+waterb %>% 
+  st_drop_geometry() %>% 
+  select(all_of(VariableShort)) %>% 
+  cor(.) %>% 
+  as.data.frame() %>% 
+  mutate(across(everything(), round,3))
+```
+
+# Standardizing Data for a PCA 
+
+```{r PCA} 
+#Center and standardize data with mean of ~0 and SD of 1.
+# pca_dat = lakes %>% 
+#   st_drop_geometry() %>% 
+#   select(all_of(VariableShort)) %>% 
+#   select(-NmbrMsF, -NmbrHgR) %>% 
+#   mutate_all(~ (scale(.) %>% as.vector))
+
+pca = stats::princomp(na.omit(waterb %>% 
+  st_drop_geometry() %>% 
+  select(all_of(VariableShort))) %>% 
+  select(-NmbrMsF, -NmbrHgR), cor=TRUE)
+
+summary(pca)
+
+pca_importance <- function(x) {
+  vars <- x$sdev^2
+  vars <- vars/sum(vars)
+  rbind(`Standard deviation` = x$sdev, `Proportion of Variance` = vars, 
+      `Cumulative Proportion` = cumsum(vars))
+}
+
+result_table = as.data.frame(pca_importance(pca))
+
+as.data.frame.matrix(pca$loadings) %>% 
+  mutate(Var = row.names(.)) %>% 
+  ggplot() +
+  geom_hline(yintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+  geom_vline(xintercept = 0, lty = 2, color = "grey", alpha = 0.9) +
+  geom_segment(aes(x=0,y=0,xend=Comp.1,yend=Comp.2),
+               arrow = arrow(length = unit(0.025, "npc"), 
+                             type = "open"), lwd = 1) +
+  geom_text(aes(x = Comp.1*1.05, y=Comp.2*1.15,
+                label = Var),
+            check_overlap = T, size = 3) +
+  labs(x = paste0("Component 2 (",100*round(result_table[2,1],3),"% Variance explained)" ),
+       y = paste0("Component 2 (",100*round(result_table[2,2],3),"% Variance explained)" ))
+
+```
+
+
+# Testing Predictor Variables with GLMs
+
+
+As a preliminary step to reduce the number of variables contributing to water body prioritization, I suggest we statistically assess the contribution of each of the candidate predictor variables in explaining the total number of inspections, the number of high-risk inspections, and the number of mussel-fouled boats. We use a step-wise function that ranks models by their Akaike Information Criterion (AIC), dropping one variable at a time so long as it reduces the model's overall AIC.
+
+```{r stats,echo=F,message=F,warning=F}
+#dat = waterb %>% st_drop_geometry() %>% dplyr::select(-WtBdy_C)
+dat = waterb %>% st_drop_geometry()
+
+#1. Set up the full general linear model (negative binomial distribution)
+
+#2. Number of High-risk Inspections.
+model = glm(data = dat, NmbrHgR ~ TtlInsp + DevProp + AngFeat + BoatLaunchFeat + Campgrounds + Facilities + Marinas + Population)
+summary(model)
+model_stepped = stepAIC(model)
+#model_stepped$anova
+results_chunkone = data.frame(DependentVar = "Number High-risk Inspections",
+           Predictors = str_flatten(names(model_stepped$coefficients[2:length(model_stepped$coefficients)]), ", "))
+
+#3. Number of Mussel-fouled Inspections.
+model = glm(data = dat, NmbrMsF ~ TtlInsp + DevProp + AngFeat + BoatLaunchFeat + Campgrounds + Facilities + Marinas + Population)
+summary(model)
+model_stepped = stepAIC(model)
+#model_stepped$anova
+results_chunktwo = data.frame(DependentVar = "Number Mussel-fouled Inspections",
+           Predictors = str_flatten(names(model_stepped$coefficients[2:length(model_stepped$coefficients)]), ", "))
+
+model_results = results_chunkone %>% bind_rows(results_chunktwo)
+
+model_results
+
+vars_to_keep = c("NmbrMsF","NmbrHgR",unlist(str_split(model_results$Predictors[nrow(model_results)], ", ")))
+
+```
+
+## Valence of predictor variables - positive or negative?
+Now that we know which variables seem to be significant in explaining the number of high-risk and mussel-fouled inspections, let's see if higher number for those variables predict higher or lower inspection numbers.
+
+```{r pred_valence}
+
+# dat %>% 
+#   select(all_of(VariableShort)) %>% 
+#   select(-NmbrMsF) %>% 
+#   pivot_longer(-NmbrHgR, names_to = "Predictors", values_to = "Pred_val") %>% 
+#   ggplot() +
+#   geom_point(aes(x=Pred_val,y=NmbrHgR)) +
+#   geom_smooth(aes(x=Pred_val,y=NmbrHgR)) +
+#   facet_wrap( ~ Predictors, scales = 'free') + 
+#   ggtitle("High-risk Inspections")
+#  
+# dat %>% 
+#   select(all_of(VariableShort)) %>% 
+#   select(-NmbrHgR) %>% 
+#   pivot_longer(-NmbrMsF, names_to = "Predictors", values_to = "Pred_val") %>% 
+#   ggplot() +
+#   geom_point(aes(x=Pred_val,y=NmbrMsF)) +
+#   geom_smooth(aes(x=Pred_val,y=NmbrMsF)) +
+#   facet_wrap( ~ Predictors, scales = 'free') + 
+#   ggtitle("Mussel-fouled Inspections")
+```
+
+Finish time:
+```{r finish_time}
+Sys.time()
+```
+

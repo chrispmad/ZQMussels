@@ -1,0 +1,571 @@
+---
+title: "ZQM Data Exploration"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: material
+    highlight: github
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(raster)
+library(sf)
+library(tidyverse)
+library(ggrepel)
+library(ggsflabel)
+library(ggpubr)
+library(rmdformats)
+library(leaflet)
+
+my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels/'),"Options.csv"))
+
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/"))
+#knitr::opts_chunk$set(fig.width = 12)
+#knitr::opts_chunk$set(fig.height = 10)
+
+outlier.multiple = 25
+```
+
+This R Markdown document explores the datasets we plan to use to inform our assessment of ZQM invasion risk for waterbodies in BC.
+  
+```{r import_waterbody_data_and_filtering}
+# Inspections joined to water bodies.
+waterb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_with_data.shp"))
+
+colnames(waterb) = openxlsx::read.xlsx("column_names_for_waterb_with_data.xlsx") %>% filter(`colnames(waterb)` != "geometry") %>% add_row(`colnames(waterb)` = "geometry") %>% pull(`colnames(waterb)`)
+
+#Remove average.angler.days
+waterb$average.angler.days = NULL
+waterb$WB.access = NULL
+```
+
+## Filter Tracking
+When cleaning the inspection data, I removed records that were headed to the ocean or dry storage. Some inspection records also did not match to any waterbody. 
+
+```{r inspection_filter_trackers}
+read_excel("Inspection_filter_tracker_with_delta.xlsx") %>% as_tibble(.)
+```
+
+And it is important to note the number of waterbodies included in this analysis, as well as the number of waterbodies for which we have watercraft inspection data.
+
+```{r filter_steps}
+read_excel("waterbody_filtering_steps.xlsx") %>% 
+  as_tibble(.)
+
+```
+
+```{r data_exploration_functions}
+
+bc = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/bc_shapefile.shp"))
+
+options(scipen = 999)
+
+exploration_big10 = function(x){
+  dat = waterb[!is.na(waterb[[x]]),] 
+  
+  dat %>% 
+    ungroup() %>% 
+    st_drop_geometry() %>% 
+    dplyr::arrange(desc(x)) %>% 
+    slice(1:10) %>% 
+    mutate(WaterbodyName = coalesce(GNIS_NA, as.character(WATERBO))) %>% 
+    summarise(Top10 = str_c(WaterbodyName,collapse = ", "))
+}
+
+exploration_battery = function(x){
+  
+  dat = waterb %>% ungroup() %>% 
+    filter(!is.na(.[[x]])) %>% 
+    filter(.[[x]] > 0)
+  
+  #Find outliers.
+  outliers = dat %>% 
+    mutate(mean_value = mean(.[[x]],na.rm=T)) %>% 
+    filter(.[[x]] > mean_value*outlier.multiple)
+  
+  #Grab the name of the variable of interest.
+  data.name = x
+  
+  #Make a simple histogram.
+  p1 = ggplot(dat) + 
+    geom_histogram(aes(.data[[x]]))
+
+  #Make a boxplot with violin plot overlay that highlights the outlier points with labels.
+  p2 = ggplot() + 
+    geom_boxplot(data=dat,aes(y=.data[[x]], x = data.name)) + 
+    geom_violin(data=dat,aes(y=.data[[x]], x = data.name), alpha=0.6) +
+    labs(x = "",y=data.name) +
+    {if(length(outliers$WATERSH) > 0)geom_point(data = outliers, aes(y=.data[[x]], x = data.name), col = "red")}+ 
+    {if(length(outliers$WATERSH) > 0)geom_label_repel(data = outliers, aes(y=.data[[x]], x = data.name,label=coalesce(.data$GNIS_NA,as.character(.data$WATERBO))),
+                     force = 100, max.overlaps = 20)}
+ 
+  # Give an idea of the spatial coverage we have in the province.
+  if(x != "PopPressure") {
+  p3 = ggplot() + 
+    geom_sf(data = bc, fill = "antiquewhite", col = "transparent") +
+    geom_sf(data = dat, aes(col = .data[[x]], fill = .data[[x]])) + 
+    scale_fill_gradient(low = "green", high = "red") +
+    scale_color_gradient(low = "green", high = "red") +
+    guides(col = "none") +
+    ggtitle("Data coverage across the province",
+            subtitle = paste0("variable: ",x)) + 
+    ggthemes::theme_map()
+  }
+  if(x == "PopPressure") {
+    p3 = ggplot() + 
+      geom_sf(data = bc, fill = "darkgreen")
+  }
+  
+  return(ggarrange(p3,ggarrange(p1,p2,nrow=2),ncol=2))
+}
+
+
+exploration_battery_categorical = function(x){
+  
+  dat = waterb[!is.na(waterb[[x]]),]
+  
+  p1 = ggplot() + 
+  geom_bar(data=dat, aes(.data[[x]]))
+
+  # Give an idea of the spatial coverage we have in the province.
+  p2 = ggplot() + 
+    geom_sf(data = bc, fill = "antiquewhite", col = "transparent") +
+    geom_sf(data = dat, aes(col = .data[[x]])) + 
+    ggtitle("Data coverage across the province",
+            subtitle = paste0("variable: ",x))
+  
+  return(list(p1,p2))
+}
+
+my.summary = function(x){
+  my.sum = as.data.frame(as.matrix(unlist(summary(x))))
+  
+  my.sum = my.sum %>% 
+    mutate(variable = row.names(my.sum)) %>% 
+    filter(variable %in% c("Min.","Median","Mean","Max.")) %>% 
+    pivot_wider(names_from = variable, values_from = V1) %>% 
+    mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-summary(x)[7])/nrow(waterb), 3), "%"))
+  
+  return(my.sum)
+}
+```
+
+# Data Exploration 
+
+### Sum of Days Fished
+
+
+```{r sum_days_fished}
+my.summary(waterb$Sum.of.days.fished)
+
+exploration_big10(x = "Sum.of.days.fished")
+
+exploration_battery(x = "Sum.of.days.fished")
+```
+
+```{r average_angler_days}
+# my.summary(waterb$average.angler.days)
+# 
+# exploration_big10(x = "average.angler.days")
+# 
+# exploration_battery(x = "average.angler.days")
+```
+
+
+```{r waterbody_access}
+# waterb %>% 
+#   st_drop_geometry() %>% 
+#   group_by(WB.access) %>% 
+#   summarise(Number = n()) %>% 
+#   pivot_wider(names_from = WB.access, values_from = Number) %>% 
+#   mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
+#   select(-`NA`)
+# 
+# results = exploration_battery_categorical(x = "WB.access")
+# 
+# results[[1]]
+# 
+# results[[2]]
+```
+
+
+### Boat Launches
+
+We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
+
+```{r boat_launches}
+my.summary(waterb$BoatLaunches)
+
+#Top 20 lakes in terms of size - how do their boat launches look?
+waterb %>% 
+  mutate(Area = as.numeric(st_area(.))) %>% 
+  arrange(desc(Area)) %>% 
+  slice(1:20) %>% 
+  st_drop_geometry() %>% 
+  select(GNIS_NA, WATERBO, BoatLaunches)
+
+# waterb %>% 
+#   st_drop_geometry() %>% 
+#   filter(!is.na(BoatLaunches)) %>% 
+#   select(GNIS_NA) %>% 
+#   distinct() %>% 
+#   arrange(GNIS_NA) %>% 
+#   mutate(row.number = row_number()) %>% 
+#   pivot_wider(names_from = row.number,
+#               values_from = GNIS_NA) %>% 
+#   unite('waterbodies_with_boat_launch_info',1:252,
+#         remove=FALSE, sep = ", ") %>% 
+#   select(waterbodies_with_boat_launch_info)
+
+exploration_big10(x = "BoatLaunches")
+
+exploration_battery(x = "BoatLaunches")
+```
+
+
+### Campgrounds
+
+These data are a combination of Sam Fischer _et al._'s data and angler survey data.
+
+```{r campgrounds}
+my.summary(waterb$Campgrounds)
+
+exploration_big10(x = "Campgrounds")
+
+exploration_battery(x = "Campgrounds")
+```
+
+
+### Facilities
+
+"Facilities" refers to the number of touristic facilities (public toilets, tourist information, viewpoints, parks, attractions, and picnic sites) within 500 meters of the water body. These data come from the PhD work of Sam Fischer _et al._.
+
+```{r facilites}
+my.summary(waterb$Facilities)
+
+exploration_big10(x = "Facilities")
+
+exploration_battery(x = "Facilities")
+```
+
+
+### Population Density
+
+Population density is calculated at the subwatershed scale.
+
+```{r Population_pressure}
+#my.summary(waterb$PopDensity)
+
+#exploration_big10(x = "PopPressure")
+
+# ggarrange(
+#   waterb %>%
+#     st_drop_geometry() %>%
+#     ggplot() +
+#     geom_histogram(aes(PopPressure)),
+#   waterb %>%
+#     st_drop_geometry() %>%
+#     ggplot() +
+#     geom_histogram(aes(log(PopPressure))),
+#     ncol = 2)
+
+waterb_high_pressure = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_high_pressure.shp")) %>%
+  mutate(RowNumber = row_number())
+
+urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>%
+  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
+
+leaflet(data = urb %>% st_transform(crs = 4326)) %>%
+  addTiles() %>%
+  addPolygons(fillColor = "purple", label = ~paste0(CENSUS_S_1,": ",as.character(POP_TOTAL)), color = "red") %>%
+  addPolygons(data = waterb_high_pressure %>% st_transform(crs = 4326), color = "blue", label = ~paste0(GNIS_NA,": #",RowNumber))
+  
+```
+```{r subwatershed_pop_pressure}
+subwater = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups.shp"))
+urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>% 
+  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
+
+#Find which subwatershed each censused municipality is in.
+popdensity = urb %>% 
+  st_join(subwater %>% 
+            #Calculate area of subwatersheds
+            mutate(Area_km = as.numeric(st_area(.))/1000) %>% 
+            select(WATERSHED_,Area_km) %>% 
+            rename(WATERSH = WATERSHED_), st_intersects) %>%
+  st_drop_geometry() %>% 
+  #Summarise by subwatershed, as some municipalities were on borders of multiple subwatersheds.
+  group_by(WATERSH) %>% 
+  mutate(POP_TOTAL = sum(POP_TOTAL)) %>%
+  select(WATERSH,POP_TOTAL,Area_km) %>% 
+  distinct() %>% 
+  #Calculate the population density for each subwatershed.
+  summarise(PopDensity = POP_TOTAL/Area_km)
+
+#join to subwatershed shapefile and also to waterb object.
+subwater = subwater %>% 
+  left_join(popdensity %>% 
+              rename(WATERSHED_ = WATERSH))
+
+subwater = subwater %>% 
+  mutate(PopDensBins = as.factor(as.numeric(cut(PopDensity, 
+                           BAMMtools::getJenksBreaks(subwater$PopDensity, k = 4)))))
+
+waterb = waterb %>% 
+  left_join(popdensity)
+
+ggplot() + 
+  geom_sf(data = subwater, aes(fill = PopDensBins)) + 
+  ggtitle("Population Density in BC Border")
+```
+
+### Proportion of Developed Shoreline
+
+```{r developed_perimeter_langford_lake_example}
+#This code block just gives the example of Langford lake.
+
+#waterbody...
+ll = waterb %>% filter(GNIS_NA == "Langford Lake")
+
+#Load the merged cadastral bits for Langford Lake.
+ll_cad = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/LangfordLake_cad_merged.shp"))
+
+#Calculate the perimeter of the lake that is developed.
+ll_string = st_cast(st_buffer(ll, dist = 20), "LINESTRING")
+ll_string_cut = st_crop(ll_string, ll_cad)
+
+#Developed shoreline:
+#Langford lake with privately owned land within 20 meters highlighted in red.
+ggplot() + 
+  geom_sf(data = ll %>% mutate(id = "Langford Lake"), 
+          aes(col = id, fill = id), alpha = 0.5) + 
+  geom_sf(data = st_buffer(ll, dist = 20), alpha=0.1) +
+  geom_sf(data = ll_cad %>% mutate(id = "Land parcels"), 
+          aes(col = id, fill = id)) + 
+  geom_sf(data = ll_string_cut %>% mutate(id = "Developed shoreline"), 
+          aes(col = id, fill = id), size = 2) +
+  geom_sf_text(data = ll, aes(label = GNIS_NA)) +
+  ggtitle("~66% of Langford Lake's shoreline is non-Crown land",
+  subtitle = "(most is privately owned land)") +
+  labs(fill = "Legend", col = "") +
+  scale_fill_manual(values = c("Langford Lake" = "#2ea0c5",
+                               "Land parcels" = "#eab676",
+                               "Developed shoreline" = "#F31424")) +
+  scale_color_manual(values = c("Langford Lake" = "#2ea0c5",
+                                "Land parcels" = "#eab676",
+                                "Developed shoreline" = "#F31424"),
+                     guide = "none") +
+  theme_classic() +
+  theme(
+    axis.text = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks = element_blank(),
+    axis.title = element_blank()
+  )
+
+```
+
+### Watercraft Operation Restrictions
+
+These data come from Transport Canada and indicate lakes in which one may not operate any vessel, may not operate power vessels, or may not operate power/electric vessels.
+
+```{r add_waterbody_restrictions}
+wor = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Waterbody_operation_restrictions.shp"))
+
+#Remove the two rows that code for almost all waterbodies in Strathcona and Bowron Lake parks.
+wor = wor %>% 
+  filter(!str_detect(Name_Given, "All waters"))
+
+# strath = read_sf("W:/CMadsen/SpatialData/Strathcona_Park.shp") %>% 
+#   mutate(id = "Strathcona")
+# bowlake = read_sf("W:/CMadsen/SpatialData/BowronLakePark.shp") %>% 
+#   mutate(id = "Bowlake")
+
+# strath_waterbodies = waterb[as.data.frame(st_intersects(waterb, strath))$row.id,] %>% 
+#   filter(!GNIS_NA %in% c("Gold Lake","Buttle Lake",
+#                          "Upper Lake","Donner Lake",
+#                          "Campbell Lake"))
+
+# bow_waterbodies = waterb[as.data.frame(st_intersects(waterb, bowlake))$row.id,] %>% 
+#   filter(!GNIS_NA %in% c("Bowron Lake","Bowron River","Cariboo River"))
+
+#print("We've dealt with two rows that referenced all water bodies in a given area.")
+
+#Find the nearest waterbody for the rest of them; it should be the one named in "Name_Given"
+wor_nearest_feature = st_nearest_feature(wor, waterb)
+
+wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
+wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
+wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
+
+leaflet(data = wor %>% st_transform(crs = 4326)) %>%
+  addTiles() %>%
+  addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
+  addPolygons(data = waterb[wor_nearest_feature,] %>%
+          st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
+
+# ggplot() + 
+#   geom_sf(data = strath, fill = "antiquewhite") + 
+#   geom_sf(data = strath_waterbodies, fill = "red") + 
+#   ggtitle(paste0("Strathcona Park water bodies (n=",nrow(strath_waterbodies),")"),
+#           subtitle = "No power or electric vessel propulsion")
+# 
+# ggplot() + 
+#   geom_sf(data = bowlake, fill = "antiquewhite") + 
+#   geom_sf(data = bow_waterbodies, fill = "red") + 
+#   ggtitle(paste0("Bowron Lake Park water bodies (n=",nrow(bow_waterbodies),")"),
+#           subtitle = "No power or electric vessel propulsion") + 
+#   geom_sf_text_repel(data = bow_waterbodies, aes(label = GNIS_NA))
+
+# wor = wor %>% filter(!str_detect(Name_Given, "All waters"))
+
+length(unique(paste0(wor$GNIS_NA,wor$WATERBO,wor$WATERSH)))
+#252 unique water bodies.
+
+#Get the most 'intense' legislative status for each unique waterbody.
+wor = wor %>% 
+  group_by(GNIS_NA,WATERBO,WATERSH) %>% 
+  arrange(desc(OperRes)) %>% 
+  slice(1)
+
+#Add the Strathcona and Bowron Lake Park lakes to the 'wor' layer.
+#Note: this step has been commented out because Cass and Martina don't want
+#this variable skewing the rest of the Operational Restriction data.
+# wor = wor %>% 
+#   bind_rows(st_centroid(strath_waterbodies %>% 
+#               select(GNIS_NA,WATERBO,WATERSH) %>% 
+#               mutate(OperRes = "Power/Electric Prohibited"))) %>% 
+#   bind_rows(st_centroid(bow_waterbodies %>% 
+#               select(GNIS_NA,WATERBO,WATERSH) %>% 
+#               mutate(OperRes = "Power/Electric Prohibited")))
+
+#Join to the waterbody layer.
+waterb = waterb %>% 
+  left_join(wor %>% 
+              st_drop_geometry() %>% 
+              select(-Name_Given)) %>% 
+  group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+  slice(1)
+
+waterb %>% 
+  st_drop_geometry() %>% 
+  group_by(OperRes) %>% 
+  summarise(Number = n()) %>% 
+  pivot_wider(names_from = OperRes, values_from = Number) %>% 
+  mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
+  select(-`NA`)
+
+results = exploration_battery_categorical(x = "OperRes")
+
+results[[1]]
+
+results[[2]]
+```
+
+### Dams
+
+We have data from BC Hydro and Fortis on the location and capacity (in megawatts) of dams throughout British Columbia. To find the most likely spatial match for each dam, I used only large water bodies (>= 3,000,000 square meters). Without this filter, the nearest water body tended to be very small ponds right beside the location of the dam.
+
+### SummedDamCapacity
+```{r summed_dam_capacity}
+my.summary(waterb$SummedDamCapacity)
+
+waterb = waterb %>% 
+  mutate(NumberDams = as.numeric(NumberDams),
+         SummedDamCapacity = as.numeric(SummedDamCapacity))
+
+exploration_big10(x = "SummedDamCapacity")
+
+exploration_battery(x = "SummedDamCapacity")
+
+dams_sf = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/dams_summarised_sf.shp")) %>% st_transform(crs = 4326)
+
+waterb_with_dams = waterb %>% 
+  filter(NumberDams > 0 )%>% 
+  st_transform(crs = 4326)
+
+dams_sf = dams_sf %>% 
+  mutate(DC_bin = as.numeric(cut(DmCpcty, breaks = 
+                          
+                           BAMMtools::getJenksBreaks(dams_sf$DmCpcty, k = 4)))) %>% 
+  mutate(DC_bin = replace_na(DC_bin, 1))
+
+icon.blue <- makeAwesomeIcon(markerColor = 'blue', iconColor = 'blue')
+icon.red <- makeAwesomeIcon(markerColor = 'red', iconColor = 'red')
+icon.green <- makeAwesomeIcon(markerColor = 'green', iconColor = 'green')
+
+leaflet() %>%
+  addTiles() %>%
+  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==1,], popup = ~Name, label = ~DmCpcty, icon = icon.green) %>%
+  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==2,], popup = ~Name, label = ~DmCpcty, icon = icon.blue) %>%
+  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==3,], popup = ~Name, label = ~DmCpcty, icon = icon.red) %>%
+  addPolygons(data = waterb_with_dams, color = "red", fillColor = "red", label = ~GNIS_NA)
+
+#dams_sf
+```
+
+
+
+
+### Number Dams
+```{r summed_dam_number}
+my.summary(waterb$NumberDams)
+
+exploration_big10(x = "NumberDams")
+
+exploration_battery(x = "NumberDams")
+
+``` 
+
+```{r variable_choice_table}
+var_table = waterb %>% 
+  st_drop_geometry() %>% 
+  select(-HR_N_M_,-HR_Cm_C,-HR_V_C_,-HR_Sm_C) %>% 
+  mutate(across(everything(), as.character)) %>% 
+  pivot_longer(cols = -c(WATERBO,WATERSH,GNIS_NA)) %>% 
+  filter(!is.na(value)) %>% 
+  #Find the total number of records for each variable.
+  group_by(name) %>% 
+  mutate(Waterbodies_with_data = paste0(n()," (",round(100*n()/nrow(waterb),4),"%)")) %>% 
+  #Find the number of records for each variable / subwatershed combination.
+  group_by(WATERSH,name) %>% 
+  mutate(Records_at_subwatershed_level = n()) %>% 
+  ungroup() %>% 
+  select(name, Waterbodies_with_data, Records_at_subwatershed_level) %>% 
+  distinct() %>% 
+  #Find the number of unique subwatersheds with values
+  group_by(name,Waterbodies_with_data) %>% 
+  summarise(Subwatersheds_with_data = n()) %>% 
+  rename(Variable = name)
+
+# var_table = var_table %>% 
+#   ungroup() %>% 
+#   add_row(Variable = "PopPressure at subwatershed",
+#           Waterbodies_with_data = "424898 (100%)",
+#           Subwatersheds_with_data = 246)
+
+var_table = var_table %>% 
+  arrange(desc(as.numeric(str_extract(Waterbodies_with_data,"[0-9]*(?= \\()"))))
+
+# var_table$Focus = c("Value","Geography","Access/Use",
+#                    "Access/Use","Access/Use",
+#                    "Access/Use","Access/Use","Access/Use",
+#                    "Access/Use","Access/Use",
+#                    "Access/Use","Access/Use",
+#                    "Access/Use","Access/Use",
+#                    "Value","Value")
+
+var_table
+
+openxlsx::write.xlsx(waterb %>% 
+           st_drop_geometry(), "waterb_with_data_explored.xlsx",
+           overwrite = T)
+```
+
