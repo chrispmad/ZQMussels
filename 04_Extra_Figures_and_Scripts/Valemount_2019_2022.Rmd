@@ -56,8 +56,8 @@ p_dow = dt %>%
   geom_text(aes(x = day_of_week, y = ylabelpos, label = n),
             size = 5) +
   scale_fill_brewer(palette = 'Set2', direction = -1) + 
-  labs(title = 'Valemount Inspections 2022',
-       subtitle = '(No Inspections 2019 - 2020)',
+  labs(title = 'Valemount Inspections 2021',
+       subtitle = '(No Inspections 2019, 2020 or 2022)',
        y = 'Number of Inspections',
        x = 'Day of Week',
        fill = 'High Risk') + 
@@ -91,8 +91,8 @@ p_tod = dt %>%
             size = 5) +
   scale_fill_brewer(palette = 'Set2', direction = -1) + 
   scale_x_continuous(breaks = c(0:24)) +
-  labs(title = 'Valemount Inspections 2022',
-       subtitle = '(No Inspections 2019 - 2020)',
+  labs(title = 'Valemount Inspections 2021',
+       subtitle = '(No Inspections 2019, 2020 or 2022)',
        y = 'Number of Inspections',
        x = 'Hour of Day',
        fill = 'High Risk') + 
