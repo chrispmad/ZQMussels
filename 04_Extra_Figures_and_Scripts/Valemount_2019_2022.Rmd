@@ -1,5 +1,5 @@
 ---
-title: "Valemount 2019-2022"
+title: "Valemount / Mt. Robson 2019-2022"
 author: "Chris Madsen"
 date: "`r Sys.date()`"
 output: html_document
@@ -20,7 +20,7 @@ knitr::opts_chunk$set(echo = F, warning = F, message = F, fig.width = 8, fig.hei
 theme_set(theme_light())
 ```
 
-# Exploration of Valemount Inspection Data
+# Exploration of Valemount / Mt. Robson Inspection Data
 ## 2019 - 2022
 
 ```{r import_data}
@@ -31,7 +31,7 @@ dat = read_excel("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operation
 
 ```{r clean_data}
 dt = dat %>% 
-  filter(str_detect(Station,'Valemount')) %>% 
+  filter(str_detect(Station,'Valemount') | str_detect(Station,'Robson')) %>% 
   mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) %>% 
   mutate(Year = lubridate::year(TimeOfInspection),
          day_of_week = lubridate::wday(TimeOfInspection,label=T),
@@ -43,21 +43,30 @@ dt = dat %>%
 ## Time of Day
 
 ```{r day_of_week}
-p_dow = dt %>% 
+dow_dt = dt %>% 
   count(Year,highr,day_of_week) %>% 
   mutate(highr = factor(highr, levels = c(TRUE,FALSE))) %>% 
   group_by(Year,day_of_week) %>% 
   arrange(day_of_week) %>% 
   mutate(ylabelpos = (lag(n) + (n + lag(n)))/2) %>% 
-  mutate(ylabelpos = ifelse(is.na(ylabelpos), n/2, ylabelpos)) %>% 
+  mutate(ylabelpos = ifelse(is.na(ylabelpos), n/2, ylabelpos)) 
+  
+p_dow = dow_dt %>% 
   ggplot() + 
-  geom_col(col = 'black',
-           aes(x = day_of_week, y = n, fill = highr)) +
+  geom_col(aes(x = day_of_week, y = n, fill = highr, col = highr)) +
   geom_text(aes(x = day_of_week, y = ylabelpos, label = n),
-            size = 5) +
+            size = 5,
+            data = dow_dt %>% filter(highr == F)) +
+  geom_label_repel(aes(x = day_of_week, 
+                       y = ylabelpos,
+                       fill = highr, label = n),
+            size = 5,
+            nudge_y = 100,
+            data = dow_dt %>% filter(highr == T)) +
+  facet_wrap(~ Year) +
   scale_fill_brewer(palette = 'Set2', direction = -1) + 
+  scale_color_brewer(palette = 'Set2', direction = -1,guide = 'none') +
   labs(title = 'Valemount Inspections 2021',
-       subtitle = '(No Inspections 2019, 2020 or 2022)',
        y = 'Number of Inspections',
        x = 'Day of Week',
        fill = 'High Risk') + 
@@ -74,7 +83,7 @@ ggsave('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Insp
        height = 7)
 ```
 
-## Time of Day
+## Time of Day - Facetted Together
 
 ```{r}
 p_tod = dt %>% 
@@ -89,7 +98,10 @@ p_tod = dt %>%
            aes(x = Hour, y = n, fill = highr)) +
   geom_text(aes(x = Hour, y = ylabelpos, label = n),
             size = 5) +
+  facet_wrap(~ Year, scales = 'free_x',
+             ncol = 1) + 
   scale_fill_brewer(palette = 'Set2', direction = -1) + 
+  scale_color_brewer(palette = 'Set2', direction = -1, guide = 'none') + 
   scale_x_continuous(breaks = c(0:24)) +
   labs(title = 'Valemount Inspections 2021',
        subtitle = '(No Inspections 2019, 2020 or 2022)',
@@ -106,6 +118,52 @@ ggsave('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Insp
        p_tod,
        dpi = 300,
        width = 10,
-       height = 7)
+       height = 10)
 ```
 
+## Time of Day - Separate by Year
+
+```{r}
+for (year in c(2019:2022)){
+  tod_dat = dt %>% 
+    filter(Year == year) %>% 
+    count(highr,Hour) %>% 
+  mutate(highr = factor(highr, levels = c(TRUE,FALSE))) %>% 
+  group_by(Hour) %>% 
+  arrange(Hour) %>% 
+  mutate(ylabelpos = (lag(n) + (n + lag(n)))/2) %>%
+  mutate(ylabelpos = ifelse(is.na(ylabelpos), n/2, ylabelpos))
+  
+  p_tod = tod_dat %>% 
+    ggplot() + 
+    geom_col(col = 'black',
+             aes(x = Hour, y = n, fill = highr)) +
+    geom_text(aes(x = Hour, y = ylabelpos, label = n),
+              size = 5,
+              data = tod_dat %>% filter(highr == F)) +
+    geom_label_repel(aes(x = Hour, 
+                         y = ylabelpos,
+                         fill = highr, label = n),
+                     size = 5,
+                     nudge_y = 40,
+                     data = tod_dat %>% filter(highr == T)) +
+    scale_fill_brewer(palette = 'Set2', direction = -1) + 
+    scale_color_brewer(palette = 'Set2', direction = -1, guide = 'none') +
+    scale_x_continuous(breaks = c(0:24)) +
+    labs(title = paste0('Valemount Inspections ',year),
+         y = 'Number of Inspections',
+         x = 'Hour of Day',
+         fill = 'High Risk') + 
+    theme(axis.title = element_text(size = 15),
+          axis.text = element_text(size = 13),
+          title = element_text(size = 18))
+  
+  p_tod
+  
+  ggsave(paste0('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2022/Extra Figures/Valemount_TimeOfDay_',year,'.png'),
+         p_tod,
+         dpi = 300,
+         width = 10,
+         height = 7)
+}
+```
