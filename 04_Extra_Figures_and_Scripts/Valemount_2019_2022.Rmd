@@ -1,0 +1,111 @@
+---
+title: "Valemount 2019-2022"
+author: "Chris Madsen"
+date: "`r Sys.date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(ggpubr)
+library(ggrepel)
+library(tidyverse)
+library(sf)
+library(openxlsx)
+library(lubridate)
+library(plotly)
+
+#These lines below set options for all of the code for the rest of this script. You probably don't need to change any of these.
+knitr::opts_chunk$set(echo = F, warning = F, message = F, fig.width = 8, fig.height = 4)
+theme_set(theme_light())
+```
+
+# Exploration of Valemount Inspection Data
+## 2019 - 2022
+
+```{r import_data}
+#Read in data (cleaned). These data do not have any of the "test" records from metabase.
+dat = read_excel("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Watercraft Inspection Data/Multiyear data/WatercraftInspectionData_AllYears_Selected_Columns.xlsx",
+                     col_type = "text")
+```
+
+```{r clean_data}
+dt = dat %>% 
+  filter(str_detect(Station,'Valemount')) %>% 
+  mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) %>% 
+  mutate(Year = lubridate::year(TimeOfInspection),
+         day_of_week = lubridate::wday(TimeOfInspection,label=T),
+         Hour = lubridate::hour(TimeOfInspection)) %>% 
+  filter(Year >= 2019) %>% 
+  dplyr::select(Station, TimeOfInspection, Year, day_of_week, Hour, highr = High_Risk_AIS_Ind)
+```
+
+## Time of Day
+
+```{r day_of_week}
+p_dow = dt %>% 
+  count(Year,highr,day_of_week) %>% 
+  mutate(highr = factor(highr, levels = c(TRUE,FALSE))) %>% 
+  group_by(Year,day_of_week) %>% 
+  arrange(day_of_week) %>% 
+  mutate(ylabelpos = (lag(n) + (n + lag(n)))/2) %>% 
+  mutate(ylabelpos = ifelse(is.na(ylabelpos), n/2, ylabelpos)) %>% 
+  ggplot() + 
+  geom_col(col = 'black',
+           aes(x = day_of_week, y = n, fill = highr)) +
+  geom_text(aes(x = day_of_week, y = ylabelpos, label = n),
+            size = 5) +
+  scale_fill_brewer(palette = 'Set2', direction = -1) + 
+  labs(title = 'Valemount Inspections 2022',
+       subtitle = '(No Inspections 2019 - 2020)',
+       y = 'Number of Inspections',
+       x = 'Day of Week',
+       fill = 'High Risk') + 
+  theme(axis.title = element_text(size = 15),
+        axis.text = element_text(size = 13),
+        title = element_text(size = 18))
+  
+p_dow
+
+ggsave('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2022/Extra Figures/Valemount_DayOfWeek.png',
+       p_dow,
+       dpi = 300,
+       width = 10,
+       height = 7)
+```
+
+## Time of Day
+
+```{r}
+p_tod = dt %>% 
+  count(Year,highr,Hour) %>% 
+  mutate(highr = factor(highr, levels = c(TRUE,FALSE))) %>% 
+  group_by(Year,Hour) %>% 
+  arrange(Hour) %>% 
+  mutate(ylabelpos = (lag(n) + (n + lag(n)))/2) %>%
+  mutate(ylabelpos = ifelse(is.na(ylabelpos), n/2, ylabelpos)) %>%
+  ggplot() + 
+  geom_col(col = 'black',
+           aes(x = Hour, y = n, fill = highr)) +
+  geom_text(aes(x = Hour, y = ylabelpos, label = n),
+            size = 5) +
+  scale_fill_brewer(palette = 'Set2', direction = -1) + 
+  scale_x_continuous(breaks = c(0:24)) +
+  labs(title = 'Valemount Inspections 2022',
+       subtitle = '(No Inspections 2019 - 2020)',
+       y = 'Number of Inspections',
+       x = 'Hour of Day',
+       fill = 'High Risk') + 
+  theme(axis.title = element_text(size = 15),
+        axis.text = element_text(size = 13),
+        title = element_text(size = 18))
+  
+p_tod
+
+ggsave('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2022/Extra Figures/Valemount_TimeOfDay.png',
+       p_tod,
+       dpi = 300,
+       width = 10,
+       height = 7)
+```
+
