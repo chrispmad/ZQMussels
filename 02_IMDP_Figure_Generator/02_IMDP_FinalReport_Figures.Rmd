@@ -18,6 +18,7 @@ sf,
 RColorBrewer,
 openxlsx,
 scales,
+tmap,
 lubridate,
 plotrix)
 
@@ -140,15 +141,6 @@ rm(rovers)
 rovers_to_drop = c("Scheduled Inspection","Other","Okanagan","Penticton Roving")
 ```
 
-<!-- ```{css css_changes_for_leaflet_maps, echo = FALSE} -->
-<!-- .legend { -->
-<!--     font-size: large; -->
-<!-- } -->
-<!-- .leaflet-control-scale-line { -->
-<!--     font-size: large; -->
-<!-- } -->
-<!-- ``` -->
-
 ### Map 1. Inspection Stations by Type
 
 ```{r map1_inspection_stations_by_type, fig.width=800}
@@ -164,64 +156,37 @@ stations_for_maps = stations %>%
   mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) %>% 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
 
-station_type_pal = colorFactor(
-  palette = 'RdYlBu',
-  domain = unique(stations_for_maps$station_type)
-)
+# Make a custom-sized viewing box around stations in BC.
+bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
+                         lat = c(48, 56)) %>% 
+  st_as_sf(coords = c("lon","lat"), crs = 4326))
 
-map_1 = leaflet(
-  options = leafletOptions(style = list(
-    "font-size" = "large"
-  ))
-) %>% 
-  addProviderTiles(providers$CartoDB) %>% 
-  addPolygons(
-    color = 'purple',
-    fillColor = 'transparent',
-    weight = 2,
-    data = bc_bound
-  ) %>% 
-  addCircleMarkers(
-    color = 'black',
-    fillColor = ~station_type_pal(station_type),
-    weight = 1,
-    fillOpacity = 0.8,
-    label = ~lapply(
-      paste0(
-          "<p style = 'font-size: ",
-          my_text_size,"
-          '>",
-          paste0(
-            ifelse(str_detect(map_label,"Roving$"),"","<br>"),
-            map_label
-          ),
-          "</p>"), 
-      htmltools::HTML),
-    labelOptions = ~labelOptions(noHide = T, 
-                                textOnly = T, 
-                                textsize = 15),
-    data = stations_for_maps
-  ) %>% 
-  addLegend(
-    pal = station_type_pal,
-    values = ~station_type,
-    title = "2022 Watercraft Inspection Stations",
-    # labFormat = function(type, cuts, p) paste0(labels),
-    data = stations_for_maps
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lng = -120, lat = 52.5, zoom = 6)
+# Download maptiles for BC station map
+bc_stations_basemap = maptiles::get_tiles(x = bc_station_view, provider = 'CartoDB.Positron', zoom = 6, crop = F)
 
-map_1 %>%
-  mapview::mapshot(file = "Map1_Stations_by_Type.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton")
-  )
+# Set plotting mode for tmap.
+tmap_mode('plot')
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg"))
+map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Watercraft \nInspection Stations') + 
+  tm_shape(bc_bound) + 
+    tm_borders(col = 'grey', lwd = 2) + 
+  tm_shape(stations_for_maps) + 
+    tm_symbols(col = "station_type", title.col = '') +
+    tm_text("map_label", auto.placement = TRUE, 
+            size = 0.65) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
+
+map_1_tmap
+
+tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', dpi = 300)
 ```
 
-### Map 2: Total Inspections by Station
+### Map 2. Total Inspections by Station
 
 ```{r map2_total_inspections_by_station}
 # Grab inspection stations shapefile.
@@ -254,9 +219,17 @@ st = st %>%
     num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     num_insp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(num_insp_b = factor(num_insp_b, levels = c(1:5))) %>% 
   arrange(num_insp_b) %>% 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+stations_sf = st_as_sf(st, coords = c("lon","lat"), crs = 4326)
+
+# Make a custom-sized viewing box around stations in BC.
+bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
+                         lat = c(48, 56)) %>% 
+  st_as_sf(coords = c("lon","lat"), crs = 4326))
+
+tmap_mode('plot')
 
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
@@ -264,57 +237,31 @@ my_pal = leaflet::colorFactor(
   reverse = T
 )
 
-labels = unique(st$bin_label)
+map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Inspections \nby Stations',
+                type = 'symbol',
+                labels = unique(stations_sf$bin_label),
+                col = my_pal(unique(stations_sf$num_insp_b)),
+                size = log(unique(stations_sf$num_insp_b)+1)) + 
+  tm_shape(bc_bound) +
+    tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(stations_sf) + 
+    tm_symbols(col = "num_insp_b", palette = '-Spectral',
+               size = 'num_insp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("map_label", auto.placement = TRUE, 
+            size = 0.75) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
 
-map_2 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>% 
-  addPolygons(
-    color = 'purple',
-    fillColor = 'transparent',
-    weight = 2,
-    data = bc_bound
-  ) %>% 
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(num_insp_b),
-    # Apply HTML to the labels so we can get line breaks in longer names.
-    # Don't apply this to spaces followed by a number (e.g. '(Hwy 3)')
-    label = ~lapply(
-      paste0(
-          "<p style = 'font-size: ",
-          my_text_size,
-          ";'>",
-          paste0(
-            ifelse(str_detect(map_label,"Roving$"),"","<br>"),
-            map_label
-          ),
-          "</p>"), 
-      htmltools::HTML),
-    radius = ~as.numeric(num_insp_b)*5,
-    labelOptions = ~labelOptions(noHide = T, 
-                                textOnly = T, 
-                                textsize = 15,
-                                offset = c(-5,-10)),
-    data = st
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~num_insp_b,
-    title = "2022 Inspections by Station",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = st
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lng = -120, lat = 52.5, zoom = 6)
+map_2_tmap
 
-map_2 %>%
-  mapview::mapshot(file = "Map2_Total_Inspections_by_Station.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"))
-
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg"))
+tmap_save(tm = map_2_tmap, filename = 'Map2_Total_Inspections_by_Station.jpg', dpi = 300)
 ```
 
 ### Figure 3 Total Boats by Station
@@ -725,8 +672,6 @@ ggsave("Fig11_DestinationWaterbody_Percent_Inspections.jpg",p11)
 ```{r map2_home_residence_of_boats}
 sources_centroid = read_sf(paste0(my_opts$remote_spatial_data,'Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Inspections_by_source_centroid.gpkg'))
 
-# ggplot() + geom_sf(data = sources_centroid)
-
 # Add some labelling logic:
 # 1. If a given state/province/estado has no inspections, its name should be grey.
 #    and it should have no dot.
@@ -751,8 +696,7 @@ sources_centroid = sources_centroid %>%
     TotalInsp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     TotalInsp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(TotalInsp_b = factor(TotalInsp_b, levels = c(1:5))) %>% 
-  arrange(TotalInsp_b)
+  arrange(TotalInsp)
 
 sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
 
@@ -760,46 +704,59 @@ sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
 sources_centroid = sources_centroid %>% 
   filter(!(NAME_0 == 'Mexico' & is.na(TotalInsp)))
 
-# TEST #
 source_pal = leaflet::colorFactor(
   palette = 'Spectral',
-  domain = sources_centroid$TotalInsp_b,
+  domain = unique(sources_centroid$TotalInsp_b),
   reverse = T
 )
 
-labels = unique(sources_centroid$bin_label)
+northamerica_view = tibble(lon = c(-174,-50),
+                           lat = c(73,11.2)) %>% 
+  st_as_sf(coords = c("lon","lat"), crs = 4326)
 
-map_3 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>%
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(TotalInsp_b),
-    # Apply HTML to the labels.
-    label = ~lapply(paste0("<p style = 'font-size: large;color:",map_label_colour,"'>",ABBR,"</p>"), htmltools::HTML),
-    labelOptions = labelOptions(noHide = T, textOnly = T,
-                                textsize = 20),
-    radius = ~as.numeric(TotalInsp_b)*5,
-    data = sources_centroid
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~TotalInsp_b,
-    title = "2022 Home Residence Freqeuncy",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = sources_centroid
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 50, lng = -100, zoom = 4)
+# Download maptiles North America
+northamerica_basemap = maptiles::get_tiles(x = northamerica_view, provider = 'CartoDB.Positron', zoom = 4, crop = F)
 
-map_3 %>% 
-  mapview::mapshot(file = "Map3_Home_Residence_Frequency.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"),
-                   vwidth = 1400, vheight = 1100)
+# Split the centroid spatial object into 2: one with high risk inspections,
+# and one without.
+centr_with_dat = sources_centroid %>% filter(!is.na(TotalInsp))
+centr_without_dat = sources_centroid %>% filter(is.na(TotalInsp))
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map3_Home_Residence_Frequency.jpg"))
+# Add in colours as new column.
+centr_with_dat = centr_with_dat %>%
+  mutate(my_colors = source_pal(TotalInsp_b))
+
+map_3_tmap = tm_shape(northamerica_basemap, 
+                      bbox = northamerica_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Home Residence\n Frequency',
+                type = 'symbol',
+                labels = unique(centr_with_dat$bin_label),
+                col = unique(centr_with_dat$my_colors),
+                size = log(unique(centr_with_dat$TotalInsp_b)+1)) + 
+  tm_shape(centr_with_dat) + 
+    tm_symbols(col = "my_colors", 
+               palette = '-Spectral',
+               size = 'TotalInsp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("ABBR", auto.placement = T, 
+            size = 0.75) +
+  tm_shape(centr_without_dat) + 
+    tm_text("ABBR", col = 'grey', 
+            size = 0.8,
+            auto.placement = FALSE) +
+    tm_symbols(col = 'grey',
+               size = 0.1) + 
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('left','bottom'),
+            scale = 1.25)
+
+map_3_tmap
+
+tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', dpi = 300)
 ```
 
 ### Figure 12 Percent Compliance by station
@@ -1031,7 +988,7 @@ p16
 ggsave("Fig16_Total_HR_Inspections_3_year_spread.jpg",p16)
 ```
 
-### Figure 17. Map 4. High-risk Inspections by Station
+### Map 4. High-risk Inspections by Station
 
 ```{r fig17_map4_high_risk_insp_by_station}
 # Join number of inspections to stations.
@@ -1060,9 +1017,11 @@ st = st %>%
     num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     num_insp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(num_insp_b = factor(num_insp_b, levels = c(1:5))) %>% 
+  # mutate(num_insp_b = factor(num_insp_b, levels = c(1:5))) %>% 
   arrange(num_insp_b) %>% 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+stations_sf = st_as_sf(st, coords = c("lon","lat"), crs = 4326)
 
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
@@ -1070,59 +1029,31 @@ my_pal = leaflet::colorFactor(
   reverse = T
 )
 
-labels = unique(st$bin_label)
+map_4_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 High Risk \nInspections',
+                type = 'symbol',
+                labels = unique(stations_sf$bin_label),
+                col = my_pal(unique(stations_sf$num_insp_b)),
+                size = log(unique(stations_sf$num_insp_b)+1)) + 
+  tm_shape(bc_bound) +
+    tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(stations_sf) + 
+    tm_symbols(col = "num_insp_b", palette = '-Spectral',
+               size = 'num_insp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("map_label", auto.placement = TRUE, 
+            size = 0.75) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
 
-map_4 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>% 
-  addPolygons(
-    color = 'purple',
-    fillColor = 'transparent',
-    weight = 2,
-    data = bc_bound
-  ) %>% 
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(num_insp_b),
-    # Apply HTML to the labels so we can get line breaks in longer names.
-    # Don't apply this to spaces followed by a number (e.g. '(Hwy 3)')
-    label = ~lapply(
-      paste0(
-          "<p style = 'font-size: ",
-          my_text_size,
-          ";'>",
-          paste0(
-            ifelse(str_detect(map_label,"Roving$"),"","<br>"),
-            map_label
-          ),
-          "</p>"), 
-      htmltools::HTML),
-    radius = ~as.numeric(num_insp_b)*5,
-    labelOptions = ~labelOptions(noHide = T, 
-                                textOnly = T, 
-                                textsize = 15#,
-                                #offset = c(4*as.numeric(num_insp_b),
-                                #           -2*as.numeric(num_insp_b))
-                                ),
-    data = st
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~num_insp_b,
-    title = "2022 High Risk Inspections",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = st
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lng = -120, lat = 52.5, zoom = 6)
+map_4_tmap
 
-map_4 %>% 
-  mapview::mapshot(file = "Map4_HighRisk_Inspections_by_Station.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"))
-
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map4_HighRisk_Inspections_by_Station.jpg"))
+tmap_save(tm = map_4_tmap, filename = 'Map4_HighRisk_Inspections_by_Station.jpg', dpi = 300)
 ```
 
 ### Figure 18 Source Locations of High-Risk Inspections
@@ -1343,9 +1274,9 @@ p19
 ggsave("Fig19_Highrisk_Destination_Regions_Pie_Charts.jpg",p19)
 ```
 
-### Map 4. Home Residence Frequency of High-risk Inspections
+### Map 5. Home Residence Frequency of High-risk Inspections
 
-```{r map_4_home_residence_freq_high_risk}
+```{r map_5_home_residence_freq_high_risk}
 sources_centroid = read_sf(paste0(my_opts$remote_spatial_data,'Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Inspections_by_source_centroid.gpkg'))
 
 # Add some labelling logic:
@@ -1372,7 +1303,7 @@ sources_centroid = sources_centroid %>%
     HRInsp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     HRInsp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(HRInsp_b = factor(HRInsp_b, levels = c(1:5))) %>% 
+  # mutate(HRInsp_b = factor(HRInsp_b, levels = c(1:5))) %>% 
   arrange(HRInsp_b)
 
 sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
@@ -1381,7 +1312,6 @@ sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
 sources_centroid = sources_centroid %>% 
   filter(!(NAME_0 == 'Mexico' & is.na(HRInsp)))
 
-# TEST #
 source_pal = leaflet::colorFactor(
   palette = 'Spectral',
   domain = sources_centroid$HRInsp_b,
@@ -1390,40 +1320,49 @@ source_pal = leaflet::colorFactor(
 
 labels = unique(sources_centroid$bin_label)
 
-map_4 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>%
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(HRInsp_b),
-    # Apply HTML to the labels.
-    label = ~lapply(paste0("<p style = 'font-size: large;color:",map_label_colour,"'>",ABBR,"</p>"), htmltools::HTML),
-    labelOptions = labelOptions(noHide = T, textOnly = T,
-                                textsize = 20),
-    radius = ~as.numeric(HRInsp_b)*5,
-    data = sources_centroid
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~HRInsp_b,
-    title = "2022 Source of High Risk Inspections",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = sources_centroid
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 50, lng = -100, zoom = 4)
+# Split the centroid spatial object into 2: one with high risk inspections,
+# and one without.
+centr_with_dat = sources_centroid %>% filter(!is.na(HRInsp))
+centr_without_dat = sources_centroid %>% filter(is.na(HRInsp))
 
-map_4 %>% 
-  mapview::mapshot(file = "Map4_Home_Residence_Frequency_HighRisk.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"),
-                   vwidth = 1400, vheight = 1100)
+# Add in colours as new column.
+centr_with_dat = centr_with_dat %>%
+  mutate(my_colors = source_pal(HRInsp_b))
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map4_Home_Residence_Frequency_HighRisk.jpg"))
+map_5_tmap = tm_shape(northamerica_basemap, 
+                      bbox = northamerica_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Source of \nHigh Risk Inspections',
+                type = 'symbol',
+                labels = unique(centr_with_dat$bin_label),
+                col = unique(centr_with_dat$my_colors),
+                size = log(unique(centr_with_dat$HRInsp_b)+1)) + 
+  tm_shape(centr_with_dat) + 
+    tm_symbols(col = "my_colors", 
+               palette = '-Spectral',
+               size = 'HRInsp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("ABBR", auto.placement = T, 
+            size = 0.75) +
+  tm_shape(centr_without_dat) + 
+    tm_text("ABBR", col = 'grey', 
+            size = 0.8,
+            auto.placement = FALSE) +
+    tm_symbols(col = 'grey',
+               size = 0.1) + 
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('left','bottom'),
+            scale = 1.25)
+
+map_5_tmap
+
+tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jpg', dpi = 300)
 ```
 
-### Map 5. Destination locations of High Risk Inspections
+### Map 6. Destination locations of High Risk Inspections
 
 ```{r dest_location_high_risk_inspections}
 dest_wb = read_sf('W:/CMadsen/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp') %>% 
@@ -1433,7 +1372,7 @@ dest_wb_hr = dest_wb %>%
   mutate(HighRisk = HR_mot + HR_nnmt) %>% 
   filter(HighRisk > 0)
 
-# Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
+# Get 5 levels of natural breaks ('jenks'); colour of waterbodies depends on these bins.
 dest_wb_hr = dest_wb_hr %>% 
   mutate(jenks = list(BAMMtools::getJenksBreaks(HighRisk, k = 6))) %>% 
   unnest_wider(jenks, names_sep = '_') %>% 
@@ -1451,7 +1390,7 @@ dest_wb_hr = dest_wb_hr %>%
     HighRisk_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     HighRisk_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(HighRisk_b = factor(HighRisk_b, levels = c(1:5))) %>% 
+  # mutate(HighRisk_b = factor(HighRisk_b, levels = c(1:5))) %>% 
   arrange(HighRisk_b)
 
 my_pal = leaflet::colorFactor(
@@ -1468,39 +1407,39 @@ dest_wb_hr = st_set_geometry(dest_wb_hr, dest_wb_hr$geometry)
 dest_wb_hr = dest_wb_hr %>% 
   mutate(GNIS_NA = ifelse(as.numeric(HighRisk_b) < 3, NA, GNIS_NA))
 
-map_5 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>% 
-  addPolygons(
-    color = 'purple',
-    fillColor = 'transparent',
-    weight = 2,
-    data = bc_bound
-  ) %>% 
-  addPolygons(
-    color = ~my_pal(HighRisk_b),
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(HighRisk_b),
-    label = ~GNIS_NA,
-    labelOptions = labelOptions(noHide = T, textOnly = T),
-    data = dest_wb_hr
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~HighRisk_b,
-    title = "2022 Inspections by Station",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = dest_wb_hr
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 53, lng = -122, zoom = 6)
+# Buffer the destination waterbodies a bit.
+dest_wb_hr = st_buffer(dest_wb_hr, 500)
 
-map_5 %>% 
-  mapview::mapshot(file = "Map5_Destination_locations_HighRisk.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"))
+# # Get basemap for all of BC.
+# bc_bbox = st_bbox(bc_bound)
+# # Expand the eastern border a bit more into Alberta.
+# bc_bbox[[3]] = -110
+# 
+# all_bc_basemap = maptiles::get_tiles(x = bc_bbox, provider = 'OpenStreetMap', zoom = 6, crop = F)
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map5_Destination_locations_HighRisk.jpg"))
+map_6_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 High Risk\nDestination Waterbodies') +
+  tm_shape(bc_bound) + 
+    tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(dest_wb_hr) +
+    tm_fill(col = "bin_label", 
+            palette = '-Spectral',
+            legend.col.show = T,
+            title.col = '') +
+  tm_text("GNIS_NA", 
+          col = 'black',
+          auto.placement = F, 
+          overwrite.lines = T,
+          just = 'right',
+            size = 0.5) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
+
+tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', dpi = 300)
+
 ```
 
 ### Figure 22 Pie Chart of Total Watercraft Types
@@ -1674,7 +1613,7 @@ p26
 ggsave("Fig26_MusselFouled_Destination_Regions_Pie_Charts.jpg",p26)
 ```
 
-### Figure 27. Map 6. Source Location of Mussel-fouled Watercraft
+### Map 7. Source Location of Mussel-fouled Watercraft
 
 ```{r source_for_mussel_fouled}
 sources_centroid = read_sf(paste0(my_opts$remote_spatial_data,'Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Inspections_by_source_centroid.gpkg'))
@@ -1699,7 +1638,7 @@ sources_centroid = sources_centroid %>%
     MFInsp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
     MFInsp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4)
   )) %>% 
-  mutate(MFInsp_b = factor(MFInsp_b, levels = c(1:3))) %>% 
+  # mutate(MFInsp_b = factor(MFInsp_b, levels = c(1:3))) %>% 
   arrange(MFInsp_b)
 
 sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
@@ -1710,7 +1649,6 @@ sources_centroid = sources_centroid %>%
   # And remove the row for BC.
   filter(NAME_1 != 'British Columbia')
 
-# TEST #
 source_pal = leaflet::colorFactor(
   palette = 'Spectral',
   domain = sources_centroid$MFInsp_b,
@@ -1719,36 +1657,46 @@ source_pal = leaflet::colorFactor(
 
 labels = unique(sources_centroid$bin_label)
 
-map6 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>%
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(MFInsp_b),
-    # Apply HTML to the labels.
-    label = ~lapply(paste0("<p style = 'font-size: large;color:",map_label_colour,"'>",ABBR,"</p>"), htmltools::HTML),
-    labelOptions = labelOptions(noHide = T, textOnly = T,
-                                textsize = 20),
-    radius = ~as.numeric(MFInsp_b)*5,
-    data = sources_centroid
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~MFInsp_b,
-    title = "2022 Mussel Fouled Inspections",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = sources_centroid
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 50, lng = -100, zoom = 4)
+# Split the centroid spatial object into 2: one with high risk inspections,
+# and one without.
+centr_with_dat = sources_centroid %>% filter(!is.na(MFInsp_b))
+centr_without_dat = sources_centroid %>% filter(is.na(MFInsp_b))
 
-map6 %>% 
-  mapview::mapshot(file = "map6_Source_of_MF_boats.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"))
+# Add in colours as new column.
+centr_with_dat = centr_with_dat %>%
+  mutate(my_colors = source_pal(MFInsp_b))
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/map6_Source_of_MF_boats.jpg"))
+map_7_tmap = tm_shape(northamerica_basemap, 
+                      bbox = northamerica_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Source of \nMussel Fouled Inspections',
+                type = 'symbol',
+                labels = unique(centr_with_dat$bin_label),
+                col = unique(centr_with_dat$my_colors),
+                size = log(unique(centr_with_dat$MFInsp_b)+1)) + 
+  tm_shape(centr_with_dat) + 
+    tm_symbols(col = "my_colors", 
+               palette = '-Spectral',
+               size = 'MFInsp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("ABBR", auto.placement = T, 
+            size = 0.75) +
+  tm_shape(centr_without_dat) + 
+    tm_text("ABBR", col = 'grey', 
+            size = 0.8,
+            auto.placement = FALSE) +
+    tm_symbols(col = 'grey',
+               size = 0.1) + 
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('left','bottom'),
+            scale = 1.25)
+
+map_7_tmap
+
+tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', dpi = 300)
 ```
 
 ### Figure 28 Pie Chart of Mussel-fouled Watercraft Types
@@ -1808,7 +1756,7 @@ ggsave("Fig29_Commerically_Hauled_by_Station.jpg",p29)
 
 ```
 
-### Map 7. Commercially Hauled Boat Source Locations
+### Map 8. Commercially Hauled Boat Source Locations
 
 ```{r map7_commercially_hauled_boat_sources}
 sources_centroid = read_sf(paste0(my_opts$remote_spatial_data,'Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Inspections_by_source_centroid.gpkg'))
@@ -1837,7 +1785,7 @@ sources_centroid = sources_centroid %>%
     CHInsp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     CHInsp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) %>% 
-  mutate(CHInsp_b = factor(CHInsp_b, levels = c(1:5))) %>% 
+  # mutate(CHInsp_b = factor(CHInsp_b, levels = c(1:5))) %>% 
   arrange(CHInsp_b)
 
 sources_centroid = st_set_geometry(sources_centroid, sources_centroid$geom)
@@ -1855,40 +1803,49 @@ source_pal = leaflet::colorFactor(
 
 labels = unique(sources_centroid$bin_label)
 
-map7 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>%
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~my_pal(CHInsp_b),
-    # Apply HTML to the labels.
-    label = ~lapply(paste0("<p style = 'font-size: large;color:",map_label_colour,"'>",ABBR,"</p>"), htmltools::HTML),
-    labelOptions = labelOptions(noHide = T, textOnly = T,
-                                textsize = 20),
-    radius = ~as.numeric(CHInsp_b)*5,
-    data = sources_centroid
-  ) %>% 
-  addLegend(
-    pal = my_pal,
-    values = ~CHInsp_b,
-    title = "2022 Commercially Hauled Inspections",
-    labFormat = function(type, cuts, p) paste0(labels),
-    data = sources_centroid
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 50, lng = -100, zoom = 4)
+# Split the centroid spatial object into 2: one with high risk inspections,
+# and one without.
+centr_with_dat = sources_centroid %>% filter(!is.na(CHInsp_b))
+centr_without_dat = sources_centroid %>% filter(is.na(CHInsp_b))
 
-map7 %>% 
-  mapview::mapshot(file = "Map7_Commercially_Hauled_Watercraft_Sources.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"),
-                   vwidth = 1400, vheight = 1100)
+# Add in colours as new column.
+centr_with_dat = centr_with_dat %>%
+  mutate(my_colors = source_pal(CHInsp_b))
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map7_Commercially_Hauled_Watercraft_Sources.jpg"))
+map_8_tmap = tm_shape(northamerica_basemap, 
+                      bbox = northamerica_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Commercially \nHauled Inspections',
+                type = 'symbol',
+                labels = unique(centr_with_dat$bin_label),
+                col = unique(centr_with_dat$my_colors),
+                size = log(unique(centr_with_dat$CHInsp_b)+1)) + 
+  tm_shape(centr_with_dat) + 
+    tm_symbols(col = "my_colors", 
+               palette = '-Spectral',
+               size = 'CHInsp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               title.col = '') +
+    tm_text("ABBR", auto.placement = T, 
+            size = 0.75) +
+  tm_shape(centr_without_dat) + 
+    tm_text("ABBR", col = 'grey', 
+            size = 0.8,
+            auto.placement = FALSE) +
+    tm_symbols(col = 'grey',
+               size = 0.1) + 
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('left','bottom'),
+            scale = 1.25)
+
+map_8_tmap
+
+tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', dpi = 300)
 ```
 
-### Map 8. Lake Monitoring Plankton Sample Tows
+### Map 9. Lake Monitoring Plankton Sample Tows
 
 ```{r map8_lake_monitoring_figure}
 lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
@@ -1904,40 +1861,32 @@ lab_sf = lab_dat %>%
            crs = 4326)
 
 sampling_pal = leaflet::colorFactor(
-  palette = 'Dark2',
+  palette = 'Set3',
   domain = lab_sf$`sampling group/agency`
 )
 
-map8 = leaflet() %>% 
-  addProviderTiles(providers$CartoDB) %>% 
-  addPolygons(
-    color = 'purple',
-    fillColor = 'transparent',
-    weight = 2,
-    data = bc_bound
-  ) %>% 
-  addCircleMarkers(
-    color = 'black',
-    weight = 1,
-    fillOpacity = 0.8,
-    fillColor = ~sampling_pal(`sampling group/agency`),
-    data = lab_sf
-  ) %>% 
-  addLegend(
-    pal = sampling_pal,
-    values = ~`sampling group/agency`,
-    title = "2022 Invasive Mussel Lake Monitoring",
-    data = lab_sf
-  ) %>% 
-  addScaleBar('bottomleft',
-              options = scaleBarOptions(maxWidth = 300)) %>% 
-  setView(lat = 52.75, lng = -121.5, zoom = 6)
+lab_sf = lab_sf %>% 
+  mutate(my_colors = sampling_pal(`sampling group/agency`))
 
-map8 %>% 
-  mapview::mapshot(file = "Map8_Map_of_Lake_Sampling.jpg",
-                   remove_controls = c("zoomControl","layersControl","homeButton"))
+map_9_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = '2022 Invasive \nMussel Lake Monitoring',
+                type = 'symbol',
+                labels = unique(lab_sf$`sampling group/agency`),
+                col = sampling_pal(unique(lab_sf$`sampling group/agency`))) + 
+  tm_shape(bc_bound) + 
+    tm_borders(col = 'grey', lwd = 2) + 
+  tm_shape(lab_sf) + 
+    tm_symbols(col = "my_colors",
+               title.col = '') +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
 
-knitr::include_graphics(paste0(my_opts$zqm_figure_output_remote_folder,"/",my_opts$year,"/GIS Maps and Excel Figures/ExcelFigures/Map8_Map_of_Lake_Sampling.jpg"))
+map_9_tmap
+
+tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', dpi = 300)
 ```
 
 ### Figure 30 

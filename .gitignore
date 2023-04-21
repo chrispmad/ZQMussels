@@ -2,10 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
-/data
-/output
+/data/**
+/output/**
 Options.csv
 Options.json
 ZQMussels.Rproj
-/01_DataCleaning/data
-/01_DataCleaning/output
+/01_DataCleaning/data/**
+/01_DataCleaning/output/**
+04_Extra_Figures_and_Scripts/output/**
