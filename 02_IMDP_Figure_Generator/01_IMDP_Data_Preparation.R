@@ -25,7 +25,7 @@ my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv")
 my.year = my_opts$year
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
-update.gis = TRUE
+update.gis = FALSE
 
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:

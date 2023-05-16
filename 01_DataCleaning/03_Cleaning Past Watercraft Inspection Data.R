@@ -113,6 +113,7 @@ dat = dat %>%
     str_detect(Station, "Paulson") ~ "Paulson Summit",
     str_detect(Station, "Penticton") ~ "Penticton Roving",
     str_detect(Station, "Salmo") ~ "Salmo",
+    str_detect(Station, 'Sumas') ~ 'Fraser Valley Roving',
     TRUE ~ Station)
   )
 

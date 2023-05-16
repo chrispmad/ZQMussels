@@ -16,9 +16,6 @@ library(sp)
 library(lubridate)
 library(openxlsx)
 
-rm(list=ls())
-gc()
-
 setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels/")
 
 #Read in options

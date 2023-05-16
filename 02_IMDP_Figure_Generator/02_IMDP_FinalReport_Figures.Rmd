@@ -12,6 +12,7 @@ readxl,
 ggpubr,
 ggrepel,
 ggExtra,
+ggtext,
 tidyverse,
 leaflet,
 sf,
@@ -123,7 +124,7 @@ bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
 
 ```{r}
 #Establish colour scheme for roving stations that we keep.
-rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden","Fraser Valley Roving"),
+rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden","Fraser Valley Roving","Pacific","Penticton Roving"),
                     StationType = "Roving")
 
 station_types = bind_rows(rovers,
@@ -138,7 +139,7 @@ rm(rovers)
 
 ```{r}
 #Make one more vector of stations that we want to drop in the figures. These are roving stations.
-rovers_to_drop = c("Scheduled Inspection","Other","Okanagan","Penticton Roving")
+rovers_to_drop = c("Scheduled Inspection","Other","Okanagan")
 ```
 
 ### Map 1. Inspection Stations by Type
@@ -174,8 +175,8 @@ map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
     tm_borders(col = 'grey', lwd = 2) + 
   tm_shape(stations_for_maps) + 
     tm_symbols(col = "station_type", title.col = '') +
-    tm_text("map_label", auto.placement = TRUE, 
-            size = 0.65) +
+    tm_text("map_label", auto.placement = 1, 
+            size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('right','top'),
@@ -183,7 +184,7 @@ map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_1_tmap
 
-tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', dpi = 300)
+tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Map 2. Total Inspections by Station
@@ -252,7 +253,7 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("map_label", auto.placement = TRUE, 
+    tm_text("map_label", auto.placement = 1, 
             size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
@@ -261,16 +262,25 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_2_tmap
 
-tmap_save(tm = map_2_tmap, filename = 'Map2_Total_Inspections_by_Station.jpg', dpi = 300)
+tmap_save(tm = map_2_tmap, filename = 'Map2_Total_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
-### Figure 3 Total Boats by Station
+### Figure 3 Encounter Frequency by Station
 
 ```{r fig3_total_boats_by_station}
 fig3_data = dat %>% 
   filter(!Station %in% rovers_to_drop) %>% 
+  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
+         shift_end_time = openxlsx::convertToDateTime(End_Time)) %>% 
+  group_by(Station,Shift_ID) %>% 
+  reframe(NumberInsp = n(),
+            shift_hours = shift_end_time - shift_start_time) %>%
+  distinct() %>% 
   group_by(Station) %>% 
-  summarise(NumberInsp = n()) %>% 
+  reframe(NumberInsp = sum(NumberInsp),
+          effort_hours = sum(shift_hours)) %>% 
+  mutate(effort_hours = as.numeric(effort_hours/3600)) %>% 
+  mutate(encounter_freq = NumberInsp / effort_hours) %>% 
   left_join(dat_hr %>% 
               filter(Year == my.year) %>% 
               group_by(Station) %>% 
@@ -288,17 +298,38 @@ fig3_data = dat %>%
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) %>% 
   mutate(col.width = replace(col.width, col.width == 3, 4))
 
-p3 = fig3_data %>% 
+# The below code creates a double-Y-axis figure with total inspections on the left Y axis.
+# p3 = fig3_data %>% 
+#   ggplot() +
+#   geom_col(aes(x=StationLabel, y=NumberInsp/1000), fill = my.grey, width = 0.40) +
+#   geom_line(aes(x=StationLabel,y=PercentHR,group=1),col="red",size=2) +
+#    scale_y_continuous(breaks = seq(0,10,2),
+#                       #labels = paste0("10^",seq(0,10,2)),
+#      labels = number_format(suffix = "k"),
+#                         sec.axis = sec_axis(~., name = "% High Risk",
+#                                             breaks = seq(0,14,2))) +
+#   theme_classic() +
+#   labs(x = "", y = "Total Inspections") +
+#   scale_fill_brewer(palette = "Dark2") +
+#   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1),
+#         axis.text.y.right = element_text(colour = "red"),
+#         axis.title.y.right = element_text(colour = "red"),
+#         panel.grid.major.y = element_line(linetype = 2, colour = "darkgrey"))
+
+# The code below creates a double-Y-axis figure with encounter frequency (watercraft encounters divided by effort)
+# on the left Y axis.
+
+p3 = fig3_data %>%
   ggplot() +
-  geom_col(aes(x=StationLabel, y=NumberInsp/1000), fill = my.grey, width = 0.40) +
+  geom_col(aes(x=StationLabel, y=encounter_freq), fill = my.grey, width = 0.40) +
   geom_line(aes(x=StationLabel,y=PercentHR,group=1),col="red",size=2) +
-   scale_y_continuous(breaks = seq(0,10,2),
+   scale_y_continuous(#breaks = seq(0,10,2),
                       #labels = paste0("10^",seq(0,10,2)),
-     labels = number_format(suffix = "k"),
+     # labels = number_format(suffix = "k"),
                         sec.axis = sec_axis(~., name = "% High Risk",
                                             breaks = seq(0,14,2))) +
   theme_classic() +
-  labs(x = "", y = "Total Inspections") +
+  labs(x = "", y = "Encounter Frequency \n(Inspections per Hour of Effort)") +
   scale_fill_brewer(palette = "Dark2") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1),
         axis.text.y.right = element_text(colour = "red"),
@@ -314,11 +345,11 @@ ggsave("Fig3_EncounterFrequency_HR.jpg",p3)
 
 ```{r}
 p3.x = dat_all %>% 
-  filter(Year %in% c(2019:2021)) %>% 
-  filter(Station %in% c("Golden","Yahk","Olsen",
-                        "Radium","Mt. Robson","Osoyoos",
-                        "Dawson Creek",
-                        "Pacific")) %>% 
+  filter(Year %in% c((my.year-2):my.year)) %>% 
+  filter(Station %in% c('Golden','Olsen',
+                        'Yahk','Radium',
+                        'Mt. Robson','Osoyoos',
+                        'Dawson Creek','Pacific')) %>%
   group_by(Year, Station) %>% 
   summarise(NumberInsp = n()) %>% 
   group_by(Station) %>% 
@@ -337,7 +368,7 @@ p3.x = dat_all %>%
 
 p3.x
 
-ggsave("Fig3x_TotalInspections_2019_to_2021_All_Stations.jpg",p3.x)
+ggsave("Fig3x_TotalInspections_2020_to_2022_All_Stations.jpg",p3.x)
 ```
 
 ### Figure 4 Total Number of Jurisdictions
@@ -676,7 +707,7 @@ sources_centroid = read_sf(paste0(my_opts$remote_spatial_data,'Projects/ZQMussel
 # 1. If a given state/province/estado has no inspections, its name should be grey.
 #    and it should have no dot.
 sources_centroid = sources_centroid %>% 
-  mutate(map_label_colour = ifelse(is.na(TotalInsp), 'grey', 'black'))
+  mutate(map_label_colour = ifelse(is.na(TotalInsp), 'transparent', 'black'))
 
 # TEST # 
 sources_centroid = sources_centroid %>% 
@@ -741,14 +772,14 @@ map_3_tmap = tm_shape(northamerica_basemap,
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("ABBR", auto.placement = T, 
-            size = 0.75) +
-  tm_shape(centr_without_dat) + 
-    tm_text("ABBR", col = 'grey', 
-            size = 0.8,
-            auto.placement = FALSE) +
-    tm_symbols(col = 'grey',
-               size = 0.1) + 
+    tm_text("ABBR", auto.placement = 1, 
+            size = 0.60) +
+  # tm_shape(centr_without_dat) + 
+  #   tm_text("ABBR", col = 'grey', 
+  #           size = 0.8,
+  #           auto.placement = FALSE) +
+  #   tm_symbols(col = 'grey',
+  #              size = 0.1) + 
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('left','bottom'),
@@ -756,7 +787,7 @@ map_3_tmap = tm_shape(northamerica_basemap,
 
 map_3_tmap
 
-tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', dpi = 300)
+tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 12 Percent Compliance by station
@@ -882,9 +913,9 @@ p14 = dat %>%
                label=paste0(round(PercPrevInsp,0),"%"))) +
   theme_classic() +
   labs(x = "",y = "Percent Previously Inspected") + 
-  scale_y_continuous(breaks = seq(0,100,10), 
-                     limits = c(0,100),
-                     labels = paste0(seq(0,100,10),"%")) +  
+  scale_y_continuous(breaks = seq(0,40,10), 
+                     limits = c(0,40),
+                     labels = paste0(seq(0,40,10),"%")) +  
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
   scale_fill_brewer(palette = "Dark2")
 
@@ -978,9 +1009,10 @@ p16 = dat_hr %>%
             aes(x=the.month,
                 y=Number_HR+max(Number_HR)*0.2,
                label=round(Number_HR,0)),
-               nudge_x = 0.15) +
+               nudge_x = 0.20) +
   theme_classic() +
-  scale_fill_manual(values = c("darkgrey","lightgrey","black")) +
+  scale_fill_brewer(palette = 'Dark2') +
+  # scale_fill_manual(values = c("darkgrey","lightgrey","black")) +
   labs(x = "",y = "Number of High-Risk Inspections")
 
 p16
@@ -1044,7 +1076,7 @@ map_4_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("map_label", auto.placement = TRUE, 
+    tm_text("map_label", auto.placement = 4, 
             size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
@@ -1053,7 +1085,7 @@ map_4_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_4_tmap
 
-tmap_save(tm = map_4_tmap, filename = 'Map4_HighRisk_Inspections_by_Station.jpg', dpi = 300)
+tmap_save(tm = map_4_tmap, filename = 'Map4_HighRisk_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 18 Source Locations of High-Risk Inspections
@@ -1099,8 +1131,8 @@ p18 = ggarrange(ggplot(fig18_main_dat,
            fill = Previous_Waterbody_1_Province_Or_State)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0) +
-  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")),
-                   color = "black", nudge_x = 1.5) + 
+  geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")),
+                   color = "black", nudge_x = 0.7) + 
   theme_void() + 
   # scale_fill_brewer(palette = "Dark2") + 
   labs(fill = "Source") + 
@@ -1111,7 +1143,7 @@ ggplot(fig18_second_dat,
            fill = Previous_Waterbody_1_Province_Or_State)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")), color = "black",nudge_x = 0.7)+
+  geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")), color = "black",nudge_x = 0.7) +
   theme_void() + 
   labs(fill = "Source") + 
   ggtitle("Breakdown of `Other`") +
@@ -1186,9 +1218,12 @@ fig19_dat = dat_hr %>%
               arrange(DestRegion,REGION_G) %>% 
               group_by(DestRegion) %>% 
               slice(1)) %>% 
-#Any holes in this lookup table (e.g. cities) should be filled with DestRegion values.
+#Any holes in this lookup table (e.g. cities) should be filled with DestRegion values, unless
+  # those values have the word 'Lake' or 'River' in them, which indicates an unsuccessful spatial
+  # match to BC waterbodies (indicating a destination region outside of BC!).
   mutate(REGION_N = case_when(
-         is.na(REGION_N) ~ DestRegion,
+         is.na(REGION_N) & !str_detect(DestRegion, "(Lake|River)") ~ DestRegion,
+         is.na(REGION_N) & str_detect(DestRegion, '(Lake|River)') ~ 'Outside BC',
          T ~ REGION_N)) %>% 
   group_by(REGION_N) %>% 
   summarise(prop = sum(PercBoatsFromPlace))
@@ -1344,14 +1379,14 @@ map_5_tmap = tm_shape(northamerica_basemap,
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("ABBR", auto.placement = T, 
+    tm_text("ABBR", auto.placement = 1, 
             size = 0.75) +
-  tm_shape(centr_without_dat) + 
-    tm_text("ABBR", col = 'grey', 
-            size = 0.8,
-            auto.placement = FALSE) +
-    tm_symbols(col = 'grey',
-               size = 0.1) + 
+  # tm_shape(centr_without_dat) + 
+  #   tm_text("ABBR", col = 'grey', 
+  #           size = 0.8,
+  #           auto.placement = FALSE) +
+  #   tm_symbols(col = 'grey',
+  #              size = 0.1) + 
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('left','bottom'),
@@ -1359,7 +1394,7 @@ map_5_tmap = tm_shape(northamerica_basemap,
 
 map_5_tmap
 
-tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jpg', dpi = 300)
+tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Map 6. Destination locations of High Risk Inspections
@@ -1394,7 +1429,7 @@ dest_wb_hr = dest_wb_hr %>%
   arrange(HighRisk_b)
 
 my_pal = leaflet::colorFactor(
-  palette = 'Spectral',
+  palette = 'RdYlGn',
   domain = dest_wb_hr$HighRisk_b,
   reverse = T
 )
@@ -1424,7 +1459,8 @@ map_6_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
     tm_borders(col = 'grey', lwd = 2) +
   tm_shape(dest_wb_hr) +
     tm_fill(col = "bin_label", 
-            palette = '-Spectral',
+            palette = '-RdYlGn',
+            title = '',
             legend.col.show = T,
             title.col = '') +
   tm_text("GNIS_NA", 
@@ -1438,7 +1474,9 @@ map_6_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
             legend.position = c('right','top'),
             scale = 1.25)
 
-tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', dpi = 300)
+map_6_tmap
+
+tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
 
 ```
 
@@ -1453,9 +1491,10 @@ p22 = dat %>%
   pivot_longer(cols = c(`Non-motorized / Hand launched`,Simple,
                         Complex,`Very complex`)) %>% 
   mutate(value = as.numeric(value)) %>% 
+  # mutate(value = replace(value, value > 1, 1)) |> 
   group_by(name) %>% 
   summarise(NumberBoats = sum(value)) %>% 
-  mutate(TotalBoats = sum(NumberBoats)) %>% 
+  mutate(TotalBoats = sum(NumberBoats)) %>%
   mutate(PercBoats = 100*NumberBoats/TotalBoats) %>% 
   arrange(desc(name)) %>% 
   mutate(lab.ypos = cumsum(PercBoats) - 0.5*PercBoats) %>% 
@@ -1488,6 +1527,7 @@ p23 = dat_hr %>%
   pivot_longer(cols = c(`Non-motorized / Hand launched`,Simple,
                         Complex,`Very complex`)) %>% 
   mutate(value = as.numeric(value)) %>% 
+  # mutate(value = replace(value, value > 1, 1)) |> 
   group_by(name) %>% 
   summarise(NumberBoats = sum(value)) %>% 
   mutate(TotalBoats = sum(NumberBoats)) %>% 
@@ -1544,6 +1584,7 @@ write.xlsx(mf_time_table, paste0(my.external.output.folder,"/GIS Maps and Excel 
 p24 = mf_time_table %>% 
   pivot_longer(-Year) %>% 
   filter(name != "Total") %>% 
+  filter(Year > 2018) %>% 
   rename(Month = name) %>% 
   mutate(NumberBoats = as.numeric(value),
          Month = factor(Month,levels = c("April","May","June","July","August","September","October","November"))) %>% 
@@ -1563,22 +1604,40 @@ ggsave("Fig24_Musselfouled_by_Month.jpg",p24)
 
 ### Figure 25 Source Provinces / States for Mussel-fouled Boats
 ```{r fig25_source_province_states_for_musselfouled}
-p25 = dat_mf %>% 
-  filter(Year == 2021) %>% 
-  rename(prev = Previous_Waterbody_1_Province_Or_State) %>% 
-  group_by(prev) %>% 
-  summarise(NumberBoats = n()) %>% 
-  left_join(abbrev %>% rename(prev = Abbrev)) %>% 
-  arrange(desc(prev)) %>% 
-  mutate(lab.ypos = cumsum(NumberBoats) - 0.5*NumberBoats) %>% 
-  ggplot(aes(x = "", y = NumberBoats, 
+# p25 = dat_mf %>%
+#   filter(Year == my.year) %>%
+#   rename(prev = Previous_Waterbody_1_Province_Or_State) %>%
+#   group_by(prev) %>%
+#   summarise(NumberBoats = n()) %>%
+#   left_join(abbrev %>% rename(prev = Abbrev)) %>%
+#   arrange(desc(prev)) %>%
+#   mutate(lab.ypos = cumsum(NumberBoats) - 0.5*NumberBoats) %>% 
+#   ggplot(aes(x = "", y = NumberBoats, 
+#            fill = Province_or_State)) +
+#   geom_bar(width = 1, stat = "identity", color = "white") +
+#   coord_polar("y", start = 0)+
+#   geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Province_or_State,", ",NumberBoats)), 
+#             color = "black",nudge_x=0.7)+
+#   theme_void() + 
+#   labs(fill = "Destination Region") + 
+#   theme(legend.position = "none")
+
+# Sadly, this piece must be updated by hand each year. Ultimately,
+# the mussel-fouled data is too tricky to work in, since we 
+# keep a hand-tracked excel sheet that changes frequently...
+p25 = tibble(Province_or_State = factor(c("Ontario","Manitoba","Quebec")),
+       NumberBoats = c(11,1,1)) %>%
+  arrange(desc(Province_or_State)) %>% 
+  # mutate(Province_or_State = forcats::fct_rev(Province_or_State)) %>% 
+  mutate(lab.ypos = cumsum(NumberBoats) - 0.5*NumberBoats) %>%
+  ggplot(aes(x = "", y = NumberBoats,
            fill = Province_or_State)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Province_or_State,", ",NumberBoats)), 
-            color = "black",nudge_x=0.7)+
-  theme_void() + 
-  labs(fill = "Destination Region") + 
+  geom_text_repel(aes(y = lab.ypos, x = 1.65, label = paste0(Province_or_State,", ",NumberBoats)),
+            color = "black",nudge_x=0)+
+  theme_void() +
+  labs(fill = "Destination Region") +
   theme(legend.position = "none")
 
 p25
@@ -1590,19 +1649,37 @@ ggsave("Fig25_MusselFouled_Source_Regions_Pie_Charts.jpg",p25)
 ### Figure 26 Destination Regions of Mussel-fouled Inspections
 
 ```{r fig26_pie_chart_destination_locations_MF_Insp}
-fig26dat = read_excel(MusselFouledTracker,
-                      sheet = MF_tracker_sheet)
+# As above, this one needs to be updated by hand each year...
 
-p26 = fig26dat %>% 
-  group_by(Region) %>% 
-  reframe(Number = sum(Number)) %>% 
+
+
+# fig26dat = read_excel(MusselFouledTracker,
+#                       sheet = MF_tracker_sheet)
+# 
+# p26 = fig26dat %>% 
+#   group_by(Region) %>% 
+#   reframe(Number = sum(Number)) %>% 
+#   arrange(desc(Region)) %>% 
+#   mutate(lab.ypos = cumsum(Number) - 0.5*Number) %>% 
+#   ggplot(aes(x = "", y = Number, 
+#            fill = Region)) +
+#   geom_bar(width = 1, stat = "identity", color = "white") +
+#   coord_polar("y", start = 0)+
+#   geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Region,"\n",Number)), color = "black",nudge_x=0.2)+
+#   theme_void() + 
+#   scale_fill_brewer(palette = "Dark2") + 
+#   labs(fill = "Destination Region") +
+#   theme(legend.position = "none")
+
+p26 = tibble(Region = factor(c("Lower \nMainland","Okanagan","Vancouver \nIsland",'Thompson \nNicola')),
+       Number = c(5,4,2,2)) %>%
   arrange(desc(Region)) %>% 
   mutate(lab.ypos = cumsum(Number) - 0.5*Number) %>% 
   ggplot(aes(x = "", y = Number, 
            fill = Region)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Region,"\n",Number)), color = "black",nudge_x=0.2)+
+  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Region,"\n",Number)), color = "black",nudge_x=0.4)+
   theme_void() + 
   scale_fill_brewer(palette = "Dark2") + 
   labs(fill = "Destination Region") +
@@ -1671,7 +1748,8 @@ map_7_tmap = tm_shape(northamerica_basemap,
     tm_rgb() + 
   tm_add_legend(title = '2022 Source of \nMussel Fouled Inspections',
                 type = 'symbol',
-                labels = unique(centr_with_dat$bin_label),
+                labels = c('1','11'),
+                # labels = unique(centr_with_dat$bin_label),
                 col = unique(centr_with_dat$my_colors),
                 size = log(unique(centr_with_dat$MFInsp_b)+1)) + 
   tm_shape(centr_with_dat) + 
@@ -1681,14 +1759,14 @@ map_7_tmap = tm_shape(northamerica_basemap,
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("ABBR", auto.placement = T, 
+    tm_text("ABBR", auto.placement = 1, 
             size = 0.75) +
-  tm_shape(centr_without_dat) + 
-    tm_text("ABBR", col = 'grey', 
-            size = 0.8,
-            auto.placement = FALSE) +
-    tm_symbols(col = 'grey',
-               size = 0.1) + 
+  # tm_shape(centr_without_dat) + 
+  #   tm_text("ABBR", col = 'grey', 
+  #           size = 0.8,
+  #           auto.placement = FALSE) +
+  #   tm_symbols(col = 'grey',
+  #              size = 0.1) + 
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('left','bottom'),
@@ -1696,7 +1774,7 @@ map_7_tmap = tm_shape(northamerica_basemap,
 
 map_7_tmap
 
-tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', dpi = 300)
+tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 28 Pie Chart of Mussel-fouled Watercraft Types
@@ -1827,14 +1905,14 @@ map_8_tmap = tm_shape(northamerica_basemap,
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("ABBR", auto.placement = T, 
+    tm_text("ABBR", auto.placement = 1, 
             size = 0.75) +
-  tm_shape(centr_without_dat) + 
-    tm_text("ABBR", col = 'grey', 
-            size = 0.8,
-            auto.placement = FALSE) +
-    tm_symbols(col = 'grey',
-               size = 0.1) + 
+  # tm_shape(centr_without_dat) + 
+  #   tm_text("ABBR", col = 'grey', 
+  #           size = 0.8,
+  #           auto.placement = FALSE) +
+  #   tm_symbols(col = 'grey',
+  #              size = 0.1) + 
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('left','bottom'),
@@ -1842,7 +1920,7 @@ map_8_tmap = tm_shape(northamerica_basemap,
 
 map_8_tmap
 
-tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', dpi = 300)
+tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Map 9. Lake Monitoring Plankton Sample Tows
@@ -1859,6 +1937,19 @@ lab_sf = lab_dat %>%
          lng = as.numeric(lng)) %>% 
   st_as_sf(coords = c("lng","lat"),
            crs = 4326)
+
+# Make excel sheet for updating final report appendix!
+lab_sf |> 
+  # Join the Natural Resource regions (n = 8) to the lakes.
+  st_join(
+    bcmaps::nr_regions() |>
+      st_transform(crs = 4326) |> 
+      dplyr::select(Region = REGION_NAME)
+    ) |> 
+  st_drop_geometry() |> 
+  tidyr::separate_longer_delim(cols = `Type of plankton tow (Vertical or Horizontal)`, delim = ', ') |> 
+  count(Waterbody,Region,`sampling group/agency`,`Type of plankton tow (Vertical or Horizontal)`,`Zebra/Quagga mussels veligers`) |> 
+  openxlsx::write.xlsx(file = 'lake_monitoring_for_report_appendix.xlsx')
 
 sampling_pal = leaflet::colorFactor(
   palette = 'Set3',
@@ -1886,7 +1977,7 @@ map_9_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_9_tmap
 
-tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', dpi = 300)
+tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 30 
@@ -1993,6 +2084,12 @@ p33 = dat %>%
               select(Description, ais_know_id)) %>% 
   #Only keep records that have some kind of previous AIS knowledge.
   filter(!is.na(Description)) %>% 
+  # Amalgamate Previous Inspections outside BC into one group.
+  mutate(Description = case_when(
+    Description == 'Previous Inspection (other)' ~ Description,
+    Description == 'Previous Inspection in AB' ~ 'Previous Inspection (other)',
+    T ~ Description
+  )) %>% 
   #Get the number of records for each knowledge source
   group_by(Description) %>% 
   summarise(Number = n()) %>% 
@@ -2013,8 +2110,8 @@ p33 = dat %>%
            fill = Grouper)) +
   geom_col(width = 1, color = "white") +
   coord_polar(theta = "y") +
-  geom_text_repel(aes(y = lab.ypos, x = 1.15, label = paste0(round(prop,0), "%")),
-                   size = 4.5, nudge_x = 1, force_pull = 0.5,force = 1000) +
+  geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(round(prop,0), "%")),
+                   size = 4.5, nudge_x = 0.2) +
   #geom_text(aes(y = lab.ypos, label = paste0(Grouper,", ",round(prop,0),"%")), 
 #            color = "black",nudge_x=0.7)+
   theme_void() + 
@@ -2025,3 +2122,51 @@ p33
 
 ggsave("Fig33_Primary_Sources_Previous_AIS_Knowledge.jpg",p33)
 ```
+
+```{r number_nonmotorized_non_compliers, include=F}
+dat %>% filter(Year == my.year) %>% 
+  mutate(all_boats = n()) %>% 
+  dplyr::select(Shift_ID,
+                all_boats,
+                Motorized_Blow_Bys_Counter,
+                Non_Motorized_Blow_Bys_Counter) %>% 
+  distinct() %>% 
+  group_by(all_boats) %>% 
+  summarise(total_motorized_blowbys = sum(as.numeric(Motorized_Blow_Bys_Counter)),
+         total_non_motorized_blowbys = sum(as.numeric(Non_Motorized_Blow_Bys_Counter)))
+```
+
+```{r previous_CDD_AIS_knowledge_numbers, include=F}
+
+# What percentage of inspections had previous knowledge of AIS / CDD?
+
+( nrow(dat %>% filter(Previous_AIS_Knowledge_Ind == T)) ) /
+  ( nrow(dat) )
+
+# And which sources of knowledge were most salient?
+dat %>% 
+  count(Previous_AIS_Knowledge_Source_Code_ID, sort = T) %>% 
+  mutate(Previous_AIS_Knowledge_Source_Code_ID = as.numeric(Previous_AIS_Knowledge_Source_Code_ID, sort = T)) %>% 
+  left_join(ais_know %>% select(Previous_AIS_Knowledge_Source_Code_ID = `Previous Ais Knowledge Source Code ID`,
+                                Description))
+  
+```
+
+```{r calculation_of_boat_types, include=F}
+dat |> summarise(across(ends_with('_Counter'), as.numeric)) |> summarise(across(ends_with('_Counter'), sum)) |> 
+  pivot_longer(cols = everything()) |> 
+  filter(!str_detect(name, '_Bys_')) |> 
+  mutate(percentage = 100*value/sum(value))
+
+dat |> 
+  filter(High_Risk_AIS_Ind == T) |> 
+  mutate(Complex_Counter = replace(Complex_Counter, Complex_Counter != '0', '1')) |> 
+  count(Complex_Counter) |> 
+  mutate(percentage = 100*n/sum(n))
+
+dat |> 
+  filter(High_Risk_AIS_Ind == T) |> 
+  count(Very_Complex_Counter) |> 
+  mutate(percentage = 100*n/sum(n))
+```
+
