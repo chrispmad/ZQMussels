@@ -1942,13 +1942,15 @@ lab_sf = lab_dat %>%
 lab_sf |> 
   # Join the Natural Resource regions (n = 8) to the lakes.
   st_join(
-    bcmaps::nr_regions() |>
+    sf::read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/FLNRO_Fishing_Boundaries.shp')) |>
       st_transform(crs = 4326) |> 
-      dplyr::select(Region = REGION_NAME)
+      dplyr::select(Region = REGION_N)
     ) |> 
   st_drop_geometry() |> 
   tidyr::separate_longer_delim(cols = `Type of plankton tow (Vertical or Horizontal)`, delim = ', ') |> 
   count(Waterbody,Region,`sampling group/agency`,`Type of plankton tow (Vertical or Horizontal)`,`Zebra/Quagga mussels veligers`) |> 
+  dplyr::rename(`Sampling Group/Agency` = `sampling group/agency`) |> 
+  dplyr::select(-n) |> 
   openxlsx::write.xlsx(file = 'lake_monitoring_for_report_appendix.xlsx')
 
 sampling_pal = leaflet::colorFactor(
