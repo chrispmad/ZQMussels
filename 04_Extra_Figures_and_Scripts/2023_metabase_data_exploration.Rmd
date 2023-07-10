@@ -1,0 +1,95 @@
+---
+title: "2023 Metabase Data Exploration"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r prep, include = F}
+library(tidyverse)
+library(plotly)
+
+# Read in a year of metabase data.
+setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels/")
+
+dat = read_csv('04_Extra_Figures_and_Scripts/data/metabase_2023.csv')
+
+```
+
+## Destination or Source Waterbody Information 
+
+```{r}
+# Make some plots!
+
+# Missing information for destination waterbody name / closest city.
+dest_dat = dat |> 
+  mutate(`Destination Major City` = replace(`Destination Major City`,`Destination Major City` == 'None', NA)) |> 
+  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
+  mutate(destination_any_info = coalesce(`Destination Waterbody 1 Name`,`Destination Waterbody 1 Closest City`,`Destination Major City`)) |> 
+  count(`High Risk AIS Ind`, destination_any_info, sort = T) |> 
+  mutate(something_known = !is.na(destination_any_info)) |> 
+  group_by(`High Risk AIS Ind`, something_known) |> 
+  mutate(total_n = sum(n)) |> 
+  dplyr::select(something_known, total_n) |> 
+  distinct()
+
+p = ggplot(dest_dat) + 
+  geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
+  labs(y = 'Number of Records', x = 'Data for Destination WB name / closest city / "destination closest city"')
+
+ggplotly(p)
+
+# Source information
+# Missing information for destination waterbody name / closest city.
+prev_dat = dat |> 
+  mutate(`Previous Major City` = replace(`Previous Major City`,`Previous Major City` == 'None', NA)) |> 
+  mutate(Previous_any_info = coalesce(`Previous Waterbody 1 Name`,`Previous Waterbody 1 Closest City`,`Previous Major City`)) |> 
+    mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
+count(`High Risk AIS Ind`, Previous_any_info, sort = T) |> 
+  mutate(something_known = !is.na(Previous_any_info)) |> 
+  group_by(`High Risk AIS Ind`,something_known) |> 
+  mutate(total_n = sum(n)) |> 
+  dplyr::select(`High Risk AIS Ind`,something_known, total_n) |> 
+  distinct()
+
+p = ggplot(prev_dat) + 
+  geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
+  labs(y = 'Number of Records', x = 'Data for either Previous WB name / closest city / "previous major city"')
+
+ggplotly(p)
+```
+
+## When are inspections taking place?
+```{r}
+p = dat |> 
+  mutate(inspection_hour = as.numeric(`Inspection Hour`)) |> 
+  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
+  group_by(`High Risk AIS Ind`) |> 
+  count(inspection_hour) |> 
+  mutate(inspection_hour = factor(inspection_hour, levels = c(0:23))) |> 
+  ggplot(aes(x = inspection_hour, y = n, fill = `High Risk AIS Ind`)) +
+  geom_col() + 
+  labs(y = 'Number of Records', x = 'Time of Day (0 to 24 hours)')
+
+ggplotly(p)
+```
+
+## Which Stations have the most inspections?
+```{r}
+p = dat |> 
+  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |>
+  group_by(`High Risk AIS Ind`) |> 
+  count(Station) |> 
+  group_by(Station) |> 
+  mutate(total = sum(n)) |> 
+  ungroup() |> 
+  arrange(desc(total), `High Risk AIS Ind`) |> 
+  mutate(Station = fct_inorder(Station)) |> 
+  mutate(Station = fct_rev(Station)) |> 
+  ggplot(aes(x = Station, y = n, fill = `High Risk AIS Ind`)) +
+  geom_col() + 
+  labs(y = 'Number of Records', x = 'Station') + 
+  coord_flip()
+
+ggplotly(p)
+```
+

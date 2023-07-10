@@ -26,6 +26,8 @@ plotrix)
 #=====================================================
 #                       OPTIONS 
 #=====================================================
+setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+
 my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
 
 #Which year should we focus on?
@@ -252,6 +254,8 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
                size = 'num_insp_b',
                legend.col.show = FALSE,
                legend.size.show = FALSE,
+               perceptual = F,
+               scale = 1.5,
                title.col = '') +
     tm_text("map_label", auto.placement = 1, 
             size = 0.75) +
@@ -388,7 +392,7 @@ p4 = dat %>%
   ggplot() + 
   geom_col(aes(x=StationLabel,y=TotalSources), fill = my.grey, width = 0.40) +
   geom_text(aes(x=StationLabel,y=TotalSources+0.05*max(TotalSources),label=TotalSources)) +
-  labs(y = "Number of Origin Jurisdictions") + 
+  labs(x = '', y = "Number of Origin Jurisdictions") + 
   theme_classic() + 
   scale_fill_brewer(palette = "Dark2") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
@@ -929,7 +933,7 @@ ggsave("Fig14_Percent_Intercepted_with_Prev_Insp.jpg",p14)
 
 ```{r fig15_prev_insp_watercraft_insp_time}
 #Remove Penticton Roving
-p15 = dat %>% 
+figure_15 = dat %>% 
   filter(!Station %in% rovers_to_drop) %>% 
   filter(Previous_Inspection_Ind == T) %>% 
   filter(!is.na(Previous_Inspection_Days_Count)) %>% 
@@ -942,14 +946,6 @@ p15 = dat %>%
     T ~ NA
   )) %>% 
   select(Station, previnsp) %>% 
-  # mutate(Timeperiod = as.numeric(cut(previnsp, breaks = c(-1,0.1,30,365,10000)))) %>% 
-  # mutate(Timeperiod_name = case_when(
-  #   Timeperiod == 1 ~ "Same Day",
-  #   Timeperiod == 2 ~ "< 30 Days",
-  #   Timeperiod == 3 ~ "> 30 Days",
-  #   Timeperiod == 4 ~ "> 1 Year",
-  #   T ~ "Unknown"
-  # )) %>% 
   count(Station, previnsp, name = 'NumberInsp') %>%
   group_by(Station) %>% 
   mutate(TotalInsp = sum(NumberInsp)) %>% 
@@ -961,9 +957,22 @@ p15 = dat %>%
                                              "> 1 Year"))) %>% 
   arrange(Station,previnsp) %>% 
   select(Station,previnsp,PercInsp) %>% 
-  left_join(station_types) %>% 
+  left_join(station_types) |> 
   mutate(StationLabel = ifelse(StationType == "Roving",paste0(Station,"*"),Station)) %>% 
-  mutate(StationLabel = fct_inorder(StationLabel)) %>% 
+  mutate(StationLabel = fct_inorder(StationLabel))
+
+station_order = figure_15 |> 
+  filter(previnsp == '< 30 Days') |> 
+  bind_rows(tibble(
+    Station = 'Keremeos',
+    StationLabel = 'Keremeos*', 
+    previnsp = '< 30 Days', PercInsp = 0)
+    )|> 
+  arrange(desc(PercInsp)) |> 
+  dplyr::pull(StationLabel)
+
+p15 = figure_15 |>
+    mutate(StationLabel = factor(StationLabel, levels = c(station_order))) |> 
   ggplot() +
   geom_col(aes(x=StationLabel,
                y=PercInsp,
@@ -1043,7 +1052,7 @@ st = st %>%
     num_insp <= jenks_6 ~ 5,
   )) %>%
   mutate(bin_label = case_when(
-    num_insp_b == 1 ~ paste0(jenks_1, ' - ', jenks_2),
+    num_insp_b == 1 ~ paste0(jenks_2),
     num_insp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
     num_insp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
     num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
@@ -1332,7 +1341,7 @@ sources_centroid = sources_centroid %>%
     HRInsp <= jenks_6 ~ 5,
   )) %>%
   mutate(bin_label = case_when(
-    HRInsp_b == 1 ~ paste0(jenks_1, ' - ', jenks_2),
+    HRInsp_b == 1 ~ paste0(jenks_2),
     HRInsp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
     HRInsp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
     HRInsp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
@@ -1551,7 +1560,7 @@ ggsave("Fig23_Highrisk_Watercraft_Type_Pie_Chart.jpg",p23)
 ```
 
 
-### Figure 24 Mussel-fouled By Month All Years
+### Figure 24 Mussel-fouled By Month 5 Years
 ```{r fig24_musselfouled_by_month_all_years}
 #If an excel sheet can be found in the Final Report > my.year > GIS Maps and Excel Figures folder, use that. We make this excel sheet automatically below, and it can be updated by hand after its creation.
 
@@ -1584,7 +1593,7 @@ write.xlsx(mf_time_table, paste0(my.external.output.folder,"/GIS Maps and Excel 
 p24 = mf_time_table %>% 
   pivot_longer(-Year) %>% 
   filter(name != "Total") %>% 
-  filter(Year > 2018) %>% 
+  filter(Year > my.year-5) %>% 
   rename(Month = name) %>% 
   mutate(NumberBoats = as.numeric(value),
          Month = factor(Month,levels = c("April","May","June","July","August","September","October","November"))) %>% 
@@ -1938,6 +1947,33 @@ lab_sf = lab_dat %>%
   st_as_sf(coords = c("lng","lat"),
            crs = 4326)
 
+# How many unique lakes were sampled?
+paste0(length(lab_sf |> 
+  dplyr::select(Waterbody) |> 
+  st_drop_geometry() |> 
+  mutate(Waterbody = str_squish(Waterbody)) |> 
+  distinct() |> 
+  pull(Waterbody)), " lakes sampled across the province.")
+
+hctf = read_excel(paste0(my_opts$base_dir,'04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx'))
+
+hctf = hctf |> 
+  filter(!duplicated(Waterbody))
+
+# How many lakes were substrate sampled?
+paste0(length(hctf |> 
+                filter(`# Substrate samplers` > 0,
+                       Waterbody != 'Total Samples') |> 
+                dplyr::select(Waterbody) |> 
+                mutate(Waterbody = str_squish(Waterbody)) |> 
+                distinct() |> 
+                pull(Waterbody)), " lakes substrate sampled across the province.")
+
+hctf |> 
+  filter(`# Substrate samplers` > 0,
+         Waterbody != 'Total Samples') |> 
+  summarise(number_substrate_samplers = sum(`# Substrate samplers`))
+
 # Make excel sheet for updating final report appendix!
 lab_sf |> 
   # Join the Natural Resource regions (n = 8) to the lakes.
@@ -1951,6 +1987,10 @@ lab_sf |>
   count(Waterbody,Region,`sampling group/agency`,`Type of plankton tow (Vertical or Horizontal)`,`Zebra/Quagga mussels veligers`) |> 
   dplyr::rename(`Sampling Group/Agency` = `sampling group/agency`) |> 
   dplyr::select(-n) |> 
+  dplyr::select(-c(`Type of plankton tow (Vertical or Horizontal)`)) |> 
+  mutate(Waterbody = str_squish(Waterbody)) |> 
+  distinct() |> 
+  filter(!is.na(Region)) |> 
   openxlsx::write.xlsx(file = 'lake_monitoring_for_report_appendix.xlsx')
 
 sampling_pal = leaflet::colorFactor(

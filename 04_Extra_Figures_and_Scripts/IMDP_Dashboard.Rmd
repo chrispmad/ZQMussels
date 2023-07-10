@@ -30,7 +30,7 @@ theme_set(theme_light())
 
 ```{r load_data}
 #FLNRO fisheries boundaries
-flnro = read_sf("W:/CMadsen/SpatialData/FLNRO_Fishing_Boundaries.shp")
+flnro = read_sf("W:/CMadsen/shared_data_sets/FLNRO_Fishing_Boundaries.shp")
 #Inspections summarised at the station level
 insp = read_sf("W:/CMadsen/2021 Invasive Mussel Program Final Report Maps/data/ShapeLayers/Inspections_Summarised_at_Station_level.shp")
 ```

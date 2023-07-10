@@ -1,6 +1,9 @@
 # This script cleans data for the Invasive Mussel Defence Program,
 #  which is then used to generate figures used in reports and communications to partners.
 
+# It takes as an input an excel file produced in the script " ", which is a combination
+# of all years of inspection data (the latter years coming from metabase .csv files)
+
 # Code developed by Chris Madsen.
 
 pacman::p_load(
@@ -27,16 +30,18 @@ my.year = my_opts$year
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
 update.gis = FALSE
 
-#Are there any stations we would like to exclude from the excel-type figures?
-#In 2021, we will exclude:
-stations.to.include = c("Golden","Radium","Olsen","Yahk",
-                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
-                        "Keremeos","Greenwood","Dawson Creek","Kaleden")
+setwd(my_opts$base_dir)
 
-stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
-                          "Okanagan",
-                          "Penticton Roving - Hwy 33", 
-                          "Penticton Roving - Inspection Event")
+# #Are there any stations we would like to exclude from the excel-type figures?
+# #In 2021, we will exclude:
+# stations.to.include = c("Golden","Radium","Olsen","Yahk",
+#                         "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+#                         "Keremeos","Greenwood","Dawson Creek","Kaleden")
+# 
+# stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+#                           "Okanagan",
+#                           "Penticton Roving - Hwy 33", 
+#                           "Penticton Roving - Inspection Event")
 
 #Data folders
 my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
@@ -452,6 +457,8 @@ dat_hr = dat_hr %>%
     T ~ "Unknown"))
 
 #select(Watercraft_Risk_Assessment_ID,DestRegion))
+
+setwd(paste0(my_opts$zqm_figure_local_folder,'data/'))
 
 # Output data that will be used to make figures.
 openxlsx::write.xlsx(dat, "figure_dat.xlsx", overwrite = T)

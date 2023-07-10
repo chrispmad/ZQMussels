@@ -673,7 +673,7 @@ if(!file.exists(paste0(my.external.output.folder,"InspectionSummaries_GNISNA_WAT
   #   ungroup()
   
   #Do the join! 
-  for(i in 4016:nrow(wbs_m)){
+  for(i in 1:nrow(wbs_m)){
     print(paste0("Working on waterbody #",i))
     
     #This round of the loop's GNIS_NAME.
