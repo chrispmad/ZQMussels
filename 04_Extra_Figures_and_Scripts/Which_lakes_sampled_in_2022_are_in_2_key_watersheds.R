@@ -3,6 +3,7 @@ library(readxl)
 library(sf)
 library(dplyr)
 library(stringr)
+library(purrr)
 
 # Load options
 my_opts = readr::read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
@@ -14,13 +15,31 @@ my.year = my_opts$year
 ## Our lab data from 2022
 lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
 
-## HCTF list
+## HCTF sampling list
 hctf = read_excel('04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx')
 
 hctf = hctf |> 
-  filter(!duplicated(Waterbody) & Waterbody != 'Total Samples')
+  dplyr::select(-...1) |> 
+  # Remove the final row, which is a total. Otherwise, throws off our numbers. 
+  filter(Waterbody != 'Total Samples') |> 
+  # Change some lake names to match the naming style of our own lab data.
+  mutate(Waterbody = case_when(
+    Waterbody == 'Lake Revelstoke' ~ 'Revelstoke Reservoir',
+    Waterbody == 'Upper Arrow Lake' ~ 'Arrow Lake, Upper',
+    Waterbody == 'Kootenay River' ~ 'Kootenay River (Nelson)',
+    Waterbody == 'Lake Enid' ~ 'Enid Lake',
+    Waterbody == 'St. Mary Lake' ~ "St Mary's",
+    T ~ Waterbody
+  ))
 
-# Hand-made polygons for Fraser and Columbia priority watershed areas
+# There are a couple of waterbodies with multiple rows in the hctf table.
+# Add together the plankton samples and substrate samples for such rows
+# so that we have unique waterbody names for each row.
+hctf = hctf |> 
+  group_by(Waterbody) |> 
+  summarise(across(everything(), \(x) sum(x,na.rm=T)))
+
+# Polygons for Fraser and Columbia priority watershed areas
 # (made from the subwatershed groups polygon)
 fraser = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/fraser_watershed_priority_area.gpkg'))
 
@@ -33,8 +52,8 @@ fraser = fraser |>
 columbia = columbia |> 
   summarise(priority_area = 'Columbia')
 
-# Make lake samples table into spatial object
-lab_sf = lab_dat |>  
+# Make our lab data into a spatial table
+lab_sf = lab_dat |> 
   dplyr::rename(
     lat = `Lat (Decimal degrees)`,
     lng = `Long (Decimal degrees)`
@@ -44,7 +63,7 @@ lab_sf = lab_dat |>
   st_as_sf(coords = c("lng","lat"),
            crs = 4326)
 
-# Spatial match between samples and the two priority watershed areas.
+# Spatial match between our lab samples and the two priority watershed areas.
 lab_matched = lab_sf |> 
   st_join(fraser, st_intersects) |> 
   st_join(columbia, st_intersects) |> 
@@ -56,6 +75,30 @@ lab_matched = lab_sf |>
 # of the priority areas.
 lab_matched = lab_matched |> 
   filter(!is.na(watershed_priority_area))
+
+# At this point, if we join this table up with our list of HCTF
+# sampled lakes, we can see how many lakes were sampled by HCTF in priority areas.
+lab_matched |> 
+  dplyr::select(Waterbody) |>
+  left_join(hctf |> 
+              dplyr::select(Waterbody) |> 
+              distinct() |> 
+              mutate(hctf = T)) |> 
+  filter(!is.na(hctf))
+# Looks like 757 samples. This might be incorrect; it may be 
+# correct to simply sum the number of plankton tows directly in the 
+# HCTF table.
+sum(hctf$`# Plankton Samples`)
+# 759 if we just sum the number of plankon samples in the HCTF sheet.
+
+length(unique(hctf$Waterbody))
+# 64 unique waterbodies sampled by HCTF.
+
+sum(hctf$`# Substrate samplers`)
+# 52 substrate sites.
+
+nrow(hctf[hctf$`# Substrate samplers` > 0,])
+# 28 waterbodies with subtrate samples.
 
 # Leaflet test
 library(leaflet)
@@ -103,22 +146,22 @@ lab_matched = lab_matched |>
 # Quick comparison with the HCTF list.
 hctf |> 
   filter(Waterbody %in% lab_matched$Waterbody)
-# 60 lakes in common. Which are not in common?
+# 65 lakes in common. Which are not in common?
 
 hctf |> 
   filter(!Waterbody %in% lab_matched$Waterbody)
 # Lake Revelstoke, Upper Arrow Lake, Kootenay River, Lake Enid, St. Mary Lake
 
-# Correct the name mismatches identified above.
-hctf = hctf |> 
-  mutate(Waterbody = case_when(
-    Waterbody == 'Lake Revelstoke' ~ 'Revelstoke Reservoir',
-    Waterbody == 'Upper Arrow Lake' ~ 'Arrow Lake, Upper',
-    Waterbody == 'Kootenay River' ~ 'Kootenay River (Nelson)',
-    Waterbody == 'Lake Enid' ~ 'Enid Lake',
-    Waterbody == 'St. Mary Lake' ~ "St Mary's",
-    T ~ Waterbody
-  ))
+# # Correct the name mismatches identified above.
+# hctf = hctf |> 
+#   mutate(Waterbody = case_when(
+#     Waterbody == 'Lake Revelstoke' ~ 'Revelstoke Reservoir',
+#     Waterbody == 'Upper Arrow Lake' ~ 'Arrow Lake, Upper',
+#     Waterbody == 'Kootenay River' ~ 'Kootenay River (Nelson)',
+#     Waterbody == 'Lake Enid' ~ 'Enid Lake',
+#     Waterbody == 'St. Mary Lake' ~ "St Mary's",
+#     T ~ Waterbody
+#   ))
 
 # For HCTF list, any waterbodies that were ONLY subtrate?
 hctf |> 
@@ -143,6 +186,15 @@ lab_dat |>
   filter(is.na(hctf)) |> 
   mutate(total = sum(n))
 # 9 lakes!
+
+
+unique(
+  lab_matched |>
+  filter(Waterbody %in% (lab_matched |> 
+                           filter(!Waterbody %in% hctf$Waterbody) |> 
+                           pull(Waterbody))) |> 
+  dplyr::pull(Waterbody)
+)
 
 # Number of plankton samples.
 sum(hctf$`# Plankton Samples`)

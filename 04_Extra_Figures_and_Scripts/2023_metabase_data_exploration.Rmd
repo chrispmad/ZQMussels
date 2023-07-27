@@ -8,6 +8,8 @@ output: html_document
 library(tidyverse)
 library(plotly)
 
+knitr::opts_chunk$set(echo=F,warning=F,message = F)
+
 # Read in a year of metabase data.
 setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels/")
 

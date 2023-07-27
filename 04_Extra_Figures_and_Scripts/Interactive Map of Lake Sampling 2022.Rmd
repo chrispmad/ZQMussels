@@ -1,0 +1,172 @@
+---
+title: "Map of Lake Sampling 2022"
+author: "Invasive Fauna Unit"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup,include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+```
+
+```{r data}
+library(tidyverse)
+library(rvest)
+library(sf)
+library(leaflet)
+library(leaflet.extras)
+
+# Reading in table of sampled lakes from URL that Mike Sokal provided.
+mikelist = rvest::read_html(x = 'https://www2.gov.bc.ca/gov/content/environment/research-monitoring-reporting/monitoring/lake-monitoring/bc-lake-monitoring-network/lake-monitoring-network-sites')
+
+# Make a spatial table from Mike's lake sampling data.
+ml_sf = mikelist |> 
+  # Get tables from the web page.
+  rvest::html_table() |> 
+  # Put tables (vertically) together.
+  bind_rows() |> 
+  # Simplify column names.
+  set_names(snakecase::to_snake_case) |> 
+  # Select subset of columns.
+  dplyr::select(lake_name_ems_site_name, region, site_information) |> 
+  # Keep only the first two words in the lake_name column (drop anything in brackets)
+  mutate(lake_name_ems_site_name = str_extract(lake_name_ems_site_name, '[a-zA-Z]+ [a-zA-Z]+')) |> 
+  # Pull the latitude and longitude info out of the site information column.
+  mutate(lat = str_extract(site_information, '[0-9]+\\.[0-9]+'),
+         lon = str_extract(site_information, '[0-9]{3}\\.[0-9]{4}')) |> 
+  # Convert lat and long data to numeric type.
+  mutate(across(c('lat','lon'), as.numeric)) |> 
+  # Ensure that longitude is negative.
+  mutate(lon = -1*lon) |> 
+  # Convert table to spatial table.
+  st_as_sf(coords = c("lon","lat"), crs = 4326) |> 
+  # Simplify lake_name column name.
+  dplyr::rename(lake_name = lake_name_ems_site_name) |> 
+  # Retain only lake_name, region and geometry columns.
+  dplyr::select(lake_name, region)
+
+# Drop duplicated lake names (multiple samples from same lake)
+ml_sf = ml_sf |> 
+  filter(!duplicated(lake_name))
+
+# Bring in priority waterbodies
+wbs = sf::read_sf('W:/CMadsen/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp')
+
+hr = wbs |> 
+  filter(Risk_bn >= 2)
+
+rm(wbs)
+
+#Simplify waterbody geometry a bit.
+hr = rmapshaper::ms_simplify(hr)
+
+# Which of our high-rist waterbodies were sampled in 2022?
+hr = hr |> 
+  st_join(
+    ml_sf |> 
+      dplyr::select(sokal_lake_name = lake_name) |> 
+      mutate(sampled_2022 = TRUE) |> 
+      st_transform(crs = 3005) |> 
+      # Add a 100-meter buffer to sample points, in case lat-long was off by a bit.
+      st_buffer(dist = 100),
+    st_intersects
+  )
+
+hr = hr |> 
+  mutate(sampled_2022 = ifelse(!is.na(sampled_2022), 'Sampled', 'Not Sampled'))
+
+# Tranform the high-risk waterbody spatial file to WGS 84.
+hr = hr |> 
+  st_transform(crs = 4326)
+
+# hr |> 
+  # st_drop_geometry() |> 
+  # count(sampled_2022)
+# Only 33 of our high-risk lakes were sampled in 2022?!
+
+# Also add a column to our spatial table from Mike Sokal, indicating
+# which samples came from high-priority waterbodies.
+ml_sf = ml_sf |> 
+  mutate(high_risk_wb = lake_name %in% unique(hr$sokal_lake_name))
+
+# ml_sf |> 
+#   st_drop_geometry() |> 
+#   count(high_risk_wb)
+# Also 33 sampled here match up with our high-risk waterbody list.
+
+```
+
+## Map
+
+```{r map, fig.width=10, fig.height=6.5}
+# The map should show the priority waterbodies and the samples. If the 
+# samples that match up with priority waterbodies, maybe make those points green.
+# Samples that don't match a priority waterbody, make those purple.
+# Waterbodies could be coloured based on their priority: orange for mid, red for high.
+
+hr = hr |> 
+  mutate(map_col = ifelse(Risk_bn == 2, 'orange', 'red'))
+
+ml_sf = ml_sf |> 
+  mutate(map_col = ifelse(high_risk_wb == TRUE, 'green','purple'))
+
+# # Decide on colour palette for map.
+# my_pal = color(palette = 'viridis',
+#                      domain = hr$sampled_2022)
+# 
+# my_priority_wb_pal = colorFactor(
+#   palette = 'Spectral',
+#   domain = hr$Risk_bn
+# )
+
+l = leaflet() |>
+  addProviderTiles(providers$CartoDB.Voyager) |>
+  addPolygons(
+    color = ~map_col,
+    fillColor = ~map_col,
+    label = ~paste0("Waterbody: ",GNIS_NA),
+    group = 'PriorityWB',
+    data = hr
+  ) |> 
+  addCircleMarkers(
+    color = "black",
+    weight = 4,
+    opacity = 0.8,
+    label = ~paste0("Sokal sample: ",lake_name),
+    # labelOptions = labelOptions(noHide = TRUE),
+    fillOpacity = 0.5,
+    fillColor = ~map_col,
+    group = 'Mike',
+    data = ml_sf
+  ) |>
+  leaflet::addScaleBar('bottomleft') |> 
+  leaflet.extras::addSearchFeatures(
+    targetGroups = c('PriorityWB'),
+    options = searchFeaturesOptions(zoom = 6, openPopup=TRUE))
+
+l
+```
+
+## Table
+
+```{r table}
+DT::datatable(
+  hr |> 
+    sf::st_drop_geometry() |> 
+    dplyr::select(waterbody = GNIS_NA,
+                  sampled_2022,
+                  use = Use,
+                  high_risk = Highrsk,
+                  mussel_fouled = MsslFld,
+                  calcium_bin = clcm_bn,
+                  calcium_data_present = clcm_dt,
+                  total_risk = Risk,
+                  binned_risk = Risk_bn,
+                  total_inspections = TtlInsp,
+                  high_risk_motor = HR_mot,
+                  high_risk_nonmotor = HR_nnmt,
+                  number_mf = NmbrMsF
+                  )
+  )
+```
+

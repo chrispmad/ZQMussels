@@ -1,0 +1,223 @@
+---
+title: "High-Level 2023 Stats"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r prep, include = F}
+library(tidyverse)
+library(plotly)
+library(snakecase)
+
+knitr::opts_chunk$set(echo=F,warning=F,message = F)
+
+# Read in a year of metabase data.
+dat = read_csv('C:/Users/CMADSEN/Downloads/LocalR/ZQMussels/04_Extra_Figures_and_Scripts/data/metabase_2023.csv') |> 
+  set_names(to_snake_case)
+
+dat = dat |> 
+  filter(!str_detect(station, 'Scheduled'))
+
+mf = dat |> 
+  filter(adult_dressenidae_found_ind == T | adult_dreissenidae_mussel_found_ind == T | watercraft_risk_assessment_id == 90524)
+
+mf_labelled_as_follow_up = mf |> 
+    filter(str_detect(general_comment,'Follow up'))
+
+mf_duplicated_reg_number = mf |> 
+  filter(duplicated(watercraft_registration)) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_labelled_as_follow_up$watercraft_risk_assessment_id) |> 
+  filter(watercraft_registration != 'None')
+
+mf_duplicated_seal_number = mf |> 
+  filter(duplicated(seal_number)) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_labelled_as_follow_up$watercraft_risk_assessment_id) |>
+  filter(!watercraft_risk_assessment_id %in% mf_duplicated_reg_number$watercraft_risk_assessment_id) |> 
+  filter(seal_number != '-1')
+
+mf_prev_inspected = mf |> 
+  filter(str_detect(previous_inspection_source_name, 
+                    paste0("(", 
+                           paste0(unique(dat$station), collapse = "|"),
+                           ")"
+                           )
+                    )
+         ) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_labelled_as_follow_up$watercraft_risk_assessment_id) |>
+  filter(!watercraft_risk_assessment_id %in% mf_duplicated_reg_number$watercraft_risk_assessment_id) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_duplicated_seal_number$watercraft_risk_assessment_id)
+
+mf = mf |> 
+  # Remove one record that says it was a follow-up inspection for a previous inspection.
+  filter(!str_detect(general_comment,'Follow up')) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_duplicated_seal_number$watercraft_risk_assessment_id) |> 
+  filter(!watercraft_risk_assessment_id %in% mf_prev_inspected$watercraft_risk_assessment_id) 
+
+```
+
+```{r}
+# Searching for 2 mussel-fouled primary inspections. They are 
+# cited in mf inspections as having happened,
+# but we can't find them in the mf sheet :O
+
+# 3rd row of mf sheet (ID = 90688).
+dat |> 
+  filter(station == 'Golden') |> 
+  filter(seal_number == 8045 | decontamination_order_number == 2034 | decontamination_reference == 2746 | watercraft_registration == 'ussert8132A606')
+# Success!
+
+# Last row (ID = 96898)
+dat |> 
+  filter(station == 'Golden') |> 
+  filter(decontamination_order_number == 601 | decontamination_reference == '1980' | str_detect(seal_number,'99$'))
+# No record found.
+```
+
+## Plots {.tabset}
+
+### Total Inspections
+
+```{r}
+p = dat |> 
+  count(station) |> 
+  arrange(desc(n)) |> 
+  mutate(station = as.factor(station)) |> 
+  mutate(station = forcats::fct_inorder(station)) |> 
+  ggplot() + 
+  geom_col(aes(x = station, y = n)) + 
+  labs(y = 'Total Inspections', x = 'Station') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p)
+```
+
+### High-risk Inspections
+
+```{r}
+p = dat |> 
+  filter(high_risk_ais_ind == T) |> 
+  count(station) |> 
+  arrange(desc(n)) |> 
+  mutate(station = as.factor(station)) |> 
+  mutate(station = forcats::fct_inorder(station)) |> 
+  ggplot() + 
+  geom_col(aes(x = station, y = n)) + 
+  labs(y = 'High-Risk Inspections', x = 'Station') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p)
+```
+
+## Mussel-fouled Boats {.tabset}
+
+After removing any inspection records labelled as 'follow-up' inspections for other inspections already in our records for this year (`r nrow(mf_labelled_as_follow_up)` of those), any inspections with duplicated seal numbers (`r nrow(mf_duplicated_seal_number)` of those), and any inspections listing another inspection station in BC as the previous inspection source name (`r nrow(mf_prev_inspected)` of those), there were `r nrow(mf)` mussel-fouled inspections.
+
+To compile MF boat sources and destinations, I took any information from the following columns (and in the same order of preference): 
+
+- Previous waterbody name / closest city
+- Previous major city
+- Dry storage (T or F)
+- Commercially Hauled (T of F)
+- Unknown previous/destination waterbody
+
+### MF Boat Sources
+```{r}
+mf |> 
+  mutate(previous_dry_storage_ind = case_when(
+    previous_dry_storage_ind == T ~ 'Previous Dry Storage',
+    T ~ NA
+  )) |> 
+  mutate(unknown_previous_water_body_ind = case_when(
+    unknown_previous_water_body_ind == T ~ 'Unknown Previous Waterbody',
+    T ~ NA
+  )) |> 
+  mutate(commercial_manufacturer_as_previous_water_body_ind = case_when(
+    commercial_manufacturer_as_previous_water_body_ind == T ~ 'Previously Commercially Hauled',
+    T ~ NA
+  )) |> 
+  mutate(previous_major_city = case_when(
+    previous_major_city != 'None' ~ previous_major_city,
+    T ~ NA
+  )) |> 
+  mutate(prev_wb_city = ifelse(!is.na(previous_waterbody_1_name), paste0(previous_waterbody_1_name,", ",previous_waterbody_1_closest_city),NA)) |> 
+  mutate(boat_source = coalesce(prev_wb_city, previous_major_city, previous_dry_storage_ind, commercial_manufacturer_as_previous_water_body_ind, unknown_previous_water_body_ind)) |> 
+  mutate(boat_source = ifelse(boat_source == 'None' | is.na(boat_source), watercraft_risk_assessment_id, boat_source)) |> 
+  count(boat_source,watercraft_risk_assessment_id) |> 
+  arrange(desc(n)) |> 
+  mutate(watercraft_risk_assessment_id = as.factor(watercraft_risk_assessment_id)) |> 
+  mutate(boat_source = as.factor(boat_source)) |> 
+  mutate(boat_source = forcats::fct_inorder(boat_source)) |> 
+  ggplot() + 
+  geom_col(aes(x = boat_source, y = n, fill = watercraft_risk_assessment_id)) + 
+  labs(y = 'Number of MF inspections', x = 'Source of MF boat(s)') + 
+  scale_y_continuous(breaks = c(0,1,2)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### MF Boat Destinations
+```{r}
+mf |> 
+  mutate(destination_dry_storage_ind = case_when(
+    destination_dry_storage_ind == T ~ 'Destination Dry Storage',
+    T ~ NA
+  )) |> 
+  mutate(unknown_destination_waterbody_ind = case_when(
+    unknown_destination_waterbody_ind == T ~ 'Unknown Destination Waterbody',
+    T ~ NA
+  )) |> 
+  mutate(commercial_manufacturer_as_destination_water_body_ind = case_when(
+    commercial_manufacturer_as_destination_water_body_ind == T ~ 'Destination Commercially Hauled',
+    T ~ NA
+  )) |> 
+  mutate(destination_major_city = case_when(
+    destination_major_city != 'None' ~ destination_major_city,
+    T ~ NA
+  )) |> 
+  mutate(dest_wb_city = ifelse(!is.na(destination_waterbody_1_name), paste0(destination_waterbody_1_name,", ",destination_waterbody_1_closest_city),NA)) |> 
+  mutate(boat_destination = coalesce(dest_wb_city, destination_major_city, destination_dry_storage_ind, commercial_manufacturer_as_destination_water_body_ind, unknown_destination_waterbody_ind)) |> 
+  mutate(boat_destination = replace(boat_destination, boat_destination == 'None' | is.na(boat_destination), 'Unknown')) |> 
+  count(boat_destination, watercraft_risk_assessment_id) |> 
+  arrange(desc(n)) |> 
+  mutate(watercraft_risk_assessment_id = as.factor(watercraft_risk_assessment_id)) |> 
+  mutate(boat_destination = as.factor(boat_destination)) |> 
+  mutate(boat_destination = forcats::fct_inorder(boat_destination)) |> 
+  ggplot() + 
+  geom_col(aes(x = boat_destination, y = n, fill = watercraft_risk_assessment_id)) + 
+  labs(y = 'Number of MF inspections', x = 'Destination of MF boat(s)') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Decontaminations and Quarantine Periods {.tabset}
+
+### Decontaminations
+```{r}
+p = dat |> 
+  filter(decontamination_performed_ind == T) |> 
+  count(station) |> 
+  arrange(desc(n)) |> 
+  mutate(station = as.factor(station)) |> 
+  mutate(station = forcats::fct_inorder(station)) |> 
+  ggplot() + 
+  geom_col(aes(x = station, y = n)) + 
+  labs(y = 'Decontaminations Performed', x = 'Station') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p)
+```
+
+### Quarantine Periods Issued
+```{r}
+p = dat |> 
+  filter(quarantine_period_issued_ind == T) |> 
+  count(station) |> 
+  arrange(desc(n)) |> 
+  mutate(station = as.factor(station)) |> 
+  mutate(station = forcats::fct_inorder(station)) |> 
+  ggplot() + 
+  geom_col(aes(x = station, y = n)) + 
+  labs(y = 'Quarantine Periods Issued', x = 'Station') + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplotly(p)
+```

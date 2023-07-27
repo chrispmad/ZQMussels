@@ -1,0 +1,352 @@
+---
+title: "Blowby Exploration"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+fig_width: 8
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(
+readxl,
+ggpubr,
+ggrepel,
+ggExtra,
+ggtext,
+tidyverse,
+leaflet,
+sf,
+plotly,
+RColorBrewer,
+openxlsx,
+scales,
+tmap,
+lubridate,
+plotrix,
+knitr)
+
+#=====================================================
+#                       OPTIONS 
+#=====================================================
+setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+
+my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
+
+#Which year should we focus on?
+my.year = my_opts$year
+
+#Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
+update.gis = FALSE
+
+#Are there any stations we would like to exclude from the excel-type figures?
+#In 2021, we will exclude:
+stations.to.include = c("Golden","Radium","Olsen","Yahk",
+                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+                        "Keremeos","Greenwood","Dawson Creek","Kaleden")
+
+stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                          "Okanagan",
+                          "Penticton Roving - Hwy 33", 
+                          "Penticton Roving - Inspection Event")
+
+# Just in case it's different, which stations do we want to show in the 
+# leaflet maps?
+leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Keremeos","Osoyoos","Fraser Valley Roving","Pacific")
+
+#Data folders
+my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
+my.external.data.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/")
+
+#Which folder should we put specific output files in?
+my.output.folder = paste0(my_opts$zqm_figure_local_folder,"output/")
+my.external.output.folder = paste0(my_opts$zqm_figure_output_remote_folder,my_opts$year)
+zqm.operations.folder = my_opts$zqm_operations_data_folder
+this.years.report.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/")
+
+#These lines below set options for all of the code for the rest of this script. You probably don't need to change any of these.
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(fig.width = 10)
+knitr::opts_chunk$set(fig.height = 6)
+knitr::opts_knit$set(root.dir = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures"))
+
+#Colour for some of the figures:
+my.grey = "#5f6a6f"
+
+#=====================================================
+#                     END OF OPTIONS
+#=====================================================
+
+#If there is no folder for excel figures for the target year in the I: drive, make it now.
+if(!dir.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures"))){
+  dir.create(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/"))
+}
+```
+
+```{r load in data}
+setwd(my.data.folder)
+
+# dat = read.xlsx('figure_dat_all.xlsx') %>%
+#   mutate(TimeOfInspection = convertToDateTime(TimeOfInspection)) %>%
+#   as_tibble()
+# 
+# dat = dat |>
+#   filter(Station %in% c("Olsen (Hwy 3)","Olsen","Yahk","Golden"))
+# 
+# dat = dat |>
+#   filter(Year != 2015) |>
+#    mutate(mot_bb = as.numeric(Motorized_Blow_Bys_Counter),
+#          nonmot_bb = as.numeric(Non_Motorized_Blow_Bys_Counter)) |>
+#   dplyr::select(Year,Station,Shift_ID,Start_Time,End_Time,TimeOfInspection,
+#                 mot_bb,nonmot_bb) |>
+#    mutate(Start_Time = openxlsx::convertToDateTime(Start_Time),
+#          End_Time = openxlsx::convertToDateTime(End_Time))
+# 
+# write_csv(dat, 'blowby_motorized_split_preprocessed.csv')
+
+blowby_d = read_csv('blowby_motorized_split_preprocessed.csv')
+
+# Refine to just June -> September.
+blowby_d = blowby_d |> 
+  mutate(Month = lubridate::month(TimeOfInspection)) |> 
+  filter(Month %in% c(6:9))
+
+# Add in day of week, and hour of day.
+blowby_d = blowby_d |> 
+  mutate(dow = lubridate::wday(TimeOfInspection),
+         hod = lubridate::hour(TimeOfInspection))
+
+# Outline of BC
+bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
+```
+
+# Blow-by Breakdown for High-Volume Stations 
+
+## Day of Week {.tabset}
+
+### Motorized Blow-Bys - Line Graph
+
+```{r}
+dow_dat = blowby_d |> 
+  dplyr::select(Year,Station,dow,Shift_ID,mot_bb,nonmot_bb) |> 
+  distinct() |> 
+  group_by(Year,Station,dow) |> 
+  summarise(mot_bb = sum(mot_bb,na.rm = T),
+            nonmot_bb = sum(nonmot_bb, na.rm = T)) |> 
+  ungroup()
+  
+ggplotly(
+dow_dat |> 
+  mutate(Year = as.factor(Year)) |> 
+  ggplot(aes(x = dow, y = mot_bb)) + 
+  geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
+  facet_wrap( ~ Station, #scales = "free", 
+              ncol = 3, nrow = 1) + 
+  scale_x_continuous(breaks = c(1:7), 
+                     labels = lubridate::wday(1:7, 
+                                              label = T)) + 
+  labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
+       y = 'Blow-Bys', x = 'Day of Week') + 
+  theme(
+    panel.spacing = unit(4,"lines")
+    )
+)
+```
+
+### Motorized Blow-Bys - Boxplots
+
+```{r}
+dow_dat |> 
+  mutate(Year = as.factor(Year)) |> 
+  ggplot(aes(x = dow, y = mot_bb)) + 
+  geom_boxplot(aes(group = dow), alpha = 0.75) + 
+  facet_wrap( ~ Station) + 
+  scale_x_continuous(breaks = c(1:7), 
+                     labels = lubridate::wday(1:7, 
+                                              label = T)) + 
+  labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
+       subtitle = 'Big ranges each day for Golden, esp. Friday to Sunday',
+       y = 'Blow-Bys', x = 'Day of Week')
+```
+
+### Non-Motorized Blow-Bys - Line Graph
+```{r}
+ggplotly(
+  dow_dat |> 
+  mutate(Year = as.factor(Year)) |> 
+  ggplot(aes(x = dow, y = nonmot_bb)) + 
+  geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
+  facet_wrap( ~ Station, 
+              # scales = "free",
+              ncol = 3, nrow = 1) + 
+  scale_x_continuous(breaks = c(1:7), 
+                     labels = lubridate::wday(1:7, 
+                                              label = T)) + 
+  labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
+       y = 'Blow-Bys', x = 'Day of Week') + 
+  theme(
+    panel.spacing = unit(4,"lines")
+    )
+)
+```
+
+### Non-Motorized Blow-Bys - Boxplots
+```{r}
+dow_dat |> 
+  mutate(Year = as.factor(Year)) |> 
+  ggplot(aes(x = dow, y = nonmot_bb)) + 
+  geom_boxplot(aes(group = dow), alpha = 0.75) + 
+  facet_wrap( ~ Station) + 
+  scale_x_continuous(breaks = c(1:7), 
+                     labels = lubridate::wday(1:7, 
+                                              label = T)) + 
+  labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
+       subtitle = 'Smaller ranges for Golden compared to Motorized Blow-bys',
+       y = 'Blow-Bys', x = 'Day of Week')
+```
+
+```{r}
+
+# ## Time of Day {.tabset}
+# 
+# ### Motorized Blow-Bys - Line Graph
+# 
+# 
+# # We've tried to clean up shift start and end times in a previous
+# # stage of data cleaning... so let's assume they're okay now.
+# hod_dat
+# 
+# blowby_d |> 
+#   dplyr::select(Start_Time, End_Time, Shift_ID) |> 
+#   distinct() |> 
+#   mutate(Start_Hour = lubridate::hour(Start_Time),
+#          End_Hour = lubridate::hour(End_Time)) |> 
+#   # mutate(start_end_interval = lubridate::interval(start = Start_Time, end = End_Time))
+#   mutate(hour_chunk_1_top = ifelse(Start_Hour >= 13 & End_Hour <= 10, 24, End_Hour)) |> 
+#   mutate(hour_chunk_2_top = ifelse(Start_Hour >= 13 & End_Hour <= 10, 0, End_Hour)) |> 
+#   mutate(hour_1 = (1 >= Start_Hour & 1 <= hour_chunk_1_top) & (1 <= End_Hour & 1 <= hour_chunk_2_top)) |> 
+#   View()
+# # is_hour_within_interval = function(the_interval, number){
+# #   number %within% the_interval
+# # }
+#   
+# 
+# bind_cols(map2_dfr(hod_dat$start_end_interval, 0:24, is_hour_within_interval), hod_dat)
+# # If the start time is not that much before midnight, find hours until 24 then truncate it at 24 hours.
+# mutate(Hour_String = case_when(
+#     # The shift starts late in the day and rolls past midnight
+#     Start_Hour >= 13 & End_Hour <= 10 ~ paste0(Start_Hour:24, collapse = ', '),
+#     # The shift does not roll past midnight
+#     End_Hour <= 24 ~ paste0(Start_Hour:End_Hour, collapse = ', '))
+#   )
+#   # mutate(Hour_String = paste0(Start_Hour:End_Hour, collapse = ', ')) |> 
+#   slice(1:100) |> View()
+#   dplyr::select(Shift_ID, Hour_String) |> 
+#   tidyr::separate_longer_delim(Hour_String, delim = ', ') |> 
+#   
+#   count(Hour_String)
+#   ggplot() + geom_histogram(aes(Hour))
+# 
+# 
+# blowby_d |> 
+#   dplyr::select(Year,Station,hod,Shift_ID,mot_bb,nonmot_bb) |> 
+#   distinct() |> 
+#   group_by(Year,Station,hod) |> 
+#   summarise(mot_bb = sum(mot_bb,na.rm = T),
+#             nonmot_bb = sum(nonmot_bb, na.rm = T)) |> 
+#   ungroup()
+#   
+# ggplotly(
+# hod_dat |> 
+#   mutate(Year = as.factor(Year)) |> 
+#   ggplot(aes(x = hod, y = mot_bb)) + 
+#   geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
+#   facet_wrap( ~ Station, scales = "free", ncol = 1, nrow = 3) + 
+#   scale_x_continuous(breaks = c(0:23), 
+#                      labels = c(1:24)) + 
+#   labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
+#        y = 'Blow-Bys', x = 'Hour of Day') + 
+#   theme(
+#     panel.spacing = unit(4,"lines")
+#     )
+# )
+```
+
+
+```{r}
+
+### Motorized Blow-Bys - Boxplots
+
+# hod_dat |> 
+#   mutate(Year = as.factor(Year)) |> 
+#   ggplot(aes(x = hod, y = mot_bb)) + 
+#   geom_boxplot(aes(group = hod), alpha = 0.75) + 
+#   facet_wrap( ~ Station, ncol = 1, nrow = 3) + 
+#   scale_x_continuous(breaks = c(0:23), 
+#                      labels = c(1:24)) + 
+#   labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
+#        subtitle = 'Big ranges each day for Golden, esp. Friday to Sunday',
+#        y = 'Blow-Bys', x = 'Hour of Day')
+```
+
+
+```{r}
+
+### Non-Motorized Blow-Bys - Line Graph
+
+# ggplotly(
+#   hod_dat |> 
+#   mutate(Year = as.factor(Year)) |> 
+#   ggplot(aes(x = hod, y = nonmot_bb)) + 
+#   geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
+#   facet_wrap( ~ Station, ncol = 1, nrow = 3, scales = "free") + 
+#   scale_x_continuous(breaks = c(0:23), 
+#                      labels = c(1:24)) + 
+#   labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
+#        y = 'Blow-Bys', x = 'Hour of Day') + 
+#   theme(
+#     panel.spacing = unit(4,"lines")
+#     )
+# )
+```
+
+
+```{r}
+
+### Non-Motorized Blow-Bys - Boxplots
+
+# hod_dat |> 
+#   mutate(Year = as.factor(Year)) |> 
+#   ggplot(aes(x = hod, y = nonmot_bb)) + 
+#   geom_boxplot(aes(group = hod), alpha = 0.75) + 
+#   facet_wrap( ~ Station, ncol = 1, nrow = 3) + 
+#   scale_x_continuous(breaks = c(0:23), 
+#                      labels = c(1:24)) + 
+#   labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
+#        subtitle = 'Smaller ranges for Golden compared to Motorized Blow-bys',
+#        y = 'Blow-Bys', x = 'Hour of Day')
+```
+
+## Compliance for Golden, Olsen and Yahk in Peak Months
+### (Only Motorized Blow-bys Included in Analysis)
+#### Number format: Percentage compliance (total motorized blow-bys)
+
+```{r}
+knitr::kable(
+  blowby_d |> 
+  group_by(Year,Station,Month) |> 
+  mutate(total_inspections = n()) |> 
+  dplyr::select(Year,Station,Month,Shift_ID,mot_bb,total_inspections) |> 
+  distinct() |> 
+  mutate(mot_bb = sum(mot_bb, na.rm=T)) |> 
+  mutate(Month = lubridate::month(Month, label = T)) |> 
+  mutate(bb_perc = mot_bb / total_inspections) |> 
+  mutate(bb_display = paste0(100 - 100*round(bb_perc,4), '% (',mot_bb,')')) |> 
+  dplyr::select(Year,Station,Month,bb_display) |> 
+  distinct() |> 
+  pivot_wider(names_from = Month, values_from = bb_display) |> 
+  arrange(Station,Year) |> 
+  ungroup()
+)
+```

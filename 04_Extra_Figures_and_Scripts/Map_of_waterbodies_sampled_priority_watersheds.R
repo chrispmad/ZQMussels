@@ -7,18 +7,17 @@ library(readxl)
 library(tmap)
 library(leaflet)
 
-# Load in lake sampling data.
-my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
+focus.year = 2022
 
 # samples = read_excel(paste0(my_opts$base_dir,'02_IMDP_Figure_Generator/data/lake_monitoring_for_report_appendix.xlsx'))
-lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
+lab_dat = read_excel(paste0('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/',focus.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
 
 wb = read_sf('W:/CMadsen/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp') %>% 
   st_transform(crs = 4326)
 
-dat = read_excel(paste0(my_opts$base_dir,'02_IMDP_Figure_Generator/output/sampled lakes in fraser or columbia priority areas.xlsx')) |> 
-  mutate(lng = str_remove_all(coords, '.*, '),
-         lat = str_remove_all(coords, ',.*'))
+# dat = read_excel(paste0(my_opts$base_dir,'02_IMDP_Figure_Generator/output/sampled lakes in fraser or columbia priority areas.xlsx')) |> 
+#   mutate(lng = str_remove_all(coords, '.*, '),
+#          lat = str_remove_all(coords, ',.*'))
 
 ## HCTF list
 hctf = read_excel('04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx')
@@ -38,21 +37,51 @@ columbia = columbia |>
 priority_wb = bind_rows(fraser, columbia)
 
 hctf = hctf |> 
-  filter(!duplicated(Waterbody),
-         `# Substrate samplers` > 0) |> 
-  mutate(substrate = T) |> 
-  dplyr::select(Waterbody, substrate)
+  filter(!duplicated(Waterbody)) |> 
+  dplyr::select(Waterbody, 
+                substrate_samples = `# Substrate samplers`,
+                plankton_samples = `# Plankton Samples`) |> 
+  mutate(Waterbody = case_when(
+    Waterbody == 'Lake Revelstoke' ~ 'Revelstoke Reservoir',
+    Waterbody == 'Upper Arrow Lake' ~ 'Arrow Lake, Upper',
+    Waterbody == 'Kootenay River' ~ 'Kootenay River (Nelson)',
+    Waterbody == 'Lake Enid' ~ 'Enid Lake',
+    Waterbody == 'St. Mary Lake' ~ "St Mary's",
+    T ~ Waterbody
+  )) |> 
+  filter(Waterbody != 'Total Samples') |> 
+  group_by(Waterbody) |> 
+  summarise(across(ends_with('samples'), \(x) sum(x, na.rm=T))) |> 
+  distinct()
 
-# Join dat and HCTF list.
+# hctf = hctf |> 
+#   filter(!duplicated(Waterbody),
+#          `# Substrate samplers` > 0) |> 
+#   mutate(substrate = T) |> 
+#   dplyr::select(Waterbody, substrate)
+
+# # Join dat and HCTF list.
+# dat = dat |> 
+#   left_join(hctf) |> 
+#   mutate(substrate = replace_na(substrate, FALSE))
+
+# 
+# 
+# dat_sf = st_as_sf(dat, coords = c('lng','lat'),
+#                   crs = 4326)
+
+# Just retain HCTF as our dat.
 dat = dat |> 
   left_join(hctf) |> 
-  mutate(substrate = replace_na(substrate, FALSE))
+  filter(!is.na(substrate_samples))
 
-dat_sf = st_as_sf(dat, coords = c('lng','lat'),
-                  crs = 4326)
+# Convert data to spatial object.
+dat_sf = dat |> 
+  st_as_sf(coords = c("lng","lat"), crs = 4326)
 
-dat_sf = dat_sf |> 
-  mutate(substrate = ifelse(substrate == T, 'Plankton and Substrate', 'Plankton Only'))
+# Update label column: if substrate sampling occurred, label that. Else, just 'Plankton'
+dat_sf = dat_sf |>
+  mutate(substrate = ifelse(substrate_samples >= 1, 'Plankton and Substrate', 'Plankton Only'))
 
 # subwatersheds = read_sf("W:/CMadsen/shared_data_sets/WatershedGroups.shp") |> 
 #   st_transform(crs = 4326)
@@ -65,7 +94,7 @@ background_layer = maptiles::get_tiles(x = boundingbox,
                                        provider = 'CartoDB.Voyager', 
                                        zoom = 7, crop = T)
 
-my_pal = colorFactor(palette = 'Set1',
+my_pal = colorFactor(palette = 'viridis',
                      domain = dat_sf$substrate)
 
 my_priority_wb_pal = colorFactor(
@@ -109,6 +138,7 @@ library(htmlwidgets)
 library(webshot)
 
 saveWidget(l, "temp.html", selfcontained = FALSE)
+
 webshot("temp.html", file = "02_IMDP_Figure_Generator/output/Lake_sampling_map.jpg",
         cliprect = "viewport",
         zoom = 2,

@@ -1,0 +1,274 @@
+---
+title: "Blowby Exploration"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+fig_width: 8
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(
+readxl,
+ggpubr,
+ggrepel,
+ggExtra,
+ggtext,
+tidyverse,
+leaflet,
+sf,
+RColorBrewer,
+openxlsx,
+scales,
+tmap,
+lubridate,
+plotrix,
+knitr)
+
+#=====================================================
+#                       OPTIONS 
+#=====================================================
+setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+
+my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
+
+#Which year should we focus on?
+my.year = my_opts$year
+
+#Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
+update.gis = FALSE
+
+#Are there any stations we would like to exclude from the excel-type figures?
+#In 2021, we will exclude:
+stations.to.include = c("Golden","Radium","Olsen","Yahk",
+                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+                        "Keremeos","Greenwood","Dawson Creek","Kaleden")
+
+stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                          "Okanagan",
+                          "Penticton Roving - Hwy 33", 
+                          "Penticton Roving - Inspection Event")
+
+# Just in case it's different, which stations do we want to show in the 
+# leaflet maps?
+leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Keremeos","Osoyoos","Fraser Valley Roving","Pacific")
+
+#Data folders
+my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
+my.external.data.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/")
+
+#Which folder should we put specific output files in?
+my.output.folder = paste0(my_opts$zqm_figure_local_folder,"output/")
+my.external.output.folder = paste0(my_opts$zqm_figure_output_remote_folder,my_opts$year)
+zqm.operations.folder = my_opts$zqm_operations_data_folder
+this.years.report.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/")
+
+# #Where is the mussel-fouled tracking sheet?
+# MusselFouledTracker = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/", my.year," data/2022 mussel fouled boats tracking sheet.xlsx")
+# 
+# #What is the sheet name of the destination regions for the mussel fouled tracking sheet?
+# MF_tracker_sheet = "DestRegions"
+# 
+# #Where can we find the CBSA notifications excel sheet for this year?
+# if(file.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/",my.year," COS inbox notifications.xlsx"))){
+#   cbsa_dat = read_excel(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/",my.year," COS inbox notifications.xlsx"),
+#                  sheet = "Filtered list")
+# }
+
+#These lines below set options for all of the code for the rest of this script. You probably don't need to change any of these.
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(fig.width = 8)
+knitr::opts_chunk$set(fig.height = 4)
+knitr::opts_knit$set(root.dir = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures"))
+
+#Colour for some of the figures:
+my.grey = "#5f6a6f"
+
+#=====================================================
+#                     END OF OPTIONS
+#=====================================================
+
+#If there is no folder for excel figures for the target year in the I: drive, make it now.
+if(!dir.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures"))){
+  dir.create(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/"))
+}
+```
+
+```{r load in data}
+setwd(my.data.folder)
+
+# dat = read.xlsx('figure_dat_all.xlsx') %>% 
+#   mutate(TimeOfInspection = convertToDateTime(TimeOfInspection)) %>% 
+#   as_tibble()
+# 
+# dat = dat |> 
+#   filter(Station %in% c("Mt. Robson","Osoyoos","Olsen (Hwy 3)","Olsen","Yahk","Radium","Dawson Creek","Golden","Pacific"))
+
+blowby_d = read_csv('blowby_preprocessed_data.csv')
+
+# Outline of BC
+bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
+```
+
+```{r}
+# # Refine dataset to just blow-bys, by month/day/year and station
+# blowby_d = dat |> 
+#   filter(Year != 2015) |> 
+#   mutate(Total_BlowBys = as.numeric(Total_BlowBys),
+#          Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter),
+#          Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
+#   # Combine two columns for blowbys.
+#   mutate(total_bb = case_when(
+#     Year == 2015 ~ Total_BlowBys,
+#     Year != 2015 & !is.na(Non_Motorized_Blow_Bys_Counter) & !is.na(Motorized_Blow_Bys_Counter) ~ Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter,
+#     Year != 2015 & !is.na(Non_Motorized_Blow_Bys_Counter) & is.na(Motorized_Blow_Bys_Counter) ~ Non_Motorized_Blow_Bys_Counter,
+#     Year != 2015 & is.na(Non_Motorized_Blow_Bys_Counter) & !is.na(Motorized_Blow_Bys_Counter) ~ Motorized_Blow_Bys_Counter,
+#     T ~ NA)
+#     ) |> 
+#   # Add month and day columns
+#   mutate(Month = lubridate::month(TimeOfInspection),
+#          Day = lubridate::day(TimeOfInspection)) |> 
+#   # Calculate total number of inspections, and percentage of blow-bys, per day.
+#   group_by(Shift_ID) |> 
+#   mutate(total_insp = sum(TotalBoats)) |> 
+#   mutate(bb_percentage = (total_bb/total_insp)) |> 
+#   # Now that we have total insp, total blowbys, and blowby percentage,
+#   # Just keep rows with blow-bys; note that we must keep unique values
+#   # for each shift, not row, lest we risk duplication.
+#   filter(!is.na(total_bb), total_bb != '0') |> 
+#   dplyr::select(Year, Month, Day, TimeOfInspection, Station, total_insp, total_bb, bb_percentage, 
+#                 #Total_BlowBys, 
+#                 Non_Motorized_Blow_Bys_Counter, Motorized_Blow_Bys_Counter, Shift_ID) |> 
+#   filter(!duplicated(Shift_ID)) |> 
+#   ungroup()
+# 
+# write_csv(blowby_d, 'blowby_preprocessed_data.csv')
+```
+
+```{r create_functions}
+# Average monthly blow-bys per station
+monthly_av_fig_maker = function(data, year){
+  g = data |> 
+    filter(Year == year) |> 
+    group_by(Station,Month) |> 
+  summarise(total_bb = sum(as.numeric(total_bb))) |> 
+  ungroup() |> 
+  ggplot() + 
+  geom_bar(aes(x = Month, y = total_bb, fill = Station),
+           stat = 'identity'
+           #position = position_dodge2(preserve = "single")
+  ) + 
+  scale_x_discrete(breaks = 1:12, labels = lubridate::month(1:12, label = T, abbr = T)) + 
+  theme_minimal() +
+    # theme(legend.position = 'none') + 
+  labs(title = "Total Blowbys per Station / Month",
+       y = 'Total Blow-bys')
+  
+  plotly::ggplotly(g)
+}
+
+# 4 Stations with lowest compliance % by month
+monthly_compl_perc_fig_maker = function(data, year, title_addon = ''){
+  perc_compliance = blowby_d |>
+  filter(Year %in% year) |>
+  group_by(Station,Month) |>
+  summarise(bb_percentage = mean(bb_percentage)) |>
+  # Sometimes we have a number of blow-bys that exceeds the total number of boats...
+  # For now, just correct this to 1?
+  mutate(bb_percentage = ifelse(bb_percentage > 1, 1, bb_percentage)) |> 
+  mutate(compliance_perc = 100*round(1 - bb_percentage,3)) |> 
+  # If the compliance is 0%, it's probably not a useful thing to show. Drop.
+  filter(compliance_perc != 0) |> 
+  arrange(Month,compliance_perc) |> 
+  group_by(Month) |>
+  mutate(Station = ifelse(row_number() <= 4, Station, 'Other')) |> 
+  # mutate(Station = fct_lump_n(Station, w = compliance_perc, n = 4)) |> 
+  filter(Station != 'Other') |> 
+  ungroup() |> 
+  rename('Compliance (%)' = compliance_perc) |> 
+  #factor(Month, levels = month.abb)
+  ggplot(aes(Month,
+             `Compliance (%)`)) +
+  geom_bar(aes(fill = Station),
+           stat = 'identity',
+           position = position_dodge2(preserve = 'single')
+  ) +
+  scale_x_continuous(breaks = 1:12, labels = lubridate::month(1:12, label = T, abbr = T)) +
+  theme_minimal() +
+  # theme(legend.position = 'none') +
+  labs(title = paste0("Each Month's 4 Stations with Lowest % Compliance",title_addon),
+       y = 'Percentage Compliance')
+
+plotly::ggplotly(perc_compliance)
+}
+
+monthly_table_maker = function(data, year){
+  data |> 
+    filter(Year == year) |> 
+    group_by(Month,Station) |> 
+    summarise(total_bb = sum(total_bb),
+              total_insp = sum(total_insp)) |> 
+    mutate(bb_percentage = total_bb / total_insp) |> 
+    mutate(bb_percentage = ifelse(bb_percentage > 1, 1, bb_percentage)) |> 
+    mutate(bb_perc_tot = paste0(100*round(bb_percentage,3),"% (",total_bb,")")) |> 
+    dplyr::select(Station, Month, bb_perc_tot) |>
+    mutate(Month = lubridate::month(Month, abbr = T, label = T)) |> 
+    tidyr::pivot_wider(names_from = 'Month', values_from = "bb_perc_tot") |> 
+    arrange(Station)
+}
+```
+
+```{r}
+# Averaging the monthly compliance percentages over 2016 - 2022
+# monthly_compl_perc_fig_maker(blowby_d, year = c(2016:2022), title_addon = ', 2016-2022')
+```
+
+```{r}
+compliance_over_years = blowby_d |> 
+  group_by(Year) |> 
+  summarise(total_insp = sum(total_insp,na.rm=T),
+            total_bb = sum(total_bb,na.rm=T)) |> 
+  mutate(bb_percentage = round(total_bb/total_insp,3)) |> 
+  mutate(compliance_perc = 1 - bb_percentage) |> 
+  mutate(Year = factor(Year, levels = c(2016:2022))) |> 
+  ggplot(aes(x = Year)) + 
+  geom_col(aes(y = compliance_perc), fill = '#36454F') + 
+  geom_text(aes(y = compliance_perc / 2,
+                label = paste0(100*compliance_perc,"%")),
+            col = 'white') +
+  labs(title = 'Upward Trend in Compliance over 2016 to 2022', y = 'Compliance (%)') +
+  theme_minimal() + 
+  scale_x_discrete(breaks = c(2016:2022), labels = c(2016:2022))
+  
+plotly::ggplotly(compliance_over_years)  
+```
+
+## Monthly Blow-bys (total and % compliance) per Station and Month {.tabset}
+
+```{r, echo = FALSE, results = 'asis'}
+for(i in 2016:2022){
+  
+  cat("\n")
+  cat(paste0("### ",i,"{-}","\n\n"))
+  cat("\n")
+  
+  av_figure_results = monthly_av_fig_maker(data = blowby_d, year = i)
+  print(htmltools::tagList(av_figure_results))
+  
+  cat("\n")
+  
+  compliance_figure_results = monthly_compl_perc_fig_maker(data = blowby_d, year = i)
+  print(htmltools::tagList(compliance_figure_results))
+  
+  cat("\n")
+
+  table_results = monthly_table_maker(data = blowby_d, year = i)
+  
+  cat("Table of Blow-bys by Station and Month\n")
+  cat("Format: blow-by percentage (number of blowbys)")
+  print(kable(table_results))
+  
+  cat("\n\n")
+  }
+```
