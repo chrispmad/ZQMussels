@@ -1,0 +1,8 @@
+//odd keyword.
+.th:nth-child(odd) {
+  background: red;
+}
+//even keyword.
+.p:nth-child(even) {
+  background: blue;
+}

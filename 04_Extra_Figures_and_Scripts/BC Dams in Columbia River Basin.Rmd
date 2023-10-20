@@ -1,0 +1,212 @@
+---
+title: "BC Dams in Columbia River Basin"
+author: "Ministry of Water, Land and Resource Stewardship"
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::robobook:
+    self_contained: true
+    highlight: tango
+---
+<style type="text/css">
+.book .book-body .page-inner {
+  padding: 0px !important;
+}
+.book .book-body .page-inner section.normal table th {
+  1px solid #d8d7d7;
+}
+.book .book-body .page-inner section.normal table th {
+border-bottom: 1px solid #ddd !important;
+border-top: 1px solid #ddd !important;
+}
+.search-button {
+background: url(data:image/png;base64,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) no-repeat 2px 2px #fff !important;
+}
+</style>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = F, message = F)
+```
+
+```{r}
+# Libraries
+library(sf)
+library(leaflet)
+library(tidyverse)
+library(bcdata)
+library(leafpop)
+library(bcdata)
+library(patchwork)
+
+# Load in data.
+col_b = read_sf('W:/CMadsen/shared_data_sets/Columbia_River_Big_Watershed.shp') |> 
+  summarise(basin_name = 'Columbia River')
+
+# # Get rivers for this area.
+# rivers = bcdc_query_geodata('freshwater-atlas-rivers') |> 
+#   bcdata::filter(INTERSECTS(col_b)) |> 
+#   collect()
+# 
+# # rivers |> 
+# #   st_drop_geometry() |> 
+# #   ggplot() + 
+# #   geom_histogram(aes(AREA_HA))
+# 
+# rivers_big = rivers |> 
+#   filter(AREA_HA >= 10)
+# 
+# write_sf(rivers_big, '04_Extra_Figures_and_Scripts/data/big_rivers_in_columbia.gpkg')
+# # Get lakes for this area.
+# lakes = bcdc_query_geodata('freshwater-atlas-lakes') |> 
+#   bcdata::filter(INTERSECTS(col_b)) |> 
+#   bcdata::filter(AREA_HA > 10) |> 
+#   collect()
+# 
+# 
+# write_sf(lakes, '04_Extra_Figures_and_Scripts/data/big_lakes_in_columbia.gpkg')
+rivers_big = read_sf('data/big_rivers_in_columbia.gpkg')
+lakes = read_sf('data/big_lakes_in_columbia.gpkg')
+
+cities = bcmaps::bc_cities() |> 
+    filter(NAME %in% c("Golden","Cranbrook","Invermere","Nelson","Castlegar"))
+
+# if(!file.exists('04_Extra_Figures_and_Scripts/data/dams_in_columbia_river_basin.gpkg')){
+# dams = bcdc_query_geodata('bd632217-35f9-4d01-8e57-a6dbc454f236') |> 
+#   bcdata::filter(INTERSECTS(col_b)) |> 
+#   collect()
+# 
+# write_sf(dams, '04_Extra_Figures_and_Scripts/data/dams_in_columbia_river_basin.gpkg')
+# } else {
+dams = read_sf('data/dams_in_columbia_river_basin.gpkg')
+# }
+col_b = st_transform(col_b, 4326)
+
+dams = dams |> 
+  st_transform(4326)
+
+# Replace line geometry with points for dams.
+new_geometry = st_coordinates(dams$geom) |> 
+  as_tibble() |> 
+  filter(!duplicated(L1)) |> 
+  st_as_sf(coords = c("X","Y"),
+           crs = 4326) |> 
+  dplyr::select(-L1) |> 
+  st_geometry()# Pull out first point of lines.
+
+dams = st_set_geometry(dams, new_geometry)
+```
+
+```{r, fig.width=8, fig.height=6}
+dams = dams |> 
+  mutate(height_bin = as.numeric(cut(DAM_HEIGHT,5)))
+
+# my_pal = colorFactor(palette = 'Spectral', domain = dams$height_bin, reverse = TRUE)
+
+popup_table = dams |> 
+  dplyr::mutate(Height_and_Length = paste0(DAM_HEIGHT,', ',CREST_LENGTH)) |> 
+  dplyr::select(Name = DAM_NAME,
+                ID = DAM_FILE_NUMBER,
+                Year_Commissioned = COMMISSIONED_YEAR,
+                Function = DAM_FUNCTION,
+                Regulated = DAM_REGULATED_CODE,
+                Type = DAM_TYPE,
+                Height_and_Length,
+                Spillway = SPILLWAY_TYPE,
+                Risk = DAM_RISK_LEVEL) |> 
+  sf::st_drop_geometry() |> 
+  leafpop::popupTable()
+
+leaflet() |> 
+  addTiles(group = 'OSM') |> 
+  addProviderTiles(providers$CartoDB, group = 'Carto') |> 
+  addLayersControl(baseGroups = c("OSM","Carto"),
+                   overlayGroups = c('Columbia River Basin','Dams'),
+                   options = layersControlOptions(collapsed = F)) |> 
+  addPolygons(
+    data = col_b,
+    color = 'grey',
+    weight = 2,
+    fillColor = 'lightblue',
+    fillOpacity = 0.5,
+    group = 'Columbia River Basin'
+  ) |> 
+  addCircleMarkers(
+    label = ~DAM_NAME,
+    popup = popup_table,
+    popupOptions = popupOptions(),
+    color = 'black',
+    weight = 1,
+    fillColor = 'purple',
+    fillOpacity = 0.8,
+    radius = 7,
+    opacity = 0.9,
+    data = dams,
+    group = 'Dams'
+  ) |> 
+  addScaleBar('bottomright') |> 
+  leaflet.extras::addResetMapButton() |> 
+  leaflet.extras::addSearchFeatures(targetGroups = 'Dams',
+                                    options = leaflet.extras::searchFeaturesOptions(zoom = 7))
+```
+
+```{r static_map_output, include = F}
+# # Make a custom-sized viewing box around stations in BC.
+# my_view_box = st_bbox(col_b)
+# 
+# # Download maptiles for BC station map
+# basemap = maptiles::get_tiles(x = my_view_box, #provider = 'CartoDB.Positron',
+#                               zoom = 10, crop = T)
+
+bc_insert = ggplot() + 
+  geom_sf(data = bcmaps::bc_bound()) + 
+  geom_sf(data = st_as_sfc(st_bbox(col_b)),
+          color = 'red', fill = 'transparent') + 
+  ggthemes::theme_map() + 
+  theme(plot.background = element_rect(fill = 'white', color = 'black')) +
+  coord_sf(crs = 3005)
+
+main_map = ggplot() + 
+  geom_sf(data = col_b) + 
+  geom_sf(data = lakes, fill = 'lightblue') + 
+  geom_sf(data = rivers_big, fill = 'lightblue') + 
+  geom_sf_label(data = cities, aes(label = NAME), alpha = 0.1) + 
+  geom_sf(
+    data = dams,
+    shape = 1,
+    col = 'purple'
+    ) +
+  labs(title = 'B.C. Dams in the Columbia River Basin') + 
+  ggspatial::annotation_north_arrow(location = 'tr') + 
+  ggspatial::annotation_scale(location = 'br')
+
+layout <- c(
+  area(t = 1, l = 1, b = 10, r = 10),
+  area(t = 1, l = 9, b = 2, r = 10)
+)
+
+combined_plot = main_map + bc_insert +
+  plot_layout(design = layout)
+
+ggsave('output/BC_dams_Columbia_static.png',
+       combined_plot,
+       width = 6,
+       height = 6)
+
+dams |> 
+  dplyr::select(Name = DAM_NAME,
+                File_Number = DAM_FILE_NUMBER,
+                WRIS_ID = WRIS_DP_SYSID,
+                Region = REGION,
+                Year_Commissioned = COMMISSIONED_YEAR,
+                Function = DAM_FUNCTION,
+                Regulated = DAM_REGULATED_CODE,
+                Type = DAM_TYPE,
+                Height = DAM_HEIGHT,
+                Crest_Length = CREST_LENGTH,
+                Spillway = SPILLWAY_TYPE,
+                Risk_Level = DAM_RISK_LEVEL) |> 
+  dplyr::mutate(Name = stringr::str_to_title(Name)) |> 
+  dplyr::mutate(Latitude = st_coordinates(geom)[,2],
+                Longitude = st_coordinates(geom)[,1]) |> 
+  sf::st_drop_geometry() |> 
+  openxlsx::write.xlsx(file = 'output/BC_dams_in_Columbia.xlsx')
+```
+
