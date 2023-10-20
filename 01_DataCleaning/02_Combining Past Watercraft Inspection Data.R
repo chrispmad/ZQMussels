@@ -8,6 +8,9 @@
 ### The file(s) produced are located in the Operations folder of the Zebra-Quagga Mussel folder 
 ### of the BC Public Services' I: drive.
 
+### Script Author: Chris Madsen (Ministry of Water, Land, and Resource Stewardship)
+### Most recent edits: 2023-10-20 (YMD)
+
 #First, load in libraries we will use.
 library(readxl)
 library(sf)

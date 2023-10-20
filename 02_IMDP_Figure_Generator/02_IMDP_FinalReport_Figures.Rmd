@@ -186,7 +186,9 @@ map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_1_tmap
 
-tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', width = 7.6, height = 6.4, dpi = 300)
+if(!interactive()) {
+  tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Map 2. Total Inspections by Station
@@ -266,7 +268,9 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_2_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_2_tmap, filename = 'Map2_Total_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Figure 3 Encounter Frequency by Station
@@ -342,7 +346,9 @@ p3 = fig3_data %>%
 
 p3
 
+if(!interactive()) {
 ggsave("Fig3_EncounterFrequency_HR.jpg",p3)
+}
 ```
 
 ### Figure 3.x Total Inspections by Station
@@ -372,7 +378,14 @@ p3.x = dat_all %>%
 
 p3.x
 
+if(interactive()){
+  dat |> 
+    count(Station)
+}
+
+if(!interactive()) {
 ggsave("Fig3x_TotalInspections_2020_to_2022_All_Stations.jpg",p3.x)
+}
 ```
 
 ### Figure 4 Total Number of Jurisdictions
@@ -399,7 +412,9 @@ p4 = dat %>%
 
 p4
 
+if(!interactive()) {
 ggsave("Fig4_Total_Jurisdictions_by_Station.jpg",p4)
+}
 ```
 
 ### Figure 5 Number of Inspections and Total Effort by month
@@ -437,7 +452,9 @@ p5 = ggarrange(dat %>%
 
 p5
 
+if(!interactive()) {
 ggsave("Fig5_NumberInspections_and_TotalEffort_month.jpg",p5)
+}
 ```
 
 ### Figure 6 Encounter Frequency by Month
@@ -485,7 +502,9 @@ p6 = dat %>%
 
 p6
 
+if(!interactive()) {
 ggsave("Fig6_EncounterFrequency_by_month.jpg",p6)
+}
 ```
 
 ### Figure 7 Total Inspections and Total Effort by Day of Week
@@ -522,7 +541,9 @@ p7 = ggarrange(dat %>%
 
 p7
 
+if(!interactive()) {
 ggsave("Fig7_NumberInspections_and_TotalEffort_day.jpg",p7)
+}
 ```
 
 ### Fig 8 Encounter Frequency by day of week
@@ -567,8 +588,9 @@ p8 = dat %>%
 
 p8
 
+if(!interactive()) {
 ggsave("Fig8_EncounterFrequency_day_of_week.jpg",p8)
-
+}
 ```
 
 ### Figure 9 Total Inspections by Time of Day
@@ -604,7 +626,9 @@ p9 = dat %>%
 
 p9
 
+if(!interactive()) {
 ggsave("Fig9_NumberInspections_hour_of_day.jpg",p9)
+}
 ```
 
 ### Figure 9. Part 2 High-Risk Inspections by Time of Day
@@ -626,7 +650,9 @@ p9.2 = dat %>%
 
 p9.2
 
+if(!interactive()) {
 ggsave("Fig9_Part2_Number_Highrisk_Inspections_hour_of_day.jpg",p9.2)
+}
 ```
 
 ### Figure 9. Part 3 Total Inspections by Time of Day for Golden Station
@@ -648,9 +674,10 @@ p9.3 = dat %>%
 
 p9.3
 
+if(!interactive()) {
 ggsave("Fig9_Part3_Number_Inspections_Golden_hour_of_day.jpg",p9.3)
+}
 ```
-
 
 ### Figure 9. Part 4 High-Risk Inspections by Time of Day for Golden Station
 
@@ -672,7 +699,9 @@ p9.4 = dat %>%
 
 p9.4
 
+if(!interactive()) {
 ggsave("Fig9_Part4_Number_Highrisk_Inspections_Golden_hour_of_day.jpg",p9.4)
+}
 ```
 
 ### Figure 11 Destination Waterbodies with Percent
@@ -699,7 +728,9 @@ p11 = dat %>%
 
 p11
 
+if(!interactive()) {
 ggsave("Fig11_DestinationWaterbody_Percent_Inspections.jpg",p11)
+}
 ```
 
 ### Map 3: Home Residence of Boats
@@ -791,7 +822,9 @@ map_3_tmap = tm_shape(northamerica_basemap,
 
 map_3_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Figure 12 Percent Compliance by station
@@ -838,7 +871,9 @@ p12 = dat %>%
 
 p12
 
+if(!interactive()) {
 ggsave("Fig12_PercentCompliance_Station.jpg",p12)
+}
 ```
 
 ### Figure 13 Noncompliant Watercraft Breakdown
@@ -887,7 +922,9 @@ p13 = dat %>%
 
 p13 
 
+if(!interactive()) {
 ggsave("Fig13_Percent_Blowbys_Station.jpg",p13)
+}
 ```
 
 ### Figure 14 Percent Watercraft Inspected with Previous Inspection
@@ -900,6 +937,9 @@ p14 = dat %>%
   group_by(Station) %>% 
   summarise(TotalInsp = n()) %>% 
   left_join(dat %>% 
+              filter(!Station %in% c("Scheduled Inspection",
+                         "Okanagan",
+                         "Other", "Penticton Roving")) %>% 
               filter(Previous_Inspection_Ind == T) %>% 
               group_by(Station) %>% 
               summarise(PrevInspected = n())
@@ -923,10 +963,21 @@ p14 = dat %>%
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
   scale_fill_brewer(palette = "Dark2")
 
-  
+if(interactive()){
+  # For inspections that were previously inspected prior, calculate the % 
+  # per each grouping of time (e.g. )
+  dat %>% 
+  filter(!Station %in% c("Scheduled Inspection",
+                         "Okanagan",
+                         "Other", "Penticton Roving"))
+}
+
+
 p14
 
+if(!interactive()) {
 ggsave("Fig14_Percent_Intercepted_with_Prev_Insp.jpg",p14)
+}
 ```
 
 ### Figure 15 Frequency of Previously Inspected Watercraft's Inspections
@@ -990,7 +1041,30 @@ p15 = figure_15 |>
 
 p15 
 
+if(interactive()){
+  # Drop the station grouping level; get these stats across all stations.
+  dat %>% 
+  filter(!Station %in% rovers_to_drop) %>% 
+  filter(Previous_Inspection_Ind == T) %>% 
+  filter(!is.na(Previous_Inspection_Days_Count)) %>% 
+  mutate(previnsp = case_when(
+    Previous_Inspection_Days_Count %in% c('0','Same day') ~ 'Same Day',
+    Previous_Inspection_Days_Count %in% c('30','60','180') ~ '> 30 Days',
+    Previous_Inspection_Days_Count %in% c('< 30 days','<30 days') ~ '< 30 Days',
+    Previous_Inspection_Days_Count == '> 30 days' ~ '> 30 Days',
+    Previous_Inspection_Days_Count == '> 1 year' ~ '> 1 Year',
+    T ~ NA
+  )) %>% 
+  select(previnsp) %>% 
+  count(previnsp, name = 'NumberInsp') %>%
+  # group_by(Station) %>% 
+  mutate(TotalInsp = sum(NumberInsp)) |> 
+    mutate(prop = 100*NumberInsp / TotalInsp)
+}
+
+if(!interactive()) {
 ggsave("Fig15_Percent_PreviouslyInspected_Date_Bins.jpg",p15)
+}
 ```
 
 ### Figure 16 Total High-risk Inspections over 3 years
@@ -1026,7 +1100,9 @@ p16 = dat_hr %>%
 
 p16
 
+if(!interactive()) {
 ggsave("Fig16_Total_HR_Inspections_3_year_spread.jpg",p16)
+}
 ```
 
 ### Map 4. High-risk Inspections by Station
@@ -1064,6 +1140,12 @@ st = st %>%
 
 stations_sf = st_as_sf(st, coords = c("lon","lat"), crs = 4326)
 
+# If interactive, show number of high-risk inspections by station as table.
+if(interactive()){
+  stations_sf |> st_drop_geometry() |> dplyr::select(station_name, num_insp) |> 
+    arrange(desc(num_insp))
+}
+
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
   domain = st$num_insp_b,
@@ -1094,12 +1176,44 @@ map_4_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_4_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_4_tmap, filename = 'Map4_HighRisk_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
+```
+
+```{r}
+if(interactive()){
+  # Get number of inspections coming from a high-risk area.
+  dat_hr |> 
+    filter(Year == my.year) |> 
+    count(High_Risk_Area_Ind)
+  
+  dat |> 
+    count(High_Risk_Area_Ind)
+}
+
+if(interactive()){
+  # Get number of high-risk inspections that had been previously inspected.
+  dat_hr |> 
+    filter(Year == my.year) |> 
+    count(Previous_Inspection_Ind) |> 
+    mutate(prop = 100*n/sum(n))
+}
 ```
 
 ### Figure 18 Source Locations of High-Risk Inspections
 
 ```{r fig18_pie_chart_source_locations_HR_Insp}
+
+# If interactive, show number of high-risk inspections by station as table.
+if(interactive()){
+  dat_hr |> 
+    filter(Year == my.year) |> 
+    dplyr::count(Previous_Waterbody_1_Province_Or_State) |> 
+    arrange(desc(n)) |> 
+    as.data.frame()
+}
+
 #Remove Penticton Roving
 fig18_dat = dat_hr %>% 
   filter(Year == my.year) %>% 
@@ -1161,7 +1275,9 @@ ncol = 2, nrow = 1)
 
 p18 
 
+if(!interactive()) {
 ggsave("Fig18_Inspection_Source_Pie_Charts.jpg",p18)
+}
 ```
 
 ### Figure 19 Destination Locations of High-Risk Inspections
@@ -1315,7 +1431,9 @@ p19 = ggarrange(
 
 p19
 
+if(!interactive()) {
 ggsave("Fig19_Highrisk_Destination_Regions_Pie_Charts.jpg",p19)
+}
 ```
 
 ### Map 5. Home Residence Frequency of High-risk Inspections
@@ -1403,7 +1521,9 @@ map_5_tmap = tm_shape(northamerica_basemap,
 
 map_5_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Map 6. Destination locations of High Risk Inspections
@@ -1485,8 +1605,9 @@ map_6_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_6_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
-
+}
 ```
 
 ### Figure 22 Pie Chart of Total Watercraft Types
@@ -1521,7 +1642,9 @@ p22 = dat %>%
 
 p22
 
+if(!interactive()) {
 ggsave("Fig22_Total_Watercraft_Type_Pie_Chart.jpg",p22)
+}
 ```
 
 ### Figure 23 Pie Chart of High-Risk Watercraft Types
@@ -1556,7 +1679,9 @@ p23 = dat_hr %>%
 
 p23
 
+if(!interactive()) {
 ggsave("Fig23_Highrisk_Watercraft_Type_Pie_Chart.jpg",p23)
+}
 ```
 
 
@@ -1607,8 +1732,9 @@ p24 = mf_time_table %>%
 
 p24
 
+if(!interactive()) {
 ggsave("Fig24_Musselfouled_by_Month.jpg",p24)
-
+}
 ```
 
 ### Figure 25 Source Provinces / States for Mussel-fouled Boats
@@ -1651,8 +1777,9 @@ p25 = tibble(Province_or_State = factor(c("Ontario","Manitoba","Quebec")),
 
 p25
 
+if(!interactive()) {
 ggsave("Fig25_MusselFouled_Source_Regions_Pie_Charts.jpg",p25)
-
+}
 ```
 
 ### Figure 26 Destination Regions of Mussel-fouled Inspections
@@ -1696,7 +1823,9 @@ p26 = tibble(Region = factor(c("Lower \nMainland","Okanagan","Vancouver \nIsland
 
 p26
 
+if(!interactive()) {
 ggsave("Fig26_MusselFouled_Destination_Regions_Pie_Charts.jpg",p26)
+}
 ```
 
 ### Map 7. Source Location of Mussel-fouled Watercraft
@@ -1783,14 +1912,16 @@ map_7_tmap = tm_shape(northamerica_basemap,
 
 map_7_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Figure 28 Pie Chart of Mussel-fouled Watercraft Types
 
 ```{r fig28_pie_chart_MF_watercraft_types}
-p28 = dat_mf %>% 
-  filter(Year == 2021) %>% 
+fig28_dat = dat_mf %>% 
+  filter(Year == my.year) %>% 
   rename(`Non-motorized / Hand launched` = Non_Motorized_Counter,
          Simple = Simple_Counter,
          Complex = Complex_Counter,
@@ -1800,8 +1931,23 @@ p28 = dat_mf %>%
   mutate(value = as.numeric(value)) %>% 
   group_by(name) %>% 
   summarise(NumberBoats = sum(value)) %>% 
+  filter(NumberBoats > 0)
+
+if(my.year == 2022){
+  fig28_dat = fig28_dat |> 
+    mutate(NumberBoats = ifelse(name == 'Very complex', 8, NumberBoats)) |> 
+    add_row(name = 'Unknown', NumberBoats = 1)
+}
+
+if(interactive()){
+  fig28_dat |> 
+    mutate(prop = 100*NumberBoats/sum(NumberBoats))
+}
+
+p28 = fig28_dat |> 
   arrange(desc(name)) %>% 
-  mutate(lab.ypos = cumsum(NumberBoats) - 0.5*NumberBoats) %>% 
+  mutate(lab.ypos = cumsum(NumberBoats) - 0.5*NumberBoats) |> 
+
   ggplot(aes(x = "", y = NumberBoats, 
            fill = name)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
@@ -1815,7 +1961,9 @@ p28 = dat_mf %>%
 
 p28
 
+if(!interactive()) {
 ggsave("Fig28_Musselfouled_Watercraft_Type_Pie_Chart.jpg",p28)
+}
 ```
 
 ### Figure 29 Commercially Hauled Boats
@@ -1839,8 +1987,9 @@ p29 = dat %>%
 
 p29
 
+if(!interactive()) {
 ggsave("Fig29_Commerically_Hauled_by_Station.jpg",p29)
-
+}
 ```
 
 ### Map 8. Commercially Hauled Boat Source Locations
@@ -1929,7 +2078,9 @@ map_8_tmap = tm_shape(northamerica_basemap,
 
 map_8_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Map 9. Lake Monitoring Plankton Sample Tows
@@ -2019,7 +2170,9 @@ map_9_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 
 map_9_tmap
 
+if(!interactive()) {
 tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
+}
 ```
 
 ### Figure 30 
@@ -2063,7 +2216,9 @@ p30 = cbsa_dat %>%
 
 p30
 
+if(!interactive()) {
 ggsave("Fig30_Percent_Previous_Knowledge.jpg",p30)
+}
 }
 ```
 
@@ -2111,7 +2266,9 @@ p32 = ggplot() +
   
 p32
 
+if(!interactive()) {
 ggsave("Fig32_Percent_Previous_Knowledge.jpg",p32)
+}
 ```
 
 ### Figure 33 Primary Sources of Previous Knowledge
@@ -2162,7 +2319,9 @@ p33 = dat %>%
 
 p33
 
+if(!interactive()) {
 ggsave("Fig33_Primary_Sources_Previous_AIS_Knowledge.jpg",p33)
+}
 ```
 
 ```{r number_nonmotorized_non_compliers, include=F}

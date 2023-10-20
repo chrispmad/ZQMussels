@@ -1,7 +1,8 @@
 # This script cleans data for the Invasive Mussel Defence Program,
 #  which is then used to generate figures used in reports and communications to partners.
 
-# It takes as an input an excel file produced in the script " ", which is a combination
+# It takes as an input an excel file produced in the 
+# script "03_Cleaning Past Watercraft Inspection Data.R", which is a combination
 # of all years of inspection data (the latter years coming from metabase .csv files)
 
 # Code developed by Chris Madsen.
@@ -22,6 +23,9 @@ pacman::p_load(
 #=====================================================
 #                       OPTIONS 
 #=====================================================
+
+setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+
 my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
 
 #Which year should we focus on?

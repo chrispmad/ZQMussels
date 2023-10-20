@@ -253,7 +253,7 @@ dat = dat %>%
   ))
 
 #I'm going to write out our data file at this point so that 
-#I can add 2019 data (which is fairly clean at this point) to
+#I can add this year's data (which is fairly clean at this point) to
 #the IMDP figures that Martina needs for her September presentation
 #and for a data request from DFO.
 # dat %>%
@@ -372,6 +372,7 @@ dat %>%
          Watercraft_Risk_Assessment_ID,
          MusselsFound_Ind,
          High_Risk_AIS_Ind,
+         High_Risk_Area_Ind,
          Station,
          Start_Time,
          End_Time,

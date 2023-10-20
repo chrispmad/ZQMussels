@@ -15,12 +15,10 @@ library(raster)
 library(sf)
 library(tidyverse)
 library(ggrepel)
-library(ggsflabel)
 library(rmdformats)
 library(leaflet)
-library(ggsflabel)
 
-my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels/'),"Options.csv"))
+my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels'),"/Options.csv"))
 
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(warning = FALSE)

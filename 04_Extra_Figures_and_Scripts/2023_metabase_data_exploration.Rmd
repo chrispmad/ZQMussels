@@ -7,6 +7,7 @@ output: html_document
 ```{r prep, include = F}
 library(tidyverse)
 library(plotly)
+library(ggrepel)
 
 knitr::opts_chunk$set(echo=F,warning=F,message = F)
 
@@ -17,81 +18,188 @@ dat = read_csv('04_Extra_Figures_and_Scripts/data/metabase_2023.csv')
 
 ```
 
-## Destination or Source Waterbody Information 
 
 ```{r}
 # Make some plots!
 
+## Where are boats coming from and where are they heading to?
+
 # Missing information for destination waterbody name / closest city.
 dest_dat = dat |> 
+  filter(!str_detect(Station,"Scheduled")) |> 
   mutate(`Destination Major City` = replace(`Destination Major City`,`Destination Major City` == 'None', NA)) |> 
-  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
   mutate(destination_any_info = coalesce(`Destination Waterbody 1 Name`,`Destination Waterbody 1 Closest City`,`Destination Major City`)) |> 
-  count(`High Risk AIS Ind`, destination_any_info, sort = T) |> 
+  count(Station, destination_any_info, sort = T) |> 
   mutate(something_known = !is.na(destination_any_info)) |> 
-  group_by(`High Risk AIS Ind`, something_known) |> 
+  group_by(Station, something_known) |> 
   mutate(total_n = sum(n)) |> 
   dplyr::select(something_known, total_n) |> 
-  distinct()
+  distinct() |> 
+  ungroup() |> 
+  group_by(Station) |> 
+  mutate(total_all = sum(total_n)) |> 
+  ungroup() |> 
+  arrange(desc(total_all)) |> 
+  mutate(Station = forcats::fct_inorder(Station))
 
-p = ggplot(dest_dat) + 
-  geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
-  labs(y = 'Number of Records', x = 'Data for Destination WB name / closest city / "destination closest city"')
-
-ggplotly(p)
+plot_ly(dest_dat,
+        colors = c('orange','lightblue')) |> 
+  add_bars(x = ~Station, y = ~total_n, color = ~something_known) |> 
+  layout(yaxis = list(title = 'Number of Inspections'),
+         xaxis = list(title = 'Station'),
+         legend = list(title=list(text='Any Destination Info')),
+         barmode = 'stack',
+         title = "Destination Data Field Completeness by Station"
+  )
+         
+         
+         
+# p = ggplot(dest_dat) + 
+#            geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
+#            labs(y = 'Number of Records', title = 'Data for Destination WB name / closest city / "destination closest city"', x = '')
+#          
+# ggplotly(p)
 
 # Source information
-# Missing information for destination waterbody name / closest city.
+# Missing information for source waterbody name / closest city.
 prev_dat = dat |> 
+    filter(!str_detect(Station,"Scheduled")) |> 
   mutate(`Previous Major City` = replace(`Previous Major City`,`Previous Major City` == 'None', NA)) |> 
   mutate(Previous_any_info = coalesce(`Previous Waterbody 1 Name`,`Previous Waterbody 1 Closest City`,`Previous Major City`)) |> 
-    mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
-count(`High Risk AIS Ind`, Previous_any_info, sort = T) |> 
+count(Station, Previous_any_info, sort = T) |> 
   mutate(something_known = !is.na(Previous_any_info)) |> 
-  group_by(`High Risk AIS Ind`,something_known) |> 
+  group_by(Station,something_known) |> 
   mutate(total_n = sum(n)) |> 
-  dplyr::select(`High Risk AIS Ind`,something_known, total_n) |> 
-  distinct()
-
-p = ggplot(prev_dat) + 
-  geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
-  labs(y = 'Number of Records', x = 'Data for either Previous WB name / closest city / "previous major city"')
-
-ggplotly(p)
-```
-
-## When are inspections taking place?
-```{r}
-p = dat |> 
-  mutate(inspection_hour = as.numeric(`Inspection Hour`)) |> 
-  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |> 
-  group_by(`High Risk AIS Ind`) |> 
-  count(inspection_hour) |> 
-  mutate(inspection_hour = factor(inspection_hour, levels = c(0:23))) |> 
-  ggplot(aes(x = inspection_hour, y = n, fill = `High Risk AIS Ind`)) +
-  geom_col() + 
-  labs(y = 'Number of Records', x = 'Time of Day (0 to 24 hours)')
-
-ggplotly(p)
-```
-
-## Which Stations have the most inspections?
-```{r}
-p = dat |> 
-  mutate(`High Risk AIS Ind` = factor(`High Risk AIS Ind`, levels = c(T,F))) |>
-  group_by(`High Risk AIS Ind`) |> 
-  count(Station) |> 
-  group_by(Station) |> 
-  mutate(total = sum(n)) |> 
+  dplyr::select(Station,something_known, total_n) |> 
+  distinct() |> 
   ungroup() |> 
-  arrange(desc(total), `High Risk AIS Ind`) |> 
-  mutate(Station = fct_inorder(Station)) |> 
-  mutate(Station = fct_rev(Station)) |> 
-  ggplot(aes(x = Station, y = n, fill = `High Risk AIS Ind`)) +
-  geom_col() + 
-  labs(y = 'Number of Records', x = 'Station') + 
-  coord_flip()
+  group_by(Station) |> 
+  mutate(total_all = sum(total_n)) |> 
+  ungroup() |> 
+  arrange(desc(total_all)) |> 
+  mutate(Station = forcats::fct_inorder(Station))
 
-ggplotly(p)
+plot_ly(prev_dat,
+        colors = c('orange','lightblue')) |> 
+  add_bars(x = ~Station, y = ~total_n, color = ~something_known) |> 
+  layout(yaxis = list(title = 'Number of Inspections'),
+         xaxis = list(title = 'Station'),
+         legend = list(title=list(text='Any Source Info')),
+         barmode = 'stack',
+         title = "Source Location Data Field Completeness by Station"
+  )
+# p = ggplot(prev_dat) + 
+#   geom_col(aes(x = something_known, y = total_n, fill = `High Risk AIS Ind`)) + 
+#   labs(y = 'Number of Records', title = 'Data for either Previous WB name / closest city / "previous major city"', x = '')
+# 
+# ggplotly(p)
+```
+
+```{r}
+dest_dat = dat |> 
+  mutate(Email = stringr::str_remove_all(Email, '@gov.*')) |> 
+    filter(!str_detect(Station,"Scheduled")) |> 
+  mutate(`Destination Major City` = replace(`Destination Major City`,`Destination Major City` == 'None', NA)) |> 
+  mutate(destination_any_info = coalesce(`Destination Waterbody 1 Name`,`Destination Waterbody 1 Closest City`,`Destination Major City`)) |> 
+  count(Email, destination_any_info, sort = T) |> 
+  mutate(something_known = !is.na(destination_any_info)) |> 
+  group_by(Email, something_known) |> 
+  mutate(total_n = sum(n)) |> 
+  dplyr::select(Email, something_known, total_n) |> 
+  distinct() |> 
+  ungroup() |> 
+  mutate(something_known = ifelse(something_known,'something_known','nothing_known')) |> 
+  pivot_wider(names_from = something_known, values_from = total_n) |> 
+  mutate(data_cov_perc = 100*something_known / (nothing_known + something_known))
+  
+plot_ly(dest_dat) |> 
+  add_bars(x = ~reorder(Email,-data_cov_perc), y = ~data_cov_perc) |> 
+  layout(yaxis = list(title = 'Data Coverage (% of records with dest. info)'),
+         xaxis = list(title = 'Inspector Email'),
+         legend = list(title=list(text='Any Source Info')),
+         barmode = 'stack',
+         title = 'Data Coverage of Destination Data Fields'
+  )
+```
+
+```{r}
+prev_dat = dat |> 
+  mutate(Email = stringr::str_remove_all(Email, '@gov.*')) |> 
+    filter(!str_detect(Station,"Scheduled")) |> 
+  mutate(`Previous Major City` = replace(`Previous Major City`,`Previous Major City` == 'None', NA)) |> 
+  mutate(Previous_any_info = coalesce(`Previous Waterbody 1 Name`,`Previous Waterbody 1 Closest City`,`Previous Major City`)) |> 
+count(Email, Previous_any_info, sort = T) |> 
+  mutate(something_known = !is.na(Previous_any_info)) |> 
+  group_by(Email,something_known) |> 
+  mutate(total_n = sum(n)) |> 
+  dplyr::select(Email, something_known, total_n) |> 
+  distinct() |> 
+  ungroup() |> 
+  mutate(something_known = ifelse(something_known,'something_known','nothing_known')) |> 
+  pivot_wider(names_from = something_known, values_from = total_n) |> 
+  mutate(data_cov_perc = 100*something_known / (nothing_known + something_known))
+  
+plot_ly(prev_dat) |> 
+  add_bars(x = ~reorder(Email,-data_cov_perc), y = ~data_cov_perc) |> 
+  layout(yaxis = list(title = 'Data Coverage (% of records with source info)'),
+         xaxis = list(title = 'Inspector Email'),
+         legend = list(title=list(text='Any Source Info')),
+         barmode = 'stack',
+         title = 'Data Coverage of Destination Data Fields'
+  )
+```
+
+```{r}
+# Do we have at least one number in the watercraft type columns?
+wc_type_dat = dat |> 
+  dplyr::select(Station,Email,`Non Motorized Counter`,`Simple Counter`,`Complex Counter`,`Very Complex Counter`) |> 
+  mutate(at_least_something = `Non Motorized Counter` + `Simple Counter` + `Complex Counter` + `Very Complex Counter` > 0) |> 
+  count(Station,at_least_something) |> 
+  group_by(Station) |> 
+  mutate(total_inspections = sum(n)) |> 
+  mutate(data_cov_perc = 100 * n / (total_inspections)) |> 
+  ungroup() |> 
+  arrange(desc(data_cov_perc)) |> 
+  mutate(Station = forcats::fct_inorder(Station))
+
+plot_ly(wc_type_dat,
+        colors = c('orange','lightblue')
+        ) |> 
+  add_bars(x = ~Station, y = ~data_cov_perc, color = ~at_least_something) |> 
+  layout(yaxis = list(title = 'Data Coverage (% watercrafts with type info)'),
+         xaxis = list(title = 'Station'),
+         legend = list(title=list(text='Any Info')),
+         barmode = 'stack',
+         title = 'Data Coverage of Watercraft Complexity Data Fields'
+  )
+```
+
+## Previous Inspections - where and when?
+```{r}
+## For all records with 'previously inspected == T', they should all have info for where the previous inspection was done and how recently it was done.
+
+pi_dat = dat |> 
+  filter(`Previous Inspection Ind` == T) |> 
+  mutate(day_count = ifelse(!is.na(`Previous Inspection Days Count`),T,F)) |> 
+  mutate(insp_loc = ifelse(!is.na(`Previous Inspection Source Name`),T,F)) |> 
+  count(`Previous Inspection Ind`,day_count,insp_loc) |> 
+  dplyr::select(previous_insp_day_count = day_count,
+         previous_insp_location = insp_loc,
+         number_of_records = n)
+
+knitr::kable(pi_dat)
+```
+
+```{r}
+
+# Under high risk form, if 'decontamination was performed' is True, they should always have a 'Record of Decon #'.
+
+dp_dat = dat |> 
+  filter(`Decontamination Performed Ind` == T) |> 
+  mutate(decon_reference_number = ifelse(!is.na(`Decontamination Reference`),T,F)) |> 
+  count(`Decontamination Performed Ind`,decon_reference_number) |> 
+  dplyr::rename(number_of_records = n)
+
+knitr::kable(dp_dat)
 ```
 
