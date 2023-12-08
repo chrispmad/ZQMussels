@@ -3,9 +3,6 @@
 # (https://catalogue.data.gov.bc.ca/dataset/bc-environmental-monitoring-system-results/resource/6aa7f376-a4d3-4fb4-a51c-b4487600d516)
 # , and just keeps rows that tell us about total and dissolved calcium.
 
-# The giant EMS database csv file should be stored here: I:/Admin/R_Scripts/Projects/ZQMussels/01_DataCleaning/data/
-# The resulting smaller EMS data file is written to the same folder as the line above.
-
 # Once the giant EMS database file has been filtered for calcium data, I would recommend deleting it (it is 5+ GB in size!)
 
 library(tidyverse)

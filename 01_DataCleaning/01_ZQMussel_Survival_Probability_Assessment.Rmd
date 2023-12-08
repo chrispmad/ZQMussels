@@ -65,7 +65,7 @@ if(!dir.exists(paste0(getwd(),"/output/"))) {
 Step 1. Read in shapefiles.
 ```{r load_in_shapefiles}
 # BC shapefile
-bc_shp = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/bc_simple.shp")) %>% 
+bc_shp = bcmaps::bc_bound() %>% 
   st_transform(crs = 4326)
 
 # WorldClim future temperature raster data. 
@@ -142,37 +142,42 @@ df_sp = st_transform(df_sp, 3005)
 #Read in the water body shapefiles
 #(4: waterbody groups, lakes, rivers and streams)
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
-lakes = bcdc_query_geodata("freshwater-atlas-lakes") %>% collect()
-rivers = bcdc_query_geodata("freshwater-atlas-rivers") %>% collect()
-manmade = bcdc_query_geodata("freshwater-atlas-manmade-waterbodies") %>% collect() %>% 
-  mutate(across(starts_with("GNIS_ID_"), as.character))
+wbs = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+
+# lakes = bcdc_query_geodata("freshwater-atlas-lakes") %>% collect()
+# rivers = bcdc_query_geodata("freshwater-atlas-rivers") %>% collect()
+# manmade = bcdc_query_geodata("freshwater-atlas-manmade-waterbodies") %>% collect() %>% 
+#   mutate(across(starts_with("GNIS_ID_"), as.character))
 
 #Combine lakes and man-made water bodies
-lakes = bind_rows(lakes, manmade)
+# lakes = bind_rows(lakes, manmade)
 ```
 
 Remove extra columns of freshwater atlas spatial objects.
 ```{r remove_extra_cols}
 watershed = watershed %>% dplyr::select("WATERSHED_") %>% rename(WATERSHED_GROUP_ID = WATERSHED_)
-lakes = lakes %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
-  rename(LakeName = GNIS_NAME_1, LakeNumber = WATERBODY_KEY)
-rivers = rivers %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
-  rename(RiverName = GNIS_NAME_1, RiverNumber = WATERBODY_KEY)
+
+# lakes = lakes %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
+#   rename(LakeName = GNIS_NAME_1, LakeNumber = WATERBODY_KEY)
+# rivers = rivers %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
+#   rename(RiverName = GNIS_NAME_1, RiverNumber = WATERBODY_KEY)
 ```
 
 Step 3: Identify in which water body each record is located. Do a spatial match between calcium data and freshwater atlas layers.
 ```{r spatial_match}
 df_sp = st_join(df_sp, watershed, st_intersects)
-df_sp = st_join(df_sp, lakes, st_intersects)
-df_sp = st_join(df_sp, rivers, st_intersects)
+df_sp = st_join(df_sp, wbs, st_intersects)
+# df_sp = st_join(df_sp, lakes, st_intersects)
+# df_sp = st_join(df_sp, rivers, st_intersects)
 ```
 
 ```{r clean_up_df}
 df = df_sp %>% st_drop_geometry() %>% as_tibble()
 
 #Drop records that didn't match to any lake or river.
-df = df %>% 
-  filter(!(is.na(LakeNumber) & is.na(RiverNumber)))
+df = df |> 
+  filter(!is.na(GNIS_NA))
+  # filter(!(is.na(LakeNumber) & is.na(RiverNumber)))
 
 df = df %>%
   mutate(Year = lubridate::year(COLLECTION_END))
@@ -184,49 +189,55 @@ df = df %>% rename(Watershed = WATERSHED_GROUP_ID)
 
 Average calcium levels for each monitoring location, then for each waterbody, then for each subwatershed.
 ```{r}
-av_df = rbind(
+av_df = #rbind(
   df %>% 
-    filter(is.na(LakeNumber)==F) %>% 
-    group_by(Watershed, LakeNumber, MONITORING_LOCATION) %>% 
+    filter(is.na(GNIS_NA)==F) %>% 
+    group_by(Watershed, GNIS_NA, MONITORING_LOCATION) %>% 
     summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
-    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-LakeNumber),
-  df %>% 
-    filter(is.na(RiverNumber)==F) %>% 
-    group_by(Watershed, RiverNumber, MONITORING_LOCATION) %>% 
-    summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
-    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-RiverNumber)
-) %>% 
+    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% 
+    dplyr::select(-GNIS_NA) |> 
+  # df %>% 
+  #   filter(is.na(LakeNumber)==F) %>% 
+  #   group_by(Watershed, LakeNumber, MONITORING_LOCATION) %>% 
+  #   summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
+  #   summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-LakeNumber),
+  # df %>% 
+  #   filter(is.na(RiverNumber)==F) %>% 
+  #   group_by(Watershed, RiverNumber, MONITORING_LOCATION) %>% 
+  #   summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
+  #   summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-RiverNumber)
+#) %>% 
   summarise(Watershed_Mean = mean(Waterbody_Mean)) %>% 
   left_join(df %>% 
-              filter(is.na(LakeNumber)==F) %>%
-              dplyr::select(Watershed, LakeNumber) %>%
+              filter(is.na(GNIS_NA)==F) %>%
+              dplyr::select(Watershed, GNIS_NA) %>%
               distinct() %>%
               group_by(Watershed) %>%
-              summarise(lakes_with_data = n())
+              summarise(wbs_with_data = n())
   ) %>%
+  # left_join(df %>% 
+  #             filter(is.na(RiverNumber)==F) %>%
+  #             dplyr::select(Watershed, RiverNumber) %>%
+  #             distinct() %>%
+  #             group_by(Watershed) %>%
+  #             summarise(rivers_with_data = n())
+  # ) %>%
+  # left_join(df %>% 
+  #             filter(is.na(RiverNumber)==F) %>%
+  #             dplyr::select(Watershed, MONITORING_LOCATION) %>%
+  #             distinct() %>%
+  #             group_by(Watershed) %>%
+  #             summarise(river_monit_locs = n())) %>%
   left_join(df %>% 
-              filter(is.na(RiverNumber)==F) %>%
-              dplyr::select(Watershed, RiverNumber) %>%
-              distinct() %>%
-              group_by(Watershed) %>%
-              summarise(rivers_with_data = n())
-  ) %>%
-  left_join(df %>% 
-              filter(is.na(RiverNumber)==F) %>%
+              filter(is.na(GNIS_NA)==F) %>%
               dplyr::select(Watershed, MONITORING_LOCATION) %>%
               distinct() %>%
               group_by(Watershed) %>%
-              summarise(river_monit_locs = n())) %>%
-  left_join(df %>% 
-              filter(is.na(LakeNumber)==F) %>%
-              dplyr::select(Watershed, MONITORING_LOCATION) %>%
-              distinct() %>%
-              group_by(Watershed) %>%
-              summarise(lake_monit_locs = n())) %>% 
+              summarise(wbs_monit_locs = n())) %>% 
   mutate(across(everything(), \(x) replace_na(x, 0))) %>% 
   group_by(Watershed) %>%
-  mutate(Waterbody_Number = sum(lakes_with_data,rivers_with_data),
-         Monitoring_Loc_Number = sum(lake_monit_locs, river_monit_locs)) %>%
+  mutate(Waterbody_Number = wbs_with_data,
+         Monitoring_Loc_Number = wbs_monit_locs) %>%
   ungroup() %>% 
   # mutate(lakes_with_data = factor(lakes_with_data, levels = c(1:max(.$lakes_with_data))),
   #        rivers_with_data = factor(rivers_with_data, levels = c(1:max(.$rivers_with_data)))
@@ -283,8 +294,8 @@ watershed = watershed %>%
 watdat = watershed %>% 
   rename(Watershed = WATERSHED_GROUP_ID) %>% 
   left_join(av_df) %>% 
-  mutate(across(lakes_with_data:Monitoring_Loc_Number, replace_na, 0)) %>% 
-  mutate(across(ends_with("_bin"), replace_na, "No Data"))
+  mutate(across(wbs_with_data:Monitoring_Loc_Number, \(x) replace_na(x,0))) %>% 
+  mutate(across(ends_with("_bin"), \(x) replace_na(x,"No Data")))
 
 watdat = watdat %>%
   arrange(temp) %>%

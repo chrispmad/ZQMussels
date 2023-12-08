@@ -33,7 +33,7 @@ This R Markdown document explores the datasets we plan to use to inform our asse
 ```{r import_waterbody_data_and_filtering}
 
 # Inspections joined to water bodies.
-waterb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Waterbodies_with_Inspection_Data_Summaries.shp"))
+waterb = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/Waterbodies_with_Inspection_Data_Summaries.gpkg"))
 
 #Sam and Don's lake list - has facilities, campgrounds, etc.
 SamDonLakeList = read_csv(paste0(my_opts$remote_spatial_data,"shared_data_sets/Lake_data.csv"))
@@ -97,15 +97,16 @@ samdon = SamDonLakeList %>%
 # Get the unique polygon IDs of each waterbody, add to the waterb object.
 # Note that some waterbodies are split into many pieces in the bcg warehouse.
 # For such waterbodies, I take only the first unique polygon number for a given GNIS name + subwatershed combination. This avoids inflating our dataset with duplicates.
-waterb = waterb %>% 
-  left_join(bcg_waterbodies %>% 
-              st_drop_geometry() %>% 
-              dplyr::select(WATERSHED_,WATERBOD_1,GNIS_NAME_) %>% 
-              group_by(WATERSHED_,GNIS_NAME_) %>% 
-              slice(1) %>% 
+waterb = waterb |>  
+  left_join(bcg_waterbodies |> 
+              st_drop_geometry()  |>  
+              dplyr::select(WATERSHED_,WATERBOD_1,GNIS_NAME_) |> 
+              group_by(WATERSHED_,GNIS_NAME_) |>  
+              slice(1) |> 
               rename(WATERSH = WATERSHED_,
                      WATERBO = WATERBOD_1,
-                     GNIS_NA = GNIS_NAME_))
+                     GNIS_NA = GNIS_NAME_),
+            by = join_by(WATERSH, GNIS_NA))
 ```
 
 ```{r rbind_waterb_with_all_waterbodies,include=F}
@@ -154,6 +155,7 @@ waterb = waterb %>%
 
 ```{r join_sams_data_and_cadastral_development_measures, include=F}
 rm(bcg_waterbodies)
+
 #2,323 waterbodies for which we have Sam's data on campgrounds etc.
 waterb = waterb %>% 
   left_join(samdon)
@@ -401,7 +403,9 @@ inspect_filter = inspect_filter %>%
   rename(`Total Inspections` = TotalInspection,
          `High-Risk Insp.` = HighRisk,
          `Mussel-Fouled Insp.` = MusselFouled)
-openxlsx::write.xlsx(inspect_filter,"Inspection_filter_tracker_with_delta.xlsx",overwrite = T)
+openxlsx::write.xlsx(inspect_filter,
+                     paste0(my_opts$base_dir,"03_PrioritizationModel/output/Inspection_filter_tracker_with_delta.xlsx"),
+                            overwrite = T)
 ```
 
 And it is important to note the number of waterbodies included in this analysis, as well as the number of waterbodies for which we have watercraft inspection data.
@@ -415,7 +419,8 @@ row.names(filter_steps) = NULL
 filter_steps = filter_steps %>% 
   rename(`Number of waterbodies with inspection data` = Numb_waterb_data,
          `Total number of waterbodies` = Numb_waterb_tot)
-openxlsx::write.xlsx(filter_steps,"waterbody_filtering_steps.xlsx",
+openxlsx::write.xlsx(filter_steps,
+                     paste0(my_opts$base_dir,"03_PrioritizationModel/output/waterbody_filtering_steps.xlsx"),
                      overwrite = T)
 ```
 
@@ -426,44 +431,77 @@ $$P_i,_j = \sum_{n=1}^{50}m_i/d_i,_j^2$$
 Where *m~i~* is a given city or town's population, and *d~i~,~j~* is the linear distance (*(N)(k)(3)*) in meters between a given city/town and a given waterbody. The fifty cities and towns in British Columbia with the largest populations (census in 2016) were considered in this model.
 
 ```{r calc_pop_pressure}
-#We aren't going to use ALL water bodies, because some are small ponds in the middle of these urban areas. We could remove water bodies that are closer than some distance from a population centre, or we could filter out water bodies that are truly tiny. Also, I'm going to rule out rivers.
+# #We aren't going to use ALL water bodies, because some are small ponds in the middle of these urban areas. We could remove water bodies that are closer than some distance from a population centre, or we could filter out water bodies that are truly tiny. Also, I'm going to rule out rivers.
+# 
+# waterb_rivers = bcdata::bcdc_get_data("freshwater-atlas-rivers") %>% 
+#   mutate(uniqid = paste0(GNIS_NAME_1,WATERBODY_KEY,WATERSHED_GROUP_ID)) %>% 
+#   filter(!duplicated(uniqid))
+# 
+# #Take away rivers.
+# waterb_for_poppressure = waterb %>% 
+#   mutate(uniqid = paste0(GNIS_NA,WATERBO,WATERSH)) %>% 
+#   filter(!uniqid %in% all_of(waterb_rivers$uniqid))
+# 
+# #Calculate area of waterbodies (minus rivers)
+# waterb_for_poppressure$Area = as.numeric(st_area(waterb_for_poppressure))
+# 
+# #Filter out any waterbodies that have an area of less than 500,000 square meters.
+# waterb_for_poppressure = waterb_for_poppressure %>% filter(Area > 500000)
+# 
+# #First, calculate waterbody centroids. This greatly speeds up the process.
+# waterbody_centroids = st_centroid(waterb_for_poppressure)
+# city_centroids = st_centroid(urb)
+# 
+# #Second, calculate the population pressure for each waterbody.
+# waterb_for_poppressure$PopPressure = colSums(urb$POP_TOTAL/(st_distance(city_centroids,waterbody_centroids)^2))
+# 
+# #Join the Population Pressure to waterb
+# waterb = waterb %>% 
+#   left_join(waterb_for_poppressure %>% 
+#   st_drop_geometry() %>% 
+#   select(GNIS_NA,WATERSH,WATERBO,PopPressure))
+# 
+# waterb_high_pressure = waterb %>% 
+#   filter(!is.na(PopPressure)) %>% 
+#   arrange(desc(PopPressure)) %>% 
+#   .[c(1:100),] %>% 
+#   ungroup() %>% 
+#   mutate(RowNumber = row_number())
+# 
+# write_sf(waterb_high_pressure, paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_high_pressure.shp"))
+```
 
-waterb_rivers = bcdata::bcdc_get_data("freshwater-atlas-rivers") %>% 
-  mutate(uniqid = paste0(GNIS_NAME_1,WATERBODY_KEY,WATERSHED_GROUP_ID)) %>% 
-  filter(!duplicated(uniqid))
+```{r add_operational_restrictions_to_waterb}
+wor = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Waterbody_operation_restrictions.shp"))
 
-#Take away rivers.
-waterb_for_poppressure = waterb %>% 
-  mutate(uniqid = paste0(GNIS_NA,WATERBO,WATERSH)) %>% 
-  filter(!uniqid %in% all_of(waterb_rivers$uniqid))
+#Remove the two rows that code for almost all waterbodies in Strathcona and Bowron Lake parks.
+wor = wor %>% 
+  filter(!str_detect(Name_Given, "All waters"))
 
-#Calculate area of waterbodies (minus rivers)
-waterb_for_poppressure$Area = as.numeric(st_area(waterb_for_poppressure))
+wor_nearest_feature = st_nearest_feature(wor, waterb)
 
-#Filter out any waterbodies that have an area of less than 500,000 square meters.
-waterb_for_poppressure = waterb_for_poppressure %>% filter(Area > 500000)
+wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
+wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
+wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
 
-#First, calculate waterbody centroids. This greatly speeds up the process.
-waterbody_centroids = st_centroid(waterb_for_poppressure)
-city_centroids = st_centroid(urb)
+leaflet(data = wor %>% st_transform(crs = 4326)) %>%
+  addTiles() %>%
+  addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
+  addPolygons(data = waterb[wor_nearest_feature,] %>%
+          st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
 
-#Second, calculate the population pressure for each waterbody.
-waterb_for_poppressure$PopPressure = colSums(urb$POP_TOTAL/(st_distance(city_centroids,waterbody_centroids)^2))
+wor = wor %>% 
+  group_by(GNIS_NA,WATERBO,WATERSH) %>% 
+  arrange(desc(OperRes)) %>% 
+  slice(1)
 
-#Join the Population Pressure to waterb
+#Join to the waterbody layer.
 waterb = waterb %>% 
-  left_join(waterb_for_poppressure %>% 
-  st_drop_geometry() %>% 
-  select(GNIS_NA,WATERSH,WATERBO,PopPressure))
-
-waterb_high_pressure = waterb %>% 
-  filter(!is.na(PopPressure)) %>% 
-  arrange(desc(PopPressure)) %>% 
-  .[c(1:100),] %>% 
-  ungroup() %>% 
-  mutate(RowNumber = row_number())
-
-write_sf(waterb_high_pressure, paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_high_pressure.shp"))
+  left_join(wor %>% 
+              st_drop_geometry() %>% 
+              select(-Name_Given)) %>% 
+  group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+  slice(1)
 ```
 
 ```{r write_to_disk}
@@ -471,9 +509,9 @@ write_sf(waterb_high_pressure, paste0(my_opts$remote_spatial_data,"shared_data_s
 column.names = as.data.frame(colnames(waterb))
 
 openxlsx::write.xlsx(column.names,
-                     "column_names_for_waterb_with_data.xlsx",
+                     paste0(my_opts$base_dir,"03_PrioritizationModel/output/column_names_for_waterb_with_data.xlsx"),
                      overwrite = T)
 
-sf::write_sf(waterb, paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_with_data.shp"))
+sf::write_sf(waterb, paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data.gpkg"))
 ```
 

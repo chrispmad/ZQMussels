@@ -15,13 +15,11 @@ library(raster)
 library(sf)
 library(tidyverse)
 library(ggrepel)
-library(ggsflabel)
 library(ggpubr)
 library(rmdformats)
 library(leaflet)
 
-my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels/'),"Options.csv"))
-
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
@@ -37,9 +35,11 @@ This R Markdown document explores the datasets we plan to use to inform our asse
   
 ```{r import_waterbody_data_and_filtering}
 # Inspections joined to water bodies.
-waterb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_with_data.shp"))
+waterb = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data.gpkg"))
 
-colnames(waterb) = openxlsx::read.xlsx("column_names_for_waterb_with_data.xlsx") %>% filter(`colnames(waterb)` != "geometry") %>% add_row(`colnames(waterb)` = "geometry") %>% pull(`colnames(waterb)`)
+# colnames(waterb) = openxlsx::read.xlsx("column_names_for_waterb_with_data.xlsx") %>% filter(`colnames(waterb)` != "geometry") %>% add_row(`colnames(waterb)` = "geometry") %>% pull(`colnames(waterb)`)
+
+# waterb = sf::st_set_geometry(waterb, 'geom')
 
 #Remove average.angler.days
 waterb$average.angler.days = NULL
@@ -50,15 +50,14 @@ waterb$WB.access = NULL
 When cleaning the inspection data, I removed records that were headed to the ocean or dry storage. Some inspection records also did not match to any waterbody. 
 
 ```{r inspection_filter_trackers}
-read_excel("Inspection_filter_tracker_with_delta.xlsx") %>% as_tibble(.)
+read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/Inspection_filter_tracker_with_delta.xlsx")) %>% as_tibble(.)
 ```
 
 And it is important to note the number of waterbodies included in this analysis, as well as the number of waterbodies for which we have watercraft inspection data.
 
 ```{r filter_steps}
-read_excel("waterbody_filtering_steps.xlsx") %>% 
+read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/waterbody_filtering_steps.xlsx")) %>% 
   as_tibble(.)
-
 ```
 
 ```{r data_exploration_functions}
@@ -155,6 +154,8 @@ my.summary = function(x){
   
   return(my.sum)
 }
+
+
 ```
 
 # Data Exploration 
@@ -288,6 +289,7 @@ leaflet(data = urb %>% st_transform(crs = 4326)) %>%
   addPolygons(data = waterb_high_pressure %>% st_transform(crs = 4326), color = "blue", label = ~paste0(GNIS_NA,": #",RowNumber))
   
 ```
+
 ```{r subwatershed_pop_pressure}
 subwater = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups.shp"))
 urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>% 
@@ -376,84 +378,7 @@ ggplot() +
 
 These data come from Transport Canada and indicate lakes in which one may not operate any vessel, may not operate power vessels, or may not operate power/electric vessels.
 
-```{r add_waterbody_restrictions}
-wor = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Waterbody_operation_restrictions.shp"))
-
-#Remove the two rows that code for almost all waterbodies in Strathcona and Bowron Lake parks.
-wor = wor %>% 
-  filter(!str_detect(Name_Given, "All waters"))
-
-# strath = read_sf("W:/CMadsen/SpatialData/Strathcona_Park.shp") %>% 
-#   mutate(id = "Strathcona")
-# bowlake = read_sf("W:/CMadsen/SpatialData/BowronLakePark.shp") %>% 
-#   mutate(id = "Bowlake")
-
-# strath_waterbodies = waterb[as.data.frame(st_intersects(waterb, strath))$row.id,] %>% 
-#   filter(!GNIS_NA %in% c("Gold Lake","Buttle Lake",
-#                          "Upper Lake","Donner Lake",
-#                          "Campbell Lake"))
-
-# bow_waterbodies = waterb[as.data.frame(st_intersects(waterb, bowlake))$row.id,] %>% 
-#   filter(!GNIS_NA %in% c("Bowron Lake","Bowron River","Cariboo River"))
-
-#print("We've dealt with two rows that referenced all water bodies in a given area.")
-
-#Find the nearest waterbody for the rest of them; it should be the one named in "Name_Given"
-wor_nearest_feature = st_nearest_feature(wor, waterb)
-
-wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
-wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
-wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
-
-leaflet(data = wor %>% st_transform(crs = 4326)) %>%
-  addTiles() %>%
-  addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
-  addPolygons(data = waterb[wor_nearest_feature,] %>%
-          st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
-
-# ggplot() + 
-#   geom_sf(data = strath, fill = "antiquewhite") + 
-#   geom_sf(data = strath_waterbodies, fill = "red") + 
-#   ggtitle(paste0("Strathcona Park water bodies (n=",nrow(strath_waterbodies),")"),
-#           subtitle = "No power or electric vessel propulsion")
-# 
-# ggplot() + 
-#   geom_sf(data = bowlake, fill = "antiquewhite") + 
-#   geom_sf(data = bow_waterbodies, fill = "red") + 
-#   ggtitle(paste0("Bowron Lake Park water bodies (n=",nrow(bow_waterbodies),")"),
-#           subtitle = "No power or electric vessel propulsion") + 
-#   geom_sf_text_repel(data = bow_waterbodies, aes(label = GNIS_NA))
-
-# wor = wor %>% filter(!str_detect(Name_Given, "All waters"))
-
-length(unique(paste0(wor$GNIS_NA,wor$WATERBO,wor$WATERSH)))
-#252 unique water bodies.
-
-#Get the most 'intense' legislative status for each unique waterbody.
-wor = wor %>% 
-  group_by(GNIS_NA,WATERBO,WATERSH) %>% 
-  arrange(desc(OperRes)) %>% 
-  slice(1)
-
-#Add the Strathcona and Bowron Lake Park lakes to the 'wor' layer.
-#Note: this step has been commented out because Cass and Martina don't want
-#this variable skewing the rest of the Operational Restriction data.
-# wor = wor %>% 
-#   bind_rows(st_centroid(strath_waterbodies %>% 
-#               select(GNIS_NA,WATERBO,WATERSH) %>% 
-#               mutate(OperRes = "Power/Electric Prohibited"))) %>% 
-#   bind_rows(st_centroid(bow_waterbodies %>% 
-#               select(GNIS_NA,WATERBO,WATERSH) %>% 
-#               mutate(OperRes = "Power/Electric Prohibited")))
-
-#Join to the waterbody layer.
-waterb = waterb %>% 
-  left_join(wor %>% 
-              st_drop_geometry() %>% 
-              select(-Name_Given)) %>% 
-  group_by(GNIS_NA,WATERSH,WATERBO) %>% 
-  slice(1)
-
+```{r waterbody_restrictions}
 waterb %>% 
   st_drop_geometry() %>% 
   group_by(OperRes) %>% 
@@ -511,9 +436,6 @@ leaflet() %>%
 #dams_sf
 ```
 
-
-
-
 ### Number Dams
 ```{r summed_dam_number}
 my.summary(waterb$NumberDams)
@@ -527,13 +449,13 @@ exploration_battery(x = "NumberDams")
 ```{r variable_choice_table}
 var_table = waterb %>% 
   st_drop_geometry() %>% 
-  select(-HR_N_M_,-HR_Cm_C,-HR_V_C_,-HR_Sm_C) %>% 
+  select(-HR_Non_Motorized_Counter,-HR_Complex_Counter,-HR_Very_Complex_Counter,-HR_Simple_Counter,-LowRisk_Complex_Counter,-LowRisk_Non_Motorized_Counter,-LowRisk_Simple_Counter,-LowRisk_Complex_Counter) %>% 
   mutate(across(everything(), as.character)) %>% 
   pivot_longer(cols = -c(WATERBO,WATERSH,GNIS_NA)) %>% 
   filter(!is.na(value)) %>% 
   #Find the total number of records for each variable.
   group_by(name) %>% 
-  mutate(Waterbodies_with_data = paste0(n()," (",round(100*n()/nrow(waterb),4),"%)")) %>% 
+  mutate(Waterbodies_with_data = paste0(n()," (",round(100*n()/nrow(waterb),2),"%)")) %>% 
   #Find the number of records for each variable / subwatershed combination.
   group_by(WATERSH,name) %>% 
   mutate(Records_at_subwatershed_level = n()) %>% 

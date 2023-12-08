@@ -8,27 +8,27 @@ fig_width: 8
 
 ```{r setup, include=FALSE}
 pacman::p_load(
-readxl,
-ggpubr,
-ggrepel,
-ggExtra,
-ggtext,
+# readxl,
+# ggpubr,
+# ggrepel,
+# ggExtra,
+# ggtext,
 tidyverse,
-leaflet,
-sf,
+# leaflet,
+# sf,
 plotly,
 RColorBrewer,
 openxlsx,
 scales,
-tmap,
+# tmap,
 lubridate,
-plotrix,
+# plotrix,
 knitr)
 
 #=====================================================
 #                       OPTIONS 
 #=====================================================
-setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
 
 my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
 
@@ -36,7 +36,7 @@ my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv")
 my.year = my_opts$year
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
-update.gis = FALSE
+# update.gis = FALSE
 
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:
@@ -51,7 +51,7 @@ stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
 
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
-leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Keremeos","Osoyoos","Fraser Valley Roving","Pacific")
+# leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Keremeos","Osoyoos","Fraser Valley Roving","Pacific")
 
 #Data folders
 my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
@@ -92,33 +92,36 @@ setwd(my.data.folder)
 #   as_tibble()
 # 
 # dat = dat |>
-#   filter(Station %in% c("Olsen (Hwy 3)","Olsen","Yahk","Golden"))
+#   filter(Station %in% c("Olsen (Hwy 3)","Olsen","Yahk","Golden","Mt. Robson"))
 # 
 # dat = dat |>
 #   filter(Year != 2015) |>
-#    mutate(mot_bb = as.numeric(Motorized_Blow_Bys_Counter),
+#   group_by(Station, Year, Shift_ID) |>
+#   mutate(total_inspections = n()) |>
+#   ungroup() |>
+#   mutate(mot_bb = as.numeric(Motorized_Blow_Bys_Counter),
 #          nonmot_bb = as.numeric(Non_Motorized_Blow_Bys_Counter)) |>
 #   dplyr::select(Year,Station,Shift_ID,Start_Time,End_Time,TimeOfInspection,
-#                 mot_bb,nonmot_bb) |>
+#                 total_inspections,mot_bb,nonmot_bb) |>
 #    mutate(Start_Time = openxlsx::convertToDateTime(Start_Time),
 #          End_Time = openxlsx::convertToDateTime(End_Time))
 # 
 # write_csv(dat, 'blowby_motorized_split_preprocessed.csv')
 
-blowby_d = read_csv('blowby_motorized_split_preprocessed.csv')
+blowby_d = vroom::vroom('blowby_motorized_split_preprocessed.csv')
 
 # Refine to just June -> September.
-blowby_d = blowby_d |> 
-  mutate(Month = lubridate::month(TimeOfInspection)) |> 
+blowby_d = blowby_d |>
+  mutate(Month = lubridate::month(TimeOfInspection)) |>
   filter(Month %in% c(6:9))
 
 # Add in day of week, and hour of day.
-blowby_d = blowby_d |> 
+blowby_d = blowby_d |>
   mutate(dow = lubridate::wday(TimeOfInspection),
          hod = lubridate::hour(TimeOfInspection))
 
-# Outline of BC
-bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
+max_year = max(blowby_d$Year)
+
 ```
 
 # Blow-by Breakdown for High-Volume Stations 
@@ -129,25 +132,29 @@ bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
 
 ```{r}
 dow_dat = blowby_d |> 
-  dplyr::select(Year,Station,dow,Shift_ID,mot_bb,nonmot_bb) |> 
+  # dplyr::select(Year,Station,dow,Shift_ID,mot_bb,nonmot_bb) |> 
   distinct() |> 
   group_by(Year,Station,dow) |> 
-  summarise(mot_bb = sum(mot_bb,na.rm = T),
+  summarise(total_insp = sum(total_inspections,na.rm=T),
+            mot_bb = sum(mot_bb,na.rm = T),
             nonmot_bb = sum(nonmot_bb, na.rm = T)) |> 
-  ungroup()
-  
+  ungroup() |> 
+  mutate(compliance_mot = total_insp / (total_insp + mot_bb),
+         compliance_nonmot = total_insp / (total_insp + nonmot_bb))
+
 ggplotly(
 dow_dat |> 
   mutate(Year = as.factor(Year)) |> 
-  ggplot(aes(x = dow, y = mot_bb)) + 
-  geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
+  ggplot(aes(x = dow, y = compliance_mot)) + 
+  geom_line(aes(col = Year), linewidth = 2, alpha = 0.75) + 
   facet_wrap( ~ Station, #scales = "free", 
-              ncol = 3, nrow = 1) + 
+              ncol = 2, nrow = 2) + 
   scale_x_continuous(breaks = c(1:7), 
                      labels = lubridate::wday(1:7, 
                                               label = T)) + 
-  labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
-       y = 'Blow-Bys', x = 'Day of Week') + 
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = paste0("Compliance of Motorized Watercraft, from June to September (2016 to ",max_year,")"),
+       y = '', x = 'Day of Week') + 
   theme(
     panel.spacing = unit(4,"lines")
     )
@@ -159,14 +166,14 @@ dow_dat |>
 ```{r}
 dow_dat |> 
   mutate(Year = as.factor(Year)) |> 
-  ggplot(aes(x = dow, y = mot_bb)) + 
+  ggplot(aes(x = dow, y = compliance_mot)) + 
   geom_boxplot(aes(group = dow), alpha = 0.75) + 
   facet_wrap( ~ Station) + 
   scale_x_continuous(breaks = c(1:7), 
                      labels = lubridate::wday(1:7, 
                                               label = T)) + 
-  labs(title = "Motorized Blow-Bys from June to September (2016 to 2022)",
-       subtitle = 'Big ranges each day for Golden, esp. Friday to Sunday',
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = paste0("Compliance of Nonmotorized Watercraft, from June to September (2016 to ",max_year,")"),
        y = 'Blow-Bys', x = 'Day of Week')
 ```
 
@@ -175,16 +182,17 @@ dow_dat |>
 ggplotly(
   dow_dat |> 
   mutate(Year = as.factor(Year)) |> 
-  ggplot(aes(x = dow, y = nonmot_bb)) + 
+  ggplot(aes(x = dow, y = compliance_nonmot)) + 
   geom_line(aes(col = Year), size = 2, alpha = 0.75) + 
   facet_wrap( ~ Station, 
               # scales = "free",
-              ncol = 3, nrow = 1) + 
+              ncol = 2, nrow = 2) + 
   scale_x_continuous(breaks = c(1:7), 
                      labels = lubridate::wday(1:7, 
                                               label = T)) + 
-  labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
-       y = 'Blow-Bys', x = 'Day of Week') + 
+    scale_y_continuous(labels = scales::percent) +
+    labs(title = paste0("Compliance of Nonmotorized Watercraft, from June to September (2016 to ",max_year,")"),
+       y = '', x = 'Day of Week') + 
   theme(
     panel.spacing = unit(4,"lines")
     )
@@ -195,14 +203,14 @@ ggplotly(
 ```{r}
 dow_dat |> 
   mutate(Year = as.factor(Year)) |> 
-  ggplot(aes(x = dow, y = nonmot_bb)) + 
+  ggplot(aes(x = dow, y = compliance_nonmot)) + 
   geom_boxplot(aes(group = dow), alpha = 0.75) + 
   facet_wrap( ~ Station) + 
   scale_x_continuous(breaks = c(1:7), 
                      labels = lubridate::wday(1:7, 
                                               label = T)) + 
-  labs(title = "Non-Motorized Blow-Bys from June to September (2016 to 2022)",
-       subtitle = 'Smaller ranges for Golden compared to Motorized Blow-bys',
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = paste0("Compliance of Nonmotorized Watercraft, from June to September (2016 to ",max_year,")"),
        y = 'Blow-Bys', x = 'Day of Week')
 ```
 
