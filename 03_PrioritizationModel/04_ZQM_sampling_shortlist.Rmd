@@ -38,6 +38,8 @@ knitr::opts_chunk$set(
 
 update_remote_output_files = F
 
+source('utility_functions.R')
+
 ```
 
 This R Markdown script takes the output of the script '03_ZQM_stats_and_waterbody output.Rmd' (namely, waterbodies with raw and binned risk estimates for choice variables) to produce a short-list of priority waterbodies vis-a-vis Zebra and Quagga Mussel risk.
@@ -60,7 +62,7 @@ subw_w_dat = dat[[4]]
 
 ```{r put_aside_mussel_fouled}
 waterb_with_any_mf = waterb |> 
- filter(!is.na(NumberMusselFouled) & NumberMusselFouled > 0)
+  filter(!is.na(NumberMusselFouled) & NumberMusselFouled > 0)
 
 # + 3. Waterbodies with a binned risk estimate of 2 and a subwatershed-scale dissolved calcium level that was the lowest risk were dropped.
 ```
@@ -165,15 +167,35 @@ waterb_risk = waterb_risk |>
 sample_protocol_2021 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2021/Updates to protocol_waterbody ranking/2021 priority waterbodies for sampling.xlsx"),sheet = "2021 FINAL LIST")
 
 #2022 waterbodies to be sampled.
-sample_protocol_2022 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2022/Prioritization model/Final waterbody list with frequency added.xlsx"))
+# sample_protocol_2022 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2022/Prioritization model/Final waterbody list with frequency added.xlsx"))
+
+# Or we could use the docx.
+sample_protocol_2022 = get_wb_list_from_protocol_doc(
+  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2022/Sampling protocol/2022 Invasive Mussel Field Protocol_Draft_V1.docx')
+)
 
 #2023 waterbodies to be sampled.
-sample_protocol_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Prioritization model/Final waterbody list based on risk estimates_2023.xlsx"))
+# sample_protocol_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Prioritization model/Final waterbody list based on risk estimates_2023.xlsx"))
+# sample_protocol_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Prioritization model/Copy of waterbodies with risk estimates post filtering_2023_Feb 21 update.xlsx"))
+sample_protocol_2023 = get_wb_list_from_protocol_doc(
+  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2023/Sampling protocol/2023 Invasive Mussel Field Protocol_Draft_V1.docx')
+)
+
+# sample_protocol_2023 = sample_protocol_2023 |> 
+#   dplyr::mutate(`Veliger Sampling Frequency` = 'Undecided') |> 
+#   dplyr::select(
+#     Region = REGION_N,
+#     Waterbody = GNIS_NA,
+#     `Veliger Sampling Frequency`,
+#     Lat,
+#     Long,
+#     Risk_bin
+#   )
 
 past_sample_protocols = sample_protocol_2021 |> 
  mutate(sampling_year = 2021) |> 
- bind_rows(sample_protocol_2022 |> mutate(sampling_year = 2022)) |> 
- bind_rows(sample_protocol_2023 |> mutate(sampling_year = 2023))
+ bind_rows(sample_protocol_2022 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2022)) |> 
+ bind_rows(sample_protocol_2023 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2023))
 
 #We have some waterbodies with various sampling stations proposed. We just need 1 row per wb.
 sample_protocol = past_sample_protocols |>
@@ -190,7 +212,7 @@ sample_protocol = sample_protocol |>
    Waterbody == "Marquart & Lunbom Lakes" ~ "Marquart Lake",
    T ~ Waterbody
  )) |>
- group_by(Waterbody,sampling_year) |>
+ group_by(Region,Waterbody,sampling_year) |>
  slice(1)
 
 # # Rename regions to match with inspection data regions.
@@ -256,7 +278,7 @@ lakes_monitored_2022 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lak
   dplyr::mutate(Year = 2022)
 
 #2023 Lake monitoring lab results.
-lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Lab results/Copy of BC Veliger Sampling Inventory 2023Final Report.xlsx")) |> 
+lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Lab results/BC Veliger Sampling Inventory 2023_11-20_Final Report.xlsx")) |> 
   dplyr::filter(!is.na(Waterbody),
                 !stringr::str_detect(Waterbody,'[0-9]+'),
                 Waterbody != 'waterbodies') |> 
@@ -436,7 +458,7 @@ waterb_risk = waterb_risk |>
 #  dplyr::select(-HR_mot2,-HR_nonmot2)
 
 #And now the actual second filtering step!
-waterb_risk = waterb_risk |> 
+waterb_risk = waterb_risk |>
  filter(Use > 1.5 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH))
 ```
 
