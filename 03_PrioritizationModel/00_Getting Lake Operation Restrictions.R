@@ -5,17 +5,17 @@ library(rvest)
 library(tidyverse)
 library(sf)
 
-rm(list = ls())
 setwd("C:/Users/CMADSEN/Downloads/LocalRWork/")
 
-my_opts = jsonlite::read_json("C:/Users/CMADSEN/Downloads/LocalRWork/Options.json") %>% 
+my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv") %>% 
   as.data.frame()
 
-sched1 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-5.html#h-743207')
-sched2 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-6.html#h-743255')
-sched3 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-7.html#h-743315')
+sched2 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-5.html#h-743207')
+sched3 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-6.html#h-743255')
+sched4 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-7.html#h-743315')
+sched5 = read_html('https://laws-lois.justice.gc.ca/eng/Regulations/SOR-2008-120/page-9.html#docCont')
 
-prohibited = sched1 %>% 
+prohibited = sched2 %>% 
   html_table() %>% 
   .[[2]] %>% 
   as_tibble(.) %>% 
@@ -25,6 +25,9 @@ prohibited = sched1 %>%
   distinct() %>% 
   filter(!str_detect(Name_Given, "Repealed")) %>%
   filter(!str_detect(Location_Reference, "^[0-9]{3}")) %>% 
+  filter(!str_detect(Name_Given,'That part of')) |> 
+  filter(!str_detect(Name_Given,'The waters of')) |> 
+  filter(!str_detect(Name_Given,'at coordinates')) |> 
   #Pull the latitude and longitude degree-minute-seconds out of 
   #the 'Location_Reference' field. Clean them up.
   mutate(lat = str_extract(Location_Reference, ".*(?= )"),
@@ -52,7 +55,7 @@ prohibited = sched1 %>%
   st_as_sf(coords = c("lng","lat"), crs = 4326) %>% 
   mutate(OperRes = "All Vessels Prohibited")
 
-no_power_or_elec = sched2 %>% 
+no_power_or_elec = sched3 %>% 
   html_table() %>% 
   .[[1]] %>% 
   as_tibble(.) %>% 
@@ -61,6 +64,9 @@ no_power_or_elec = sched2 %>%
   dplyr::select(Name_Given, Location_Reference) %>% 
   distinct() %>% 
   filter(!str_detect(Name_Given, "Repealed")) %>%
+  filter(!str_detect(Name_Given,'That part of')) |> 
+  filter(!str_detect(Name_Given,'The waters of')) |> 
+  filter(!str_detect(Name_Given,'at coordinates')) |> 
   filter(!str_detect(Location_Reference, "^[0-9]{3}")) %>% 
   #Pull the latitude and longitude degree-minute-seconds out of 
   #the 'Location_Reference' field. Clean them up.
@@ -109,7 +115,7 @@ ggplot() +
 #Skoi Lake, Spectacle Lakes, Swan Lake, Kibbee Lake, Thompson Lake, 
 #Indianpoint Lake, Isaac River, McLeary Lake, Cariboo River.
 
-no_power = sched3 %>% 
+no_power = sched4 %>% 
   html_table() %>% 
   .[[1]] %>% 
   as_tibble(.) %>% 
@@ -118,6 +124,9 @@ no_power = sched3 %>%
   dplyr::select(Name_Given, Location_Reference) %>% 
   distinct() %>% 
   filter(!str_detect(Name_Given,"Repealed")) %>% 
+  filter(!str_detect(Name_Given,'That part of')) |> 
+  filter(!str_detect(Name_Given,'The waters of')) |> 
+  filter(!str_detect(Name_Given,'at coordinates')) |> 
   filter(!str_detect(Location_Reference, "^[0-9]{3}")) %>% 
   #Pull the latitude and longitude degree-minute-seconds out of 
   #the 'Location_Reference' field. Clean them up.
@@ -166,6 +175,49 @@ ggplot() +
   coord_sf(xlim = st_bbox(okanagan)[c(1,3)],
            ylim = st_bbox(okanagan)[c(2,4)])
 
+
+# Schedule 5.
+speed_limit = sched5 %>% 
+  html_table() %>% 
+  .[[1]] %>% 
+  as_tibble(.) %>% 
+  setNames(str_extract(str_replace_all(.[2,]," ","_"),"[a-zA-Z]*_[a-zA-Z]*(?=_)")) %>% 
+  .[-c(1,2),-1] %>% 
+  dplyr::select(Name_Given, Location_Reference) %>% 
+  distinct() %>% 
+  filter(!str_detect(Name_Given, "Repealed")) %>%
+  filter(!str_detect(Location_Reference, "^[0-9]{3}")) %>% 
+  filter(!str_detect(Name_Given,'That part of')) |> 
+  filter(!str_detect(Name_Given,'The waters of')) |> 
+  filter(!str_detect(Name_Given,'at coordinates')) |> 
+  #Pull the latitude and longitude degree-minute-seconds out of 
+  #the 'Location_Reference' field. Clean them up.
+  mutate(lat = str_extract(Location_Reference, ".*(?= )"),
+         lng = str_extract(Location_Reference, "(?<= )1.*")) %>% 
+  #Remove any rows where we have latitude repeated instead of latitude and longitude...
+  filter(!is.na(lng)) %>% 
+  mutate(lat = str_squish(str_replace_all(lat, "[^0-9]", " ")),
+         lng = str_squish(str_replace_all(lng, "[^0-9]", " "))) %>% 
+  # mutate(lat = replace(lat, str_detect(Name_Given,"During any event"), "48 32 04"),
+  #        lng = replace(lng, str_detect(Name_Given,"During any event"), "123 23 33")) %>% 
+  # mutate(lat = replace(lat, str_detect(Name_Given, "Kempenfelt Bay"), "44 23 24"),
+  #        lng = replace(lng, str_detect(Name_Given, "Kempenfelt Bay"), "79 36 21")) %>% 
+  #Convert lat and long from degree-minute-seconds to decimal degrees.
+  separate(lat, paste("lat",c("d","m","s"), sep="_") ) %>%
+  separate(lng, paste("lng",c("d","m","s"), sep="_" ) ) %>% 
+  mutate(lat_s = replace_na(lat_s, "0"),
+         lng_s = replace_na(lng_s, "0")) %>% 
+  mutate(across(contains("lat_"), as.numeric)) %>%
+  mutate(across(contains("lng_"), as.numeric)) %>% 
+  mutate(lat_dec=lat_d + lat_m/60 + lat_s/60^2,
+         lng_dec=-(lng_d + lng_m/60 + lng_s/60^2)) %>% 
+  dplyr::select(Name_Given, lat_dec, lng_dec) %>% 
+  rename(lat = lat_dec, lng = lng_dec) %>%
+  #Make into a spatial layer.
+  st_as_sf(coords = c("lng","lat"), crs = 4326) %>% 
+  mutate(OperRes = "All Vessels Prohibited")
+
+
 #Something is up with how we are currently using the complete restriction data.
 write_sf(prohibited, paste0(my_opts$base_dir,"Projects/ZQMussels/03_PrioritizationModel/data/complete_watercraft_restrictions.gpkg"))
 
@@ -174,7 +226,10 @@ restr = prohibited %>%
   st_transform(crs = 4326) %>% 
   bind_rows(no_power) %>% 
   bind_rows(no_power_or_elec) %>% 
+  bind_rows(speed_limit) |> 
   arrange(Name_Given)
+
+unique(restr$Name_Given)
 
 restr = restr %>% 
   st_transform(crs = 3005)
@@ -195,5 +250,5 @@ ggplot() +
 
 #All looks good!
 write_sf(restr,
-         paste0(my_opts$base_dir,"Projects/ZQMussels/03_PrioritizationModel/data/Waterbody_operation_restrictions.gpkg"))
+         paste0(my_opts$base_dir,"03_PrioritizationModel/data/Waterbody_operation_restrictions.gpkg"))
 

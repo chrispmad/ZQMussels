@@ -472,7 +472,7 @@ Where *m~i~* is a given city or town's population, and *d~i~,~j~* is the linear 
 ```
 
 ```{r add_operational_restrictions_to_waterb}
-wor = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Waterbody_operation_restrictions.shp"))
+wor = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/Waterbody_operation_restrictions.gpkg"))
 
 #Remove the two rows that code for almost all waterbodies in Strathcona and Bowron Lake parks.
 wor = wor %>% 
@@ -484,11 +484,14 @@ wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
 wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
 wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
 
-leaflet(data = wor %>% st_transform(crs = 4326)) %>%
-  addTiles() %>%
-  addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
-  addPolygons(data = waterb[wor_nearest_feature,] %>%
-          st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
+# Maybe drop all mismatches between given name and spatial match name?
+wor = wor |> filter(Name_Given == GNIS_NA)
+
+# leaflet(data = wor %>% st_transform(crs = 4326)) %>%
+#   addTiles() %>%
+#   addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
+#   addPolygons(data = waterb[wor_nearest_feature,] %>%
+#           st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
 
 wor = wor %>% 
   group_by(GNIS_NA,WATERBO,WATERSH) %>% 
@@ -513,5 +516,6 @@ openxlsx::write.xlsx(column.names,
                      overwrite = T)
 
 sf::write_sf(waterb, paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data.gpkg"))
+sf::write_sf(waterb, paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
 ```
 

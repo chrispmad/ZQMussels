@@ -35,7 +35,7 @@ This R Markdown document explores the datasets we plan to use to inform our asse
   
 ```{r import_waterbody_data_and_filtering}
 # Inspections joined to water bodies.
-waterb = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data.gpkg"))
+waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
 
 # colnames(waterb) = openxlsx::read.xlsx("column_names_for_waterb_with_data.xlsx") %>% filter(`colnames(waterb)` != "geometry") %>% add_row(`colnames(waterb)` = "geometry") %>% pull(`colnames(waterb)`)
 

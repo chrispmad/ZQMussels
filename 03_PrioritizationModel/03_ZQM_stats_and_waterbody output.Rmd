@@ -86,7 +86,7 @@ connectivity = read_csv(paste0(my_opts$base_dir,'03_PrioritizationModel/data/num
 
 # Add in dams and species at risk at waterbody scale
 sar_by_waterb = sar |> 
-  st_join(waterb, st_intersects) 
+  st_join(waterb, st_intersects)
   
 sar_by_waterb = sar_by_waterb |> 
   sf::st_drop_geometry() |> 
@@ -207,9 +207,11 @@ waterb = waterb %>%
 # all.my.vars = c("TotalInspections","Marinas","Sum.of.days.fished",
 #                  "HR_mot","HR_nonmot","NumberMusselFouled","OperRes",
 #                 "number_streams","number_roads","SummedDamCapacity","distinct_SAR")
-all.my.vars = c("TotalInspections","Marinas","Sum.of.days.fished",
-                 "HR_mot","HR_nonmot","NumberMusselFouled","OperRes",
-                "SummedDamCapacity","distinct_SAR")
+all.my.vars = c("Marinas","Sum.of.days.fished",
+                "NumberMusselFouled","OperRes",
+                "SummedDamCapacity","distinct_SAR",
+                "TotalInspections","HR_mot","HR_nonmot")
+# six.binners = c("TotalInspections", "HR_mot","HR_nonmot")
 MusselFouledvar = "NumberMusselFouled"
 # Usevars = c("TotalInspections","Sum.of.days.fished","Marinas","number_streams","number_roads")
 Usevars = c("TotalInspections","Sum.of.days.fished","Marinas")
@@ -265,17 +267,23 @@ natural_break_points = data_long %>%
   #Remove values that fall ABOVE the 99% cut-off.
   filter(original.value <= cutoff_value) %>% 
   #Find the natural breaks for each variable.
-  mutate(naturalbreakpoints = list(getJenksBreaks(original.value, k = 4))) %>% 
+  mutate(naturalbreakpoints = case_when(
+    varname %in% c("TotalInspections","total_HR") ~ list(getJenksBreaks(original.value, k = 4)),
+    T ~ list(getJenksBreaks(original.value, k = 4))
+  )
+  ) %>% 
   dplyr::select(varname, naturalbreakpoints) %>% 
   distinct() %>% 
   unnest_wider(col = naturalbreakpoints, ".") %>% 
   #Get rid of the highest bin break, we need to find the max value for each variable and add that instead.
-  dplyr::select(-naturalbreakpoints.4,-naturalbreakpoints.1) %>% 
+  dplyr::select(-naturalbreakpoints.4,-naturalbreakpoints.1) %>%
+  # dplyr::select(-naturalbreakpoints.6,-naturalbreakpoints.1) %>% 
   left_join(data_long %>% 
               filter(original.value > 0,
               !is.na(original.value)) %>% 
               group_by(varname) %>% 
-              summarise(naturalbreakpoints.4 = max(original.value)) %>% 
+              summarise(naturalbreakpoints.4 = max(original.value)) %>%
+              # summarise(naturalbreakpoints.6 = max(original.value)) %>% 
               distinct()
   ) %>% 
     left_join(data_long %>% 
@@ -284,9 +292,10 @@ natural_break_points = data_long %>%
               group_by(varname) %>% 
               summarise(naturalbreakpoints.1 = 0) %>% 
               distinct()
-  ) %>% 
+  ) |> 
   dplyr::select(varname, naturalbreakpoints.1,naturalbreakpoints.2,
          naturalbreakpoints.3,naturalbreakpoints.4)
+  # mutate(naturalbreakpoints.6 = ifelse(!varname %in% c("TotalInspections","total_HR"), NA, naturalbreakpoints.6))
 
 #Remove 0 values, bin with natural breaks.
 data_bin = data_long %>% 
@@ -515,6 +524,8 @@ risk_data_use = risk_data %>%
   #Get rid of empty rows and 0s.
   filter(!is.na(value),
          value > 0) %>% 
+  # Make any value for Marinas that is not 0 into a 3.
+  # dplyr::mutate(value = ifelse(name == 'Marinas', 3, value)) |> 
   #Find out which waterbodies ONLY have data for population density - remove those.
   #filter(!paste0(WATERSH,WATERBO,GNIS_NA) %in% just_popdens_records$uniqID) %>% 
   #Add a column that groups rows by their variable of focus.

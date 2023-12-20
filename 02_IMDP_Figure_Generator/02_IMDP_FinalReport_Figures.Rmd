@@ -26,12 +26,12 @@ plotrix)
 #=====================================================
 #                       OPTIONS 
 #=====================================================
-setwd("C:/Users/CMADSEN/Downloads/LocalR/ZQMussels")
+setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
 
 my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
 
 #Which year should we focus on?
-my.year = my_opts$year
+my.year = 2022
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
 update.gis = FALSE
@@ -874,6 +874,38 @@ p12
 if(!interactive()) {
 ggsave("Fig12_PercentCompliance_Station.jpg",p12)
 }
+```
+
+```{r total_compliance_not_by_station}
+dat_all %>%
+  filter(Year == 2022) |> 
+  filter(!Station %in% rovers_to_drop) %>% 
+  group_by(Shift_ID) %>% 
+  summarise(NumberInsp = n()) %>% 
+  #Add number of non-motorized blow-bys per unique station / shift combo.
+  left_join(dat_all %>%
+  filter(Year == 2022) %>% 
+              group_by(Shift_ID) %>% 
+              mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) %>% 
+              select(Shift_ID,Non_Motorized_Blow_Bys_Counter) %>% 
+              distinct()) %>% 
+  #Add number of motorized blow-bys per unique station / shift combo.
+  left_join(dat_all %>%
+  filter(Year == 2022) %>% 
+              group_by(Shift_ID) %>% 
+              mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) %>% 
+              select(Shift_ID,Motorized_Blow_Bys_Counter) %>% 
+              distinct()) %>% 
+  # group_by(Station) %>% 
+  summarise(NumberInsp = sum(NumberInsp),
+            Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
+            Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) %>% 
+  # group_by(Station) %>% 
+  summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) %>% 
+  arrange(desc(PercentCompliance))
+
+# Add in proportion of blow-bys that are non-motorized
+# 2026/(2026+428)
 ```
 
 ### Figure 13 Noncompliant Watercraft Breakdown

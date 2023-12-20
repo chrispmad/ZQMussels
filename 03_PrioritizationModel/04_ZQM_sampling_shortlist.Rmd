@@ -362,34 +362,34 @@ rm(lakes_monitored); rm(lakes_monitored_2022); rm(lakes_monitored_2023)
 ```
 
 ```{r add_list_of_wbs_to_exclude}
-wbs_to_exclude = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/waterbodies previously removed from list.xlsx")) |>
- mutate(Waterbody = case_when(
-   Waterbody == "Haha Lake (Stoney Lake)" ~ "Haha Lake",
-   Waterbody == "Kitwancool" ~ "Kitwancool Lake",
-   Waterbody == "Lillian lake" ~ "Lillian Lake",
-   Waterbody == "North Barrier Lake" ~ "Barrier Lake",
-   Waterbody == "Swalwell Lake (AKA Beaver Lake)" ~ "Beaver Lake",
-   T ~ Waterbody
- )) |>
- dplyr::filter(Waterbody != 'Cowichan Lake') |> 
- dplyr::select(Waterbody) |>
- distinct() |>
- mutate(WB_to_exclude = T) |>
- rename(GNIS_NA = Waterbody)
+# wbs_to_exclude = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/waterbodies previously removed from list.xlsx")) |>
+#  mutate(Waterbody = case_when(
+#    Waterbody == "Haha Lake (Stoney Lake)" ~ "Haha Lake",
+#    Waterbody == "Kitwancool" ~ "Kitwancool Lake",
+#    Waterbody == "Lillian lake" ~ "Lillian Lake",
+#    Waterbody == "North Barrier Lake" ~ "Barrier Lake",
+#    Waterbody == "Swalwell Lake (AKA Beaver Lake)" ~ "Beaver Lake",
+#    T ~ Waterbody
+#  )) |>
+#  dplyr::filter(Waterbody != 'Cowichan Lake') |> 
+#  dplyr::select(Waterbody) |>
+#  distinct() |>
+#  mutate(WB_to_exclude = T) |>
+#  rename(GNIS_NA = Waterbody)
 
-#Join this list of waterbodies to exclude; for multiple name matches, just match
-#the highest risk waterbody.
-waterb_risk = waterb_risk |>
- left_join(wbs_to_exclude) |> 
-  mutate(WB_to_exclude = replace_na(WB_to_exclude, FALSE))
- # mutate(WB_to_exclude = case_when(
- #   WB_to_exclude == T & name_risk_ranking == 1 ~ T,
- #   WB_to_exclude == T & name_risk_ranking > 1 ~ F,
- #   WB_to_exclude == F ~ F,
- #   is.na(WB_to_exclude) ~ F
- # )) |> 
- # dplyr::select(-name_risk_ranking, -WB_to_exclude)
-rm(wbs_to_exclude)
+# #Join this list of waterbodies to exclude; for multiple name matches, just match
+# #the highest risk waterbody.
+# waterb_risk = waterb_risk |>
+#  left_join(wbs_to_exclude) |> 
+#   mutate(WB_to_exclude = replace_na(WB_to_exclude, FALSE))
+#  # mutate(WB_to_exclude = case_when(
+#  #   WB_to_exclude == T & name_risk_ranking == 1 ~ T,
+#  #   WB_to_exclude == T & name_risk_ranking > 1 ~ F,
+#  #   WB_to_exclude == F ~ F,
+#  #   is.na(WB_to_exclude) ~ F
+#  # )) |> 
+#  # dplyr::select(-name_risk_ranking, -WB_to_exclude)
+# rm(wbs_to_exclude)
 ```
 
 Prior to filtering out any waterbodies, there are `r nrow(waterb_risk)` waterbodies for which we have at least one risk variable. Note that at all filtering steps, all waterbodies with at least one record of a mussel-fouled boat were retained.
