@@ -38,7 +38,11 @@ knitr::opts_chunk$set(
 
 update_remote_output_files = F
 
-source('utility_functions.R')
+if(interactive()){
+  source('03_PrioritizationModel/utility_functions.R')
+} else {
+  source('utility_functions.R')
+}
 
 ```
 
@@ -676,7 +680,7 @@ fwl_rivers$Long = NULL
 final_waterbody_list = fwl_lakes |>
  arrange(Waterbody) |>
  bind_rows(fwl_rivers |> arrange(Waterbody)) |>
- arrange()
+ arrange(Waterbody)
 
 openxlsx::write.xlsx(final_waterbody_list,
                     paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,".xlsx"),
@@ -773,3 +777,5 @@ saveWorkbook(my.wb,
 ```
 
 This year, there are `r nrow(final_waterbody_list)` waterbodies on our protocol list. Last year, there were `r nrow(last_year)`.
+
+To identify the waterbodies for bi-weekly sampling, the final waterbody list (`r nrow(final_waterbody_list)`) was sorted by the overall invasion risk and also by the high-risk category score. All waterbodies with a score of 3 for invasion risk (the highest possible risk ranking) and/or a score of 3 for the “high risk” category (the highest possible risk ranking) were selected for bi-weekly sampling. This resulted in `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))` waterbodies being selected; one additional waterbody, the Kootenay River, was also selected because it flows into Idaho (of special concern following a reporting of Zebra-Quagga Mussels) and then back into BC. This resulted in a total of `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))+1` waterbodies in total being selected for bi-weekly sampling.

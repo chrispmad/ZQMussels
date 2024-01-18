@@ -26,9 +26,9 @@ plotrix)
 #=====================================================
 #                       OPTIONS 
 #=====================================================
-setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
+# setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
 
-my_opts = read_csv(paste0(str_extract(getwd(),".*ZQMussels[/]?"),"/Options.csv"))
+my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv")
 
 #Which year should we focus on?
 my.year = 2022
@@ -38,6 +38,18 @@ update.gis = FALSE
 
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:
+if(my.year == 2022){
+stations.to.include = c("Golden","Dawson Creek","Mt. Robson",
+                        "Osoyoos","Olsen","Penticton Roving",
+                        "Radium","Pacific","Fraser Valley Roving",
+                        "Keremeos")
+
+stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                          "Okanagan",
+                          "Penticton Roving - Hwy 33", 
+                          "Penticton Roving - Inspection Event")
+}
+if(my.year == 2023){
 stations.to.include = c("Golden","Radium","Olsen","Yahk",
                         "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
                         "Keremeos","Greenwood","Dawson Creek","Kaleden")
@@ -46,10 +58,10 @@ stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
                           "Okanagan",
                           "Penticton Roving - Hwy 33", 
                           "Penticton Roving - Inspection Event")
-
+}
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
-leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Keremeos","Osoyoos","Fraser Valley Roving","Pacific")
+leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson","Penticton Roving","Osoyoos","Fraser Valley Roving")
 
 #Data folders
 my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
@@ -57,7 +69,7 @@ my.external.data.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels
 
 #Which folder should we put specific output files in?
 my.output.folder = paste0(my_opts$zqm_figure_local_folder,"output/")
-my.external.output.folder = paste0(my_opts$zqm_figure_output_remote_folder,my_opts$year)
+my.external.output.folder = paste0(my_opts$zqm_figure_output_remote_folder,my.year)
 zqm.operations.folder = my_opts$zqm_operations_data_folder
 this.years.report.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/")
 
@@ -95,21 +107,27 @@ if(!dir.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/Exc
 ```
 
 ```{r load in data}
-setwd(my.data.folder)
-
-dat = read.xlsx('figure_dat.xlsx') %>% 
+dat = read.xlsx(paste0(my.data.folder,'figure_dat.xlsx')) %>% 
   mutate(TimeOfInspection = convertToDateTime(TimeOfInspection)) %>% 
   as_tibble()
 
-dat_all = read.xlsx('figure_dat_all.xlsx') %>%
+dat_all = read.xlsx(paste0(my.data.folder,'figure_dat_all.xlsx')) %>%
   mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) %>% 
   as_tibble()
 
-dat_hr = read.xlsx('figure_dat_hr.xlsx') %>% 
+# In case the 'figure_dat.xlsx' file has been updated past the year we 
+# are currently working on (e.g., I've run the imdp code for 2023 but now
+# we're looking back at 2022 data... sigh)
+if(dat[1,]$Year != my.year){
+  dat = dat_all |> 
+    dplyr::filter(Year == my.year)
+}
+
+dat_hr = read.xlsx(paste0(my.data.folder,'figure_dat_hr.xlsx')) %>% 
   mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) %>% 
   as_tibble()
 
-dat_mf = read.xlsx('figure_dat_mf.xlsx') %>%
+dat_mf = read.xlsx(paste0(my.data.folder,'figure_dat_mf.xlsx')) %>%
   mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) %>% 
   as_tibble()
 
@@ -126,7 +144,9 @@ bc_bound = bcmaps::bc_bound() %>% st_transform(crs = 4326)
 
 ```{r}
 #Establish colour scheme for roving stations that we keep.
-rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden","Fraser Valley Roving","Pacific","Penticton Roving"),
+rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
+                                "Fraser Valley Roving","Pacific",
+                                "Penticton Roving"),
                     StationType = "Roving")
 
 station_types = bind_rows(rovers,
@@ -141,7 +161,11 @@ rm(rovers)
 
 ```{r}
 #Make one more vector of stations that we want to drop in the figures. These are roving stations.
-rovers_to_drop = c("Scheduled Inspection","Other","Okanagan")
+if(my.year == 2022){
+  rovers_to_drop = c("Scheduled Inspection","Other","Okanagan","Sumas Border")
+} else {
+  rovers_to_drop = c("Scheduled Inspection","Other","Okanagan")
+}
 ```
 
 ### Map 1. Inspection Stations by Type
@@ -153,7 +177,8 @@ stations = read_sf(paste0(my_opts$remote_spatial_data,
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations = stations %>% 
-  filter(station_name %in% leaflet.stations.to.include)
+  filter(station_name %in% leaflet.stations.to.include) |> 
+  dplyr::filter(!station_name %in% rovers_to_drop)
 
 stations_for_maps = stations %>% 
   mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) %>% 
@@ -187,7 +212,7 @@ map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 map_1_tmap
 
 if(!interactive()) {
-  tmap_save(tm = map_1_tmap, filename = 'Map1_Stations_by_Type.jpg', width = 7.6, height = 6.4, dpi = 300)
+  tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -200,10 +225,12 @@ stations = read_sf(paste0(my_opts$remote_spatial_data,
   
 # Join number of inspections to stations.
 st = stations %>% 
+  dplyr::filter(!station_name %in% rovers_to_drop) |> 
   left_join(dat %>% 
               count(Station, name = 'num_insp') %>% 
               dplyr::rename(station_name = Station)) %>% 
   filter(!is.na(num_insp))
+  
 
 
 # Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
@@ -269,7 +296,7 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
 map_2_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_2_tmap, filename = 'Map2_Total_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
+tmap_save(tm = map_2_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -367,6 +394,7 @@ p3.x = dat_all %>%
   ungroup() %>% 
   arrange(desc(TotalInsp),desc(NumberInsp)) %>% 
   mutate(Station = fct_inorder(Station)) %>% 
+  dplyr::mutate(Year = as.character(Year)) |> 
   ggplot() + 
   geom_col(aes(x=Station,y=NumberInsp,fill=Year), width = 0.40,position=position_dodge(preserve = "single")) +
   scale_y_continuous(name = "Number of Inspections",
@@ -434,6 +462,7 @@ p5 = ggarrange(dat %>%
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
   
   dat %>% 
+    filter(!Station %in% rovers_to_drop) %>% 
   mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) %>% 
   group_by(the.month) %>% 
   select(the.month,Shift_ID,Shift_hours) %>% 
@@ -546,35 +575,61 @@ ggsave("Fig7_NumberInspections_and_TotalEffort_day.jpg",p7)
 }
 ```
 
-### Fig 8 Encounter Frequency by day of week
+### Figure 8 Encounter Frequency by day of week
 
 ```{r fig8_Encounter_Frequency_by_day_of_week}
 #This one requires grouping the data by the week number in the year (i.e. 1,2, 3 ... up to 54) and the day of the week to first calculate the standard error within each day of the week (which is the eventual grouping factor for the figure), then summarise by day of the week the calculate mean frequency.
+# insp_by_week_and_month
+# 
+# dat %>% 
+#   # dplyr::filter(Shift_hours > 1) |> 
+#   mutate(the.day = wday(TimeOfInspection,
+#                         label=T,abbr=F,
+#                         week_start = getOption("lubridate.week.start", 1)),
+#          the.week = week(TimeOfInspection),
+#          the.month = month(TimeOfInspection)
+#          ) %>%
+#   dplyr::filter(the.month > 2) |> 
+#   #Calculate the number of inspections for each month
+#   group_by(the.month,
+#            the.week,
+#            the.day) %>% 
+#   summarise(Number_Insp = n(),
+#             TotalEffort = sum(Shift_hours,na.rm=T)
+#   ) |> 
+#   dplyr::mutate(enc_freq = Number_Insp / TotalEffort) |> 
+#   dplyr::arrange(desc(enc_freq)) 
+#   dplyr::group_by(the.day) |>
+#   dplyr::summarise(
+#     mean(Number_Insp/TotalEffort),
+#     sd = sd(Number_Insp / TotalEffort, na.rm=T),
+#     StandardError = plotrix::std.error(Number_Insp / TotalEffort))
+  
+
 p8 = dat %>% 
-  mutate(the.day = wday(TimeOfInspection,label=T,abbr=F,week_start = getOption("lubridate.week.start", 1))) %>% 
-  mutate(the.week = week(TimeOfInspection),
-         Month = month(TimeOfInspection)) %>% 
+  # Replace 0's for shift hours with the average: 8
+  mutate(Shift_hours = ifelse(Shift_hours == 0, 8, Shift_hours)) |> 
+  mutate(the.day = wday(TimeOfInspection,
+                        label=T,abbr=F,
+                        week_start = getOption("lubridate.week.start", 1)),
+         the.week = week(TimeOfInspection),
+         the.month = month(TimeOfInspection)
+         ) %>%
+  # Drop inspections in January and February
+  dplyr::filter(the.month > 2) |> 
+  # Only keep rows where shift hours was more than 1 hour.
+  # filter(Shift_hours > 1) |> 
   #Calculate the number of inspections for each month
-  group_by(Month,the.week,the.day) %>% 
-  summarise(Number_Insp = n()) %>% 
-  left_join(
-    dat %>% 
-  mutate(the.day = wday(TimeOfInspection,label=T,abbr=F,week_start = getOption("lubridate.week.start", 1))) %>% 
-  mutate(the.week = week(TimeOfInspection),
-         Month = month(TimeOfInspection)) %>% 
-  group_by(Month,the.week,the.day) %>% 
-  select(Month,the.week,the.day,Shift_ID,Shift_hours) %>% 
-  distinct() %>% 
-  #Some shifts report negative # of hours... remove those.
-  filter(Shift_hours > 0) %>% 
-  summarise(TotalEffort = sum(Shift_hours))
-  ) %>% 
-  mutate(EncounterFreq = Number_Insp/TotalEffort) %>%
-  group_by(the.day) %>% 
-  mutate(StandardError = plotrix::std.error(EncounterFreq)) %>% 
-  mutate(EncounterFreq = mean(EncounterFreq,na.rm=T)) %>% 
-  select(the.day,EncounterFreq,StandardError) %>% 
-  distinct() %>% 
+  group_by(the.day,
+           Shift_ID) %>% 
+  summarise(Number_Insp = n(),
+            Shift_hours
+  ) |> 
+  dplyr::distinct() |> 
+  mutate(enc_freq = Number_Insp/Shift_hours) |> 
+  group_by(the.day) |> 
+  summarise(EncounterFreq = mean(enc_freq),
+            StandardError = plotrix::std.error(enc_freq)) |> 
   ggplot() + 
   geom_col(aes(x=the.day,y=EncounterFreq),fill = my.grey,width = 0.40) +
   geom_errorbar(aes(x=the.day,
@@ -583,13 +638,39 @@ p8 = dat %>%
   geom_text(aes(x=the.day,y=EncounterFreq,
                 label=round(EncounterFreq,1)),nudge_x = 0.4) +
   theme_classic() +
-  labs(x = "", y = "Encounter Frequency") +
-  scale_y_continuous(breaks = seq(0,6.5,0.5))
+  labs(x = "", y = "Encounter Frequency")
+  
+  
+  
+  
+  
+  
+# p8 = insp_by_week_and_month |> 
+#   mutate(EncounterFreq = Number_Insp/TotalEffort) %>%
+#   arrange(desc(EncounterFreq)) |>
+#   group_by(the.day) %>% 
+#   mutate(StandardError = plotrix::std.error(EncounterFreq)) %>%
+#   mutate(EncounterFreq = mean(EncounterFreq,na.rm=T)) %>%
+#   dplyr::ungroup() |> 
+#   select(the.day,
+#          StandardError,
+#          EncounterFreq) %>% 
+#   distinct() %>% 
+#   ggplot() + 
+#   geom_col(aes(x=the.day,y=EncounterFreq),fill = my.grey,width = 0.40) +
+#   geom_errorbar(aes(x=the.day,
+#                   ymin = EncounterFreq-StandardError,
+#                   ymax = EncounterFreq+StandardError),width = 0.15) +
+#   geom_text(aes(x=the.day,y=EncounterFreq,
+#                 label=round(EncounterFreq,1)),nudge_x = 0.4) +
+#   theme_classic() +
+#   labs(x = "", y = "Encounter Frequency") #+
+  # scale_y_continuous(breaks = seq(0,6.5,0.5))
 
 p8
 
 if(!interactive()) {
-ggsave("Fig8_EncounterFrequency_day_of_week.jpg",p8)
+ggsave(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig8_EncounterFrequency_day_of_week.jpg"),p8)
 }
 ```
 
@@ -1110,7 +1191,7 @@ p16 = dat_hr %>%
   summarise(Number_HR = n()) %>% 
   ungroup() %>% 
   #Add in a row for year-month combos with no records: 2020 April.
-  add_row(Year = "2020",the.month = month(4,abbr=F,label=T),Number_HR = 0) %>% 
+  add_row(Year = 2020,the.month = month(4,abbr=F,label=T),Number_HR = 0) %>% 
   group_by(Year) %>% 
   filter(!is.na(the.month)) %>% 
   ggplot() + 
