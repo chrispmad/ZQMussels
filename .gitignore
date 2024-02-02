@@ -9,6 +9,7 @@ Options.json
 ZQMussels.Rproj
 /01_DataCleaning/data/**
 /01_DataCleaning/output/**
+*.html
 04_Extra_Figures_and_Scripts/output/**
 04_Extra_Figures_and_Scripts/data/**
 04_Extra_Figures_and_Scripts/**.html

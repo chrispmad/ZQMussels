@@ -11,8 +11,7 @@ This script assesses the probability of survival of Zebra and Quagga Mussels in 
 
 ## Cleaning 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F)
-
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
 # Load libraries
 library(terra)
 library(tidyverse)
@@ -21,15 +20,10 @@ library(sf)
 library(ggspatial)
 library(ggthemes)
 library(bcdata)
-
-rm(list=ls())
-gc()
 ```
 
-Set options...
-
 ```{r read_and_set_options}
-my_opts = read_csv("Options.csv") %>% 
+my_opts = read_csv(paste0(here::here(),"/Options.csv")) %>% 
   as.data.frame()
 
 my.year = my_opts$year
@@ -62,7 +56,6 @@ if(!dir.exists(paste0(getwd(),"/output/"))) {
 }
 ```
 
-Step 1. Read in shapefiles.
 ```{r load_in_shapefiles}
 # BC shapefile
 bc_shp = bcmaps::bc_bound() %>% 
@@ -96,16 +89,17 @@ df <- read_csv(paste0(data.path,"ems_sample_results_current_expanded.csv"),
                                  CONTINUOUS_DURATION = col_integer(),
                                  CONTINUOUS_DURATION_UNIT = col_character())) %>% 
   filter(is.na(LATITUDE)==F) %>% 
-  mutate(UNIT = MDL_UNIT) %>% 
-  filter(PARAMETER_CODE %in% c("CA-T","CA-D"))
+  mutate(UNIT = MDL_UNIT) |> 
+  filter(PARAMETER_CODE %in% c("CA-T","CA-D","0004"))
 
 #Get rid of columns 29 to 60, which we do not need.
 df = df[,c(1:28)]
 
-### Load in the mammoth dataset ###
-mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium.csv"),
-                           col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
-                                            COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
+## Load in the mammoth dataset ###
+mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium_and_pH.csv"),
+
+                           col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"),
+                                            COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"),
                                             UPPER_DEPTH = col_integer(),
                                             LOWER_DEPTH = col_integer(),
                                             TIDE = col_integer(),
@@ -118,12 +112,10 @@ mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_
                                             CONTINUOUS_MINIMUM = col_integer(),
                                             CONTINUOUS_UNIT_CODE = col_integer(),
                                             CONTINUOUS_DURATION = col_integer(),
-                                            CONTINUOUS_DURATION_UNIT = col_character())) 
+                                            CONTINUOUS_DURATION_UNIT = col_character()))
 
 mammoth_dataset = mammoth_dataset[,c(1:28)]
 ```
-
-Step 2: Combine the 2-year dataset and the historical data set.
 
 ```{r combine_data}
 df = bind_rows(df, mammoth_dataset) %>% 
@@ -133,236 +125,226 @@ rm(mammoth_dataset)
 hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
 ```
 
-```{r load_in_freshwater_atlas}
-# Cast our dataframe as an 'sf' shapefile then reproject it to BC Albers projection.
-df_sp = st_as_sf(df %>% filter(!is.na(LATITUDE)), coords = c("LONGITUDE","LATITUDE"),
-                 crs = 4326)
-df_sp = st_transform(df_sp, 3005)
+```{r filter_outliers_from_calcium_and_pH}
+df_f = df |> 
+  dplyr::filter(!is.na(RESULT)) |> 
+  mutate(retain_point = case_when(
+    PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 60) ~ F,
+    T ~ T
+  )) |> 
+  dplyr::filter(retain_point)
+```
 
+```{r read_in_wb_and_subw_shapefiles}
 #Read in the water body shapefiles
-#(4: waterbody groups, lakes, rivers and streams)
+waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+# Read in subwatershed (N = 246) shapefile
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
-wbs = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
-
-# lakes = bcdc_query_geodata("freshwater-atlas-lakes") %>% collect()
-# rivers = bcdc_query_geodata("freshwater-atlas-rivers") %>% collect()
-# manmade = bcdc_query_geodata("freshwater-atlas-manmade-waterbodies") %>% collect() %>% 
-#   mutate(across(starts_with("GNIS_ID_"), as.character))
-
-#Combine lakes and man-made water bodies
-# lakes = bind_rows(lakes, manmade)
 ```
 
-Remove extra columns of freshwater atlas spatial objects.
-```{r remove_extra_cols}
-watershed = watershed %>% dplyr::select("WATERSHED_") %>% rename(WATERSHED_GROUP_ID = WATERSHED_)
+```{r match_EMS_records_to_wb}
+# ---------------
+# We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
 
-# lakes = lakes %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
-#   rename(LakeName = GNIS_NAME_1, LakeNumber = WATERBODY_KEY)
-# rivers = rivers %>% dplyr::select("WATERBODY_KEY","GNIS_NAME_1") %>% 
-#   rename(RiverName = GNIS_NAME_1, RiverNumber = WATERBODY_KEY)
+# Calculate number of data points for pH and calcium
+total_pH = nrow(df_f |> 
+                  dplyr::filter(PARAMETER == 'pH'))
+
+total_calc = nrow(df_f |> 
+                  dplyr::filter(PARAMETER != 'pH'))
+
+# Simple spatial match to waterbodies
+
+df_f_match_to_wbs = df_f |>
+  dplyr::filter(!is.na(LATITUDE)) |> 
+  st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+           crs = 4326) |> 
+  sf::st_transform(crs = 3005) |> 
+  st_join(waterbodies)
+
+df_f_match_to_wbs = df_f_match_to_wbs |>
+  dplyr::filter(!is.na(WATERSH))
+
+# If we match to waterbody, we keep about 198K data points.
+
+# length(unique(df_f_match_to_wbs$WATERSH))
+
+# # ---------------------
+# # Simple spatial match to subwatershed
+# 
+# df_f_match_to_subw = df_f |>
+#   dplyr::filter(!is.na(LATITUDE)) |> 
+#   st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+#            crs = 4326) |> 
+#   sf::st_transform(crs = 3005) |> 
+#   st_join(watershed)
+# 
+# df_f_match_to_subw |> 
+#   dplyr::filter(!is.na(WATERSHED_))
+# 
+# # If we match to subwatershed, we keep about 741K data points.
+# 
+# length(unique(df_f_match_to_subw$WATERSHED_))
+
+
+
+
+# If we just want to match to watershed, can do it here.
+# watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
+# 
+# watershed = watershed |> dplyr::select(watershed_name = WATERSHE_1,
+#                                      watershed_number = WATERSHED_)
+
+pH = df_f_match_to_wbs |> filter(PARAMETER == 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+
+calc = df_f_match_to_wbs |> filter(PARAMETER != 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+
+# pH_match = pH |> 
+#   st_join(watershed) |> 
+#   dplyr::filter(!is.na(watershed_name))
+# 
+# calc_match = calc |> 
+#   st_join(watershed) |> 
+#   dplyr::filter(!is.na(watershed_name))
+
+# # Summarized number of data points for pH and calcium by subwatershed.
+pH_by_subw = pH |>
+  sf::st_drop_geometry() |>
+  dplyr::count(WATERSHED_)
+
+calc_by_subw = calc |>
+  sf::st_drop_geometry() |>
+  dplyr::count(WATERSHED_)
+
 ```
 
-Step 3: Identify in which water body each record is located. Do a spatial match between calcium data and freshwater atlas layers.
-```{r spatial_match}
-df_sp = st_join(df_sp, watershed, st_intersects)
-df_sp = st_join(df_sp, wbs, st_intersects)
-# df_sp = st_join(df_sp, lakes, st_intersects)
-# df_sp = st_join(df_sp, rivers, st_intersects)
+## Number of Data Points
+
+```{r visualize_number_pH_data_points_per_subw}
+# Add summaries to subwatershed; plot.
+watershed |> 
+  dplyr::left_join(
+    pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'pH readings matched spatially to waterbody and then to subwatershed'
+       )
+
+ggsave(filename = 'output/pH_EMS_records_spatially_matched_to_waterbodies.png',
+       width = 8,
+       height = 8)
+
 ```
 
-```{r clean_up_df}
-df = df_sp %>% st_drop_geometry() %>% as_tibble()
+```{r visualize_number_calcium_data_points_per_subw}
+watershed |> 
+  dplyr::left_join(
+    calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'Calcium readings matched spatially to waterbody and then to subwatershed'
+       )
 
-#Drop records that didn't match to any lake or river.
-df = df |> 
-  filter(!is.na(GNIS_NA))
-  # filter(!(is.na(LakeNumber) & is.na(RiverNumber)))
-
-df = df %>%
-  mutate(Year = lubridate::year(COLLECTION_END))
-
-df = df %>% filter(RESULT <= 60)
-
-df = df %>% rename(Watershed = WATERSHED_GROUP_ID)
+ggsave(filename = 'output/calc_EMS_records_spatially_matched_to_waterbodies.png',
+       width = 8, 
+       height = 8)
 ```
 
-Average calcium levels for each monitoring location, then for each waterbody, then for each subwatershed.
-```{r}
-av_df = #rbind(
-  df %>% 
-    filter(is.na(GNIS_NA)==F) %>% 
-    group_by(Watershed, GNIS_NA, MONITORING_LOCATION) %>% 
-    summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
-    summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% 
-    dplyr::select(-GNIS_NA) |> 
-  # df %>% 
-  #   filter(is.na(LakeNumber)==F) %>% 
-  #   group_by(Watershed, LakeNumber, MONITORING_LOCATION) %>% 
-  #   summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
-  #   summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-LakeNumber),
-  # df %>% 
-  #   filter(is.na(RiverNumber)==F) %>% 
-  #   group_by(Watershed, RiverNumber, MONITORING_LOCATION) %>% 
-  #   summarise(MonitLoc_Mean = mean(RESULT, na.rm=T)) %>%
-  #   summarise(Waterbody_Mean = mean(MonitLoc_Mean,na.rm=T)) %>% dplyr::select(-RiverNumber)
-#) %>% 
-  summarise(Watershed_Mean = mean(Waterbody_Mean)) %>% 
-  left_join(df %>% 
-              filter(is.na(GNIS_NA)==F) %>%
-              dplyr::select(Watershed, GNIS_NA) %>%
-              distinct() %>%
-              group_by(Watershed) %>%
-              summarise(wbs_with_data = n())
-  ) %>%
-  # left_join(df %>% 
-  #             filter(is.na(RiverNumber)==F) %>%
-  #             dplyr::select(Watershed, RiverNumber) %>%
-  #             distinct() %>%
-  #             group_by(Watershed) %>%
-  #             summarise(rivers_with_data = n())
-  # ) %>%
-  # left_join(df %>% 
-  #             filter(is.na(RiverNumber)==F) %>%
-  #             dplyr::select(Watershed, MONITORING_LOCATION) %>%
-  #             distinct() %>%
-  #             group_by(Watershed) %>%
-  #             summarise(river_monit_locs = n())) %>%
-  left_join(df %>% 
-              filter(is.na(GNIS_NA)==F) %>%
-              dplyr::select(Watershed, MONITORING_LOCATION) %>%
-              distinct() %>%
-              group_by(Watershed) %>%
-              summarise(wbs_monit_locs = n())) %>% 
-  mutate(across(everything(), \(x) replace_na(x, 0))) %>% 
-  group_by(Watershed) %>%
-  mutate(Waterbody_Number = wbs_with_data,
-         Monitoring_Loc_Number = wbs_monit_locs) %>%
-  ungroup() %>% 
-  # mutate(lakes_with_data = factor(lakes_with_data, levels = c(1:max(.$lakes_with_data))),
-  #        rivers_with_data = factor(rivers_with_data, levels = c(1:max(.$rivers_with_data)))
-  # ) %>% 
-  filter(is.na(Watershed_Mean)==F)
+## Mean Values 
 
-#Bin values (less than 8, between 8 and 20, and greater than 20)
-av_df = av_df %>% 
-  mutate(bin = case_when(
-    Watershed_Mean < 8 ~ "1",
-    Watershed_Mean >= 8 & Watershed_Mean < 20 ~ "2",
-    Watershed_Mean >= 20 ~ "3",
-    T ~ "NA"
-  ))
-  #mutate(bin = factor(bin, levels = c(1:3)))
+```{r mean_pH_value_by_subw}
+mean_pH_by_subw = pH |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_pH = mean(RESULT, na.rm=T),
+                   standard_deviation_pH = sd(RESULT, na.rm=T),
+                   number_pH_data_points = n())
 
-av_df = av_df %>% 
-  mutate(waterbody_number_bin = case_when(
-    Waterbody_Number == 1 ~ "1",
-    Waterbody_Number > 1 & Waterbody_Number <= 3 ~ "2 to 3",
-    Waterbody_Number > 3 & Waterbody_Number <= 5 ~ "4 to 5",
-    Waterbody_Number > 5 & Waterbody_Number <= 10 ~ "6 to 10",
-    Waterbody_Number > 10 & Waterbody_Number <= 3 ~ "11+",
-    T ~ "No Data"
-  )) 
-  # mutate(waterbody_number_bin = factor(waterbody_number_bin, levels = c("No Data","1","2 to 3",
-  #                                                                          "4 to 5","6 to 10",
-  #                                                                          "11+")))
+watershed |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_pH)) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched some watershed'),
+       fill = 'Mean pH Value',
+       caption = 'pH readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       )
 
-av_df = av_df %>% 
-  mutate(monit_loc_number_bin = case_when(
-    Monitoring_Loc_Number >= 1 & Monitoring_Loc_Number <= 5 ~ "1 to 5",
-    Monitoring_Loc_Number > 5 & Monitoring_Loc_Number <= 5 ~ "6 to 10",
-    Monitoring_Loc_Number > 10 & Monitoring_Loc_Number <= 20 ~ "11 to 20",
-    Monitoring_Loc_Number > 20 & Monitoring_Loc_Number <= 40 ~ "21 to 40",
-    Monitoring_Loc_Number > 40 ~ "41+",
-    T ~ "No Data"
-  ))
-  # mutate(waterbody_number_bin = factor(waterbody_number_bin, levels = c("No Data","1 to 5","6 to 10",
-  #                                                                          "11 to 20","21 to 40",
-  #                                                                          "41+")))
+ggsave(filename = 'output/mean_pH_by_subwatershed_group.png',
+       width = 8, height = 8)
+```
 
+```{r mean_calcium_value_by_subw}
+mean_calc_by_subw = calc |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_calcium = mean(RESULT, na.rm=T),
+                   standard_deviation_calcium = sd(RESULT, na.rm=T),
+                   number_calcium_data_points = n())
+
+watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_calcium)) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched some watershed'),
+       fill = 'Mean Calcium Value',
+       caption = 'calcium readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       ) + 
+  scale_fill_fermenter(palette = 'RdYlGn')
+
+ggsave(filename = 'output/mean_calcium_by_subwatershed_group.png',
+       width = 8, height = 8)
+```
+
+## pH Suitability 
+
+```{r pH_in_ideal_ZQ_conditions}
+pH_within_ideal_ZQ_range = mean_pH_by_subw |> 
+  dplyr::mutate(ideal_conditions = mean_pH >= 7 & mean_pH <= 9.6)
+
+watershed |> 
+  dplyr::left_join(
+    pH_within_ideal_ZQ_range
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = ideal_conditions)) + 
+  labs(fill = 'Mean pH within \nideal ZQ Mussel \nrange(7 to 9.6)')
+
+ggsave(filename = 'output/mean_pH_within_ideal_ZQ_Mussels_range_by_subwatershed.png',
+       width = 8, height = 8)
+
+openxlsx::write.xlsx(pH_within_ideal_ZQ_range, 'output/mean_pH_waterbody_matched_within_ideal_ZQ_Mussels_range_by_subwatershed.xlsx')
+
+```
+
+```{r get_temperatures_per_subw}
 #Grab the temperature data from the worldclim predicted temperature raster we read in at the top of the script.
 watershed = watershed %>% 
   mutate(temp = terra::extract(tempr, vect(watershed %>% st_transform(crs = 4326)), fun = mean, na.rm=T)[,2])
 
-watershed = watershed %>% 
+watershed = watershed %>%  
   mutate(temp_group = case_when(
     temp < temp_limit ~ paste0("< ", temp_limit),
     temp >=  temp_limit ~ paste0(">= ", temp_limit),
     T ~ "NA"
   ))
-
-watdat = watershed %>% 
-  rename(Watershed = WATERSHED_GROUP_ID) %>% 
-  left_join(av_df) %>% 
-  mutate(across(wbs_with_data:Monitoring_Loc_Number, \(x) replace_na(x,0))) %>% 
-  mutate(across(ends_with("_bin"), \(x) replace_na(x,"No Data")))
-
-watdat = watdat %>%
-  arrange(temp) %>%
-  mutate(bin_bumped = as.numeric(as.character(bin))) %>%
-  mutate(bin_bumped = replace(bin_bumped, temp < temp_limit, bin_bumped - 1))  
-  # mutate(bin_bumped = factor(bin_bumped, levels = c(1,2,3)))
-
 ```
 
-```{r}
-temp_vars = c(paste0("< ",temp_limit),paste0(">= ",temp_limit))
-```
-
-## Visualize!
-
-### Quagga Mussel Introduction Risk Factor
-
-```{r visualize quagga}
-# BINNED Calcium for watersheds - Quagga Mussels
-my_plot = ggplot() +
-  geom_sf(data = watdat,
-          aes(fill = bin), col = "black") +
-  scale_fill_manual(values = c("NA" = "grey",
-                               "1" = "green",
-                               "2" = "yellow",
-                               "3" = "red"),
-                    labels = c("NA" = "Insufficient Data",
-                               "1" = "Minimal (less than 8 mg/L)",
-                               "2" = "Moderate (between 8 and 20 mg/L)",
-                               "3" = "High (greater than 20 mg/L)")) +
-  annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() +
-  labs(fill = "Calcium Risk Factor",
-       title = "Analysis of Calcium Risk Factor (Quagga Mussel) at Subwatershed Scale",
-       subtitle = paste0("Data up to and Including ",max(df$Year)))
-
-my_plot
-
-ggsave(filename = paste0(mywd,"/output/QuaggaMussel_RiskMap",max(df$Year),".png"), plot = my_plot, dpi = 150, width = 10, height = 7)
-```
-
-### Zebra Mussel Introduction Risk Factor
-```{r visualize zebra}
-my_plot = ggplot() +
-  geom_sf(data = watdat,
-          aes(fill = as.character(bin_bumped)), col = "black") +
-  scale_fill_manual(values = c("NA" = "white",
-                               "1" = "green",
-                               "2" = "yellow",
-                               "3" = "red"),
-                    labels = c("NA" = "Insufficient Data",
-                               "1" = "Minimal (less than 8 mg/L)",
-                               "2" = "Moderate (between 8 and 20 mg/L)",
-                               "3" = "High (greater than 20 mg/L)")) +
-  annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() +
-  labs(fill = "Calcium Risk Factor",
-       title = "Analysis of Calcium Risk Factor (Quagga Mussel) at Subwatershed Scale",
-       subtitle = paste0("Data up to and Including ",max(df$Year)))
-
-my_plot 
-
-ggsave(filename = paste0(mywd,"/output/ZebraMussel_",max(df$Year),"_",climate_model,"_ClimateModel_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
-```
-
-### Temperature Correction Risk Map
-
+## Temperature Correction Map
 ```{r temp_correction_map}
 my_plot = ggplot() +
   geom_sf(data = watershed, col = "black", aes(fill = temp_group)) +
@@ -374,60 +356,159 @@ my_plot = ggplot() +
 
 my_plot
 
-ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",max(df$Year),"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
 ```
 
-### Number of Waterbodies per Watershed
+```{r join_calc_and_pH_to_watershed}
+watershed = watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  )
+```
 
-```{r number_waterbodies_per_watershed}
-my_plot = watdat %>% 
-  mutate(monit_loc_number_bin = case_when(
-    monit_loc_number_bin == "NA" ~ "No Data",
-    T ~ monit_loc_number_bin)) %>% 
-  mutate(monit_loc_number_bin = replace_na(monit_loc_number_bin, "No Data")) %>% 
-  ggplot() +
-  #geom_sf(data = watershed, col = "black", fill = "lightgrey") +
-  geom_sf(data = watdat,
-          col = "black",
-          aes(fill = monit_loc_number_bin)) +
-  #scale_fill_brewer(palette = "Greens") +
-  scale_fill_manual(values = c("No Data" = "darkgrey",
-                               "1 to 5" = "#edf8e9",
-                               "6 to 10" = "#bae4b3",
-                               "11 to 20" = "#74c476",
-                               "21 to 40" = "#31a354",
-                               "41+" = "#31a354"),
-                    labels = c("No Data" = "No Data",
-                               "1 to 5" = "1 to 5",
-                               "6 to 10" = "6 to 10",
-                               "11 to 20" = "11 to 20",
-                               "21 to 40" = "21 to 40",
-                               "41+" = "41+")) +
-  theme_map() +
-  labs(title = 'Number of EMS Calcium Sampling Sites',
-       fill = "Number of Sites") +
-  theme(text = element_text(size = 13))
+```{r bin_calcium_values}
 
-my_plot
+calc_bin_levels = data.frame(
+  levels = c('Minimal (< 8 mg/L)',
+             'Moderate (8 to 20 mg/L)',
+             'High (> 20 mg/L)',
+             'No Data'),
+  number = c(1,2,3, 99)
+)
+  
+watershed = watershed |> 
+  dplyr::mutate(calc_bin = case_when(
+    mean_calcium < 8 ~ 'Minimal (< 8 mg/L)',
+    mean_calcium >= 8 & mean_calcium < 20 ~ 'Moderate (8 to 20 mg/L)',
+    mean_calcium >= 20 ~ 'High (> 20 mg/L)',
+    is.na(mean_calcium) ~ "No Data"
+  )) |> 
+  mutate(calc_bin = factor(calc_bin, levels = calc_bin_levels$levels)) |> 
+  mutate(calc_bin_n = case_when(
+    calc_bin == 'Minimal (< 8 mg/L)' ~ 1,
+    calc_bin == 'Moderate (8 to 20 mg/L)' ~ 2,
+    calc_bin == 'High (> 20 mg/L)' ~ 3,
+    calc_bin == 'No Data' ~ 99 
+  ))
+```
 
-ggsave(filename = paste0(mywd,"/output/Quantity of Sites per Subwatershed",max(df$Year),".png"),
-       plot = my_plot, dpi = 150, 
-       width = 10, height = 7)
+# Results {.tabset}
+
+## Mean Calcium Bins
+
+```{r mean_calcium_binned_by_subwatershed}
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "Minimal (< 8 mg/L)" = "green",
+                               "Moderate (8 to 20 mg/L)" = "yellow",
+                               "High (> 20 mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() + 
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 subwatersheds with data'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_by_subwatershed.png',
+       width = 8, height = 8)
+```
+
+## Mean Calcium Bins, pH Adjusted
+
+```{r mean_calcium_binned_and_reduced_by_pH_by_subwatershed}
+
+# Identify watersheds with non-ideal pH
+non_ideal_pH_subw = pH_within_ideal_ZQ_range |> 
+  dplyr::filter(!ideal_conditions) |> 
+  pull(WATERSHED_)
+
+watershed = watershed |> 
+  mutate(calc_bin_n_pH_adj = case_when(
+    WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 1 & calc_bin_n != 99 ~ calc_bin_n - 1,
+    T ~ calc_bin_n
+  ))
+
+watershed = watershed |> 
+  left_join(calc_bin_levels |> 
+              rename(calc_bin_n_pH_adj = number)) |> 
+  mutate(calc_bin_pH_adj = levels) |> 
+  dplyr::select(-levels) |> 
+  mutate(calc_bin_pH_adj = factor(calc_bin_pH_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "Minimal (< 8 mg/L)" = "green",
+                               "Moderate (8 to 20 mg/L)" = "yellow",
+                               "High (> 20 mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() + 
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "Minimal")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
+```
+
+## Mean Calcium Bins, pH and Temperature Adjusted
+
+```{r mean_calcium_binned_and_reduced_by_pH_reduced_by_low_temps_by_subwatershed}
+
+# Identify watersheds with non-ideal pH
+low_temp_watersheds = watershed |> 
+  dplyr::filter(temp_group == '< 10') |> 
+  pull(WATERSHED_)
+
+watershed = watershed |> 
+    mutate(calc_bin_n_pH_temp_adj = case_when(
+        WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 1 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
+        T ~ calc_bin_n_pH_adj
+    ))
+
+watershed = watershed |> 
+  left_join(calc_bin_levels |> 
+              rename(calc_bin_n_pH_temp_adj = number)) |> 
+  mutate(calc_bin_pH_temp_adj = levels) |> 
+  dplyr::select(-levels) |> 
+  mutate(calc_bin_pH_temp_adj = factor(calc_bin_pH_temp_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_temp_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "Minimal (< 8 mg/L)" = "green",
+                               "Moderate (8 to 20 mg/L)" = "yellow",
+                               "High (> 20 mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() + 
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "Minimal")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
 ```
 
 ```{r write_sf_to_disk}
-### Produce excel files and shapefiles
-watdat = watdat %>% 
-  mutate(Quagga_Risk = "NA") %>%
-  mutate(Quagga_Risk = replace(Quagga_Risk, bin == 1, "Minimal (less than 8 mg/L)"),
-         Quagga_Risk = replace(Quagga_Risk, bin == 2, "Moderate (between 8 and 20 mg/L)"),
-         Quagga_Risk = replace(Quagga_Risk, bin == 3, "High (greater than 20 mg/L)"),
-         Zebra_Risk = "NA",
-         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 1, "Minimal (less than 8 mg/L)"),
-         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 2, "Moderate (between 8 and 20 mg/L)"),
-         Zebra_Risk = replace(Zebra_Risk, bin_bumped == 3, "High (greater than 20 mg/L)"))
+write_sf(watershed,
+         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 
-write_sf(watdat, 
-         paste0(mywd,"/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
-                temp_limit,"C_threshold_Subwatershed.gpkg"))
+# ### Produce excel files and shapefiles
+# watdat = watdat %>% 
+#   mutate(Quagga_Risk = "NA") %>%
+#   mutate(Quagga_Risk = replace(Quagga_Risk, bin == 1, "Minimal (less than 8 mg/L)"),
+#          Quagga_Risk = replace(Quagga_Risk, bin == 2, "Moderate (between 8 and 20 mg/L)"),
+#          Quagga_Risk = replace(Quagga_Risk, bin == 3, "High (greater than 20 mg/L)"),
+#          Zebra_Risk = "NA",
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 1, "Minimal (less than 8 mg/L)"),
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 2, "Moderate (between 8 and 20 mg/L)"),
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 3, "High (greater than 20 mg/L)"))
+# 
+# write_sf(watdat, 
+#          paste0(mywd,"/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+#                 temp_limit,"C_threshold_Subwatershed.gpkg"))
 ```
