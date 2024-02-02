@@ -350,57 +350,41 @@ naturalbreaksfig
 
 ### Subwatershed-scale Variables
 ```{r}
-# Process calcium data
-calc = read_sf(paste0(my_opts$base_dir,'01_DataCleaning/output/ZQM_RiskAssessment_ssp370_10C_threshold_Subwatershed.gpkg'))
+# # Process calcium data
+# calc = read_sf(paste0(my_opts$base_dir,'01_DataCleaning/output/ZQM_RiskAssessment_ssp370_10C_threshold_Subwatershed.gpkg'))
+# 
+# calc = calc |>  
+#   mutate(ZQ_CalcRisk = case_when(
+#     Watershed_Mean <= 8 ~ "1 (Minimal - up to 8 mg/L)",
+#     Watershed_Mean > 8 & Watershed_Mean <= 20 ~ "2 (Moderate - between 8 and 20 mg/L)",
+#     Watershed_Mean > 20 ~ "3 (High - greater than 20 mg/L)",
+#     is.na(Watershed_Mean) ~ "No Data"
+#   ))
+# 
+# calc = calc %>% 
+#   mutate(ZQ_CalcRisk = factor(ZQ_CalcRisk, levels = c("1 (Minimal - up to 8 mg/L)",
+#                                               "2 (Moderate - between 8 and 20 mg/L)",
+#                                               "3 (High - greater than 20 mg/L)")))
+# 
 
-calc = calc |>  
-  mutate(ZQ_CalcRisk = case_when(
-    Watershed_Mean <= 8 ~ "1 (Minimal - up to 8 mg/L)",
-    Watershed_Mean > 8 & Watershed_Mean <= 20 ~ "2 (Moderate - between 8 and 20 mg/L)",
-    Watershed_Mean > 20 ~ "3 (High - greater than 20 mg/L)",
-    is.na(Watershed_Mean) ~ "No Data"
-  ))
-
-calc = calc %>% 
-  mutate(ZQ_CalcRisk = factor(ZQ_CalcRisk, levels = c("1 (Minimal - up to 8 mg/L)",
-                                              "2 (Moderate - between 8 and 20 mg/L)",
-                                              "3 (High - greater than 20 mg/L)")))
-
-
-#Attach the ID name and number of each subwatershed to the calc data.
-calc = calc %>% 
-  left_join(subw %>% 
-              st_drop_geometry() %>% 
-              rename(WatershedName = WATERSHE_1,
-                     Watershed = WATERSHED_) %>% 
-              dplyr::select(WatershedName, Watershed))
+calc = read_sf(paste0(my_opts$base_dir,'01_DataCleaning/output/ZQM_RiskAssessment_ssp370_10C_threshold_pH_Adjustment_Subwatershed.gpkg')) |> 
+  mutate(ZQ_CalcRisk = ifelse(calc_bin_n_pH_temp_adj == 99, NA, calc_bin_n_pH_temp_adj))
 
 subw_w_dat = subw |> 
   left_join(calc |> 
-              dplyr::rename(WATERSHED_ = Watershed) |> 
+              # dplyr::rename(WATERSHED_ = watershed_number) |> 
               sf::st_drop_geometry() |> 
-              dplyr::select(WATERSHED_,ZQ_CalcRisk)) #|> 
-  # left_join(sar_by_subw |> 
-  #             dplyr::rename(WATERSHED_ = WATERSH) |> 
-  #             sf::st_drop_geometry() |> 
-  #             dplyr::select(WATERSHED_,distinct_SAR)) |> 
-  # left_join(dams |> 
-  #             dplyr::rename(WATERSHED_ = WATERSH) |> 
-  #             sf::st_drop_geometry() |> 
-  #             dplyr::group_by(WATERSHED_) |> 
-  #             dplyr::summarise(SummedDamCapacity = sum(DmCpcty)) |> 
-  #             dplyr::select(WATERSHED_,SummedDamCapacity))
-# subw_wout_calc = subw %>% 
-#   filter(!WATERSHE_1 %in% calc$WatershedName)
+              dplyr::select(WATERSHED_, ZQ_CalcRisk)) #|> 
 
 subw_data_long = subw_w_dat |>
   st_drop_geometry() %>% 
   #Keep only the variables we've chosen for the 3 groups of variables.
   # dplyr::select(WATERSHED_,WATERSHE_1,ZQ_CalcRisk,distinct_SAR,SummedDamCapacity) |> 
   dplyr::select(WATERSHED_,WATERSHE_1,ZQ_CalcRisk) |>
-  dplyr::mutate(across(-c(WATERSHED_,WATERSHE_1), \(x) stringr::str_extract(as.character(x),'^[0-9]+'))) |> 
-  pivot_longer(-c(WATERSHED_,WATERSHE_1), names_to = "varname", values_to = "original.value") %>% 
-  filter(!is.na(original.value)) |> 
+  
+  dplyr::mutate(across(-c(WATERSHED_,WATERSHE_1), \(x) stringr::str_extract(as.character(x),'^[0-9]+'))) |>
+  pivot_longer(-c(WATERSHED_,WATERSHE_1), names_to = "varname", values_to = "original.value") %>%
+  filter(!is.na(original.value)) |>
   dplyr::mutate(original.value = as.numeric(original.value))
 
 #Write out 
@@ -497,7 +481,7 @@ risk_data = waterb %>%
 ```
 
 ```{r set_up_colour_palette}
-my.colours = c("#f3ed8e","#eb9e4e","#F00320")
+my.colours = c("#f3ed8e","#eb9e4e","#F00320","darkgrey")
 ```
 
 ## Risk of Introduction and Establishment
@@ -628,6 +612,8 @@ openxlsx::write.xlsx(just_nonmot %>% st_drop_geometry(),
 Highriskvars = c("total_HR","OperRes")
 
 risk_data_highrisk = risk_data %>% 
+  # TEMPORARY
+  # dplyr::filter(GNIS_NA == 'Jewel Lake') |> 
   dplyr::select(WATERSH,WATERBO,GNIS_NA,all_of(Highriskvars)) %>% 
   st_drop_geometry() %>% 
   pivot_longer(cols = all_of(Highriskvars)) %>% 
@@ -762,19 +748,22 @@ ggplot() +
   )
 ```
 
-### Calcium at Subwatershed Scale
+### Calcium at Subwatershed Scale Adjusted by pH and Temperature
+
+Calcium (dissolved and total) was accessed from the provicial Environmental Monitoring System (EMS) database. These values were cleaned of extreme outlier values (i.e. any value less than 0 or greater than 60 mg/L of calcium), spatially matched to water bodies, and averaged at the subwatershed scale (N = 246). A similar methodology was used for pH (outliers being any value less than 0 or greater than 16.5 pH). Calcium risk levels (Minimal, Moderate or High) were reduced by one (e.g. High -> Moderate) for subwatersheds with mean pH values outside of optimal conditions for Zebra-Quagga Mussels, i.e. less than 7 or higher than 9.6 pH. In addition, calcium risk levels were reduced by one for subwatersheds with average predicted temperatures below 10 degrees Celsius.
 
 Note that the original binning of calcium was 1, 2 and 3 (<8 mg/L calcium, between 8 and 20 mg/L calcium, and 20+ mg/L of calcium); here, to diminish the weighting a bit of calcium, I roll these numbers back by 1, so that what was bin 1 becomes 0, what was bin 2 becomes 1, etc. Also note that there were many subwatersheds with insufficient data to find a mean calcium level. For those, I also assign them a risk category of 0, but I note that this is due to insufficient data in the 'calcium_data' column.
 
 ```{r calcium_subwatershed_figure}
 ggplot() + 
   geom_sf(data = subw, fill = "lightgrey") +
-  geom_sf(data = calc, aes(fill = ZQ_CalcRisk)) + 
+  geom_sf(data = calc, aes(fill = calc_bin_pH_temp_adj)) + 
   labs(fill = "Risk from Calcium Levels") +
   ggthemes::theme_map() + 
   scale_fill_manual(values = my.colours, labels = c("1 (Minimal - up to 8 mg/L)",
                                               "2 (Moderate - between 8 and 20 mg/L)",
-                                              "3 (High - greater than 20 mg/L)"))
+                                              "3 (High - greater than 20 mg/L)",
+                                              "No Data"))
 ```
 
 ```{r waterbody_connectivity_figure}

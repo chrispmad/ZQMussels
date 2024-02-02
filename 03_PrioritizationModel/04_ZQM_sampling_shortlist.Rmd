@@ -21,8 +21,6 @@ library(openxlsx)
 library(diffdf)
 library(bcdata)
 
-# setwd(here::here())
-
 my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
 my.year = 2024
@@ -408,6 +406,7 @@ waterb_risk = waterb_risk |>
   mutate(keep.me = case_when(
     paste0(GNIS_NA,WATERSH) %in% paste0(waterb_with_any_mf$GNIS_NA,waterb_with_any_mf$WATERSH) ~ 'keep',
     InvasionRisk >= 2 ~ "keep",
+    # GNIS_NA == 'Jewel Lake' ~ 'keep',
     InvasionRisk == 1 ~ "drop",
     # InvasionRisk == 2 & calcium_bin == 0 & calcium_data == "Data present" ~ "drop",
     T ~ "keep"
@@ -779,3 +778,4 @@ saveWorkbook(my.wb,
 This year, there are `r nrow(final_waterbody_list)` waterbodies on our protocol list. Last year, there were `r nrow(last_year)`.
 
 To identify the waterbodies for bi-weekly sampling, the final waterbody list (`r nrow(final_waterbody_list)`) was sorted by the overall invasion risk and also by the high-risk category score. All waterbodies with a score of 3 for invasion risk (the highest possible risk ranking) and/or a score of 3 for the “high risk” category (the highest possible risk ranking) were selected for bi-weekly sampling. This resulted in `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))` waterbodies being selected; one additional waterbody, the Kootenay River, was also selected because it flows into Idaho (of special concern following a reporting of Zebra-Quagga Mussels) and then back into BC. This resulted in a total of `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))+1` waterbodies in total being selected for bi-weekly sampling.
+
