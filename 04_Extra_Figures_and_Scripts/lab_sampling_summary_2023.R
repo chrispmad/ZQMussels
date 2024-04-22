@@ -1,7 +1,7 @@
 library(tidyverse)
 library(openxlsx)
 
-dat = openxlsx::read.xlsx('04_Extra_Figures_and_Scripts/data/BC Veliger Sampling Inventory 2023.xlsx')
+dat = readxl::read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/2023/Lab results/BC Veliger Sampling Inventory 2023_11-20_Final Report.xlsx'))
 
 dat = dat |> 
   set_names(snakecase::to_snake_case) 
@@ -22,14 +22,14 @@ dat = dat |>
 dat |> 
   count(waterbody) |> 
   pull(waterbody)
-# 82 different lakes have been sampled.
+# 85 different lakes have been sampled.
 
 dat |> 
   select(containers) |> 
   summarise(total = sum(as.numeric(containers)))
-# Looks like 404 containers
+# Looks like 996 containers
 
 dat |> 
   select(of_plankton_tows) |> 
   summarise(total = sum(as.numeric(of_plankton_tows), na.rm=T))
-# 1,240 plankton tows.
+# 2,996 plankton tows.
