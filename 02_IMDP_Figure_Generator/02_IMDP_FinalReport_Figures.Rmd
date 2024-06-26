@@ -36,6 +36,12 @@ my.year = 2023
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
 update.gis = TRUE
 
+# Are there any station names we want to change / correct?
+stations.to.change = data.frame(
+  Station = c('Fraser Valley Roving'),
+  new_name = c('Lower Mainland Roving')
+)
+
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:
 if(my.year == 2022){
@@ -52,13 +58,21 @@ stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
 if(my.year == 2023){
 stations.to.include = c("Golden","Radium","Olsen","Yahk",
                         "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
-                        "Keremeos","Greenwood","Dawson Creek","Kaleden")
+                        "Keremeos","Dawson Creek","Lower Mainland Roving",
+                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
 
 stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
                           "Okanagan",
                           "Penticton Roving - Hwy 33", 
                           "Penticton Roving - Inspection Event")
 }
+
+permanent.stations = c("Golden","Radium","Olsen","Yahk",
+                        "Osoyoos","Mt. Robson",
+                        "Dawson Creek")
+
+roving.stations = c("Pacific","Penticton Roving","Lower Mainland Roving",
+                    "Keremeos (Hwy 3)","Sumas Border","Cutts (Hwy 93)")
 
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
@@ -67,8 +81,13 @@ leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek",
                                 "Mt. Robson","Penticton Roving","Osoyoos","Fraser Valley Roving")
 } 
 if(my.year == 2023){
-  leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek","Mt. Robson",
-                                  "Penticton Roving","Osoyoos","Fraser Valley Roving",
+  leaflet.stations.to.include = c("Golden","Olsen","Dawson Creek","Mt. Robson",
+                                  "Penticton Roving","Osoyoos","Lower Mainland Roving",
+                                  "Yahk")
+}
+if(my.year == 2024){
+  leaflet.stations.to.include = c("Golden","Olsen","Dawson Creek","Mt. Robson",
+                                  "Penticton Roving","Osoyoos","Lower Mainland Roving",
                                   "Yahk")
 }
 
@@ -161,16 +180,25 @@ bc_bound = bcmaps::bc_bound() |> st_transform(crs = 4326)
 ```
 
 ```{r}
+# Apply station name correction(s)
+dat = dat |> 
+  dplyr::left_join(stations.to.change) |> 
+  dplyr::mutate(Station = ifelse(!is.na(new_name), new_name, Station))
+
+dat_all = dat_all |> 
+  dplyr::left_join(stations.to.change) |> 
+  dplyr::mutate(Station = ifelse(!is.na(new_name), new_name, Station))
+
 #Establish colour scheme for roving stations that we keep.
 if(my.year == 2022){
 rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
-                                "Fraser Valley Roving","Pacific",
+                                "Lower Mainland Roving","Pacific",
                                 "Penticton Roving"),
                     StationType = "Roving")
 }
 if(my.year == 2023){
   rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
-                                "Fraser Valley Roving","Pacific",
+                                "Lower Mainland Roving","Pacific",
                                 "Penticton Roving","Cutts (Hwy 93)"),
                     StationType = "Roving")
 }
@@ -303,7 +331,13 @@ data.frame(
 ```{r map1_inspection_stations_by_type, fig.width=800}
 # Grab inspection stations shapefile.
 stations = read_sf(paste0(my_opts$remote_spatial_data,
-                          'Projects/ZQMussels/data/inspection_stations.gpkg'))
+                          'Projects/ZQMussels/data/inspection_stations.gpkg')) |> 
+  dplyr::mutate(map_label = ifelse(map_label == 'Fraser Valley Roving', 
+                                     'Lower Mainland Roving',
+                                     map_label),
+                  station_name = ifelse(station_name == 'Fraser Valley Roving',
+                                        'Lower Mainland Roving',
+                                        station_name))
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations = stations |> 
@@ -314,25 +348,41 @@ stations_for_maps = stations |>
   mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) |> 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
 
+# Ugh. Time to make some hand-drawn locations for the labels...
+station_labels = stations_for_maps |> 
+  sf::st_drop_geometry() |> 
+  dplyr::mutate(lat = lat + 0.25) |> 
+  dplyr::mutate(lat = case_when(
+    map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
+    map_label == 'Penticton Roving' ~ lat - 0.1,
+    T ~ lat)) |> 
+  dplyr::mutate(lon = case_when(
+    map_label == 'Lower Mainland Roving' ~ lon - 1,
+    map_label == 'Penticton Roving' ~ lon + 1.5,
+    T ~ lon)) |> 
+  sf::st_as_sf(coords = c("lon","lat"),crs=4326)
+
 # Make a custom-sized viewing box around stations in BC.
 bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
                          lat = c(48, 56)) |> 
   st_as_sf(coords = c("lon","lat"), crs = 4326))
 
 # Download maptiles for BC station map
-bc_stations_basemap = maptiles::get_tiles(x = bc_station_view, provider = 'CartoDB.Positron', zoom = 6, crop = F)
+bc_stations_basemap_white = maptiles::get_tiles(x = bc_station_view, provider = 'CartoDB.Positron', zoom = 6, crop = F)
+bc_stations_basemap_green = maptiles::get_tiles(x = bc_station_view, provider = 'OpenStreetMap', zoom = 6, crop = F)
 
 # Set plotting mode for tmap.
 tmap_mode('plot')
 
-map_1_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+map_1_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' Watercraft \nInspection Stations')) + 
   tm_shape(bc_bound) + 
     tm_borders(col = 'grey', lwd = 2) + 
   tm_shape(stations_for_maps) + 
     tm_symbols(col = "station_type", title.col = '') +
-    tm_text("map_label", auto.placement = 1, 
+  tm_shape(station_labels) +
+    tm_text("map_label", auto.placement = F, 
             size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
@@ -350,19 +400,17 @@ if(!interactive()) {
 
 ```{r map2_total_inspections_by_station}
 # Grab inspection stations shapefile.
-stations = read_sf(paste0(my_opts$remote_spatial_data,
-                          'Projects/ZQMussels/data/inspection_stations.gpkg'))
+# stations = read_sf(paste0(my_opts$remote_spatial_data,
+#                           'Projects/ZQMussels/data/inspection_stations.gpkg'))
 
 # Join number of inspections to stations.
-st = stations |> 
+st = stations_for_maps |> 
   dplyr::filter(!station_name %in% rovers_to_drop) |> 
   left_join(dat |> 
               count(Station, name = 'num_insp') |> 
               dplyr::rename(station_name = Station)) |> 
   filter(!is.na(num_insp))
   
-
-
 # Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
 st = st |> 
   mutate(jenks = list(BAMMtools::getJenksBreaks(num_insp, k = 6))) |> 
@@ -399,7 +447,7 @@ my_pal = leaflet::colorFactor(
   reverse = T
 )
 
-map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+map_2_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' Inspections \nby Stations'),
                 type = 'symbol',
@@ -416,7 +464,8 @@ map_2_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
                perceptual = F,
                scale = 1.5,
                title.col = '') +
-    tm_text("map_label", auto.placement = 1, 
+  tm_shape(station_labels[station_labels$station_name %in% stations_sf$station_name,]) +
+    tm_text("map_label", auto.placement = F, 
             size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
@@ -427,6 +476,198 @@ map_2_tmap
 
 if(!interactive()) {
 tmap_save(tm = map_2_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+}
+```
+
+### Map 2.b Total Inspections by Permanent Station
+
+```{r map2b_total_inspections_by_permanent_station}
+
+# Join number of inspections to stations.
+st_ps = st |> 
+  dplyr::filter(station_type != 'Roving Inspection Station') |> 
+  dplyr::select(!contains('jenks'))
+  
+# Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
+st_ps = st_ps |> 
+  mutate(jenks = list(BAMMtools::getJenksBreaks(num_insp, k = 6))) |> 
+  unnest_wider(jenks, names_sep = '_') |> 
+  mutate(num_insp_b = case_when(
+    num_insp <= jenks_2 ~ 1,
+    num_insp <= jenks_3 ~ 2,
+    num_insp <= jenks_4 ~ 3,
+    num_insp <= jenks_5 ~ 4,
+    num_insp <= jenks_6 ~ 5,
+  )) |>
+  mutate(bin_label = case_when(
+    num_insp_b == 1 ~ paste0(jenks_1, ' - ', jenks_2),
+    num_insp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
+    num_insp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
+    num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
+    num_insp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
+  )) |> 
+  arrange(num_insp_b) |> 
+  mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+stations_ps_sf = st_as_sf(st_ps, coords = c("lon","lat"), crs = 4326)
+
+# Make a custom-sized viewing box around stations in BC.
+bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
+                         lat = c(48, 56)) |> 
+  st_as_sf(coords = c("lon","lat"), crs = 4326))
+
+tmap_mode('plot')
+
+my_pal_ps = leaflet::colorFactor(
+  palette = 'Spectral',
+  domain = st_ps$num_insp_b,
+  reverse = T
+)
+
+map_2b_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+    tm_rgb() + 
+  tm_add_legend(title = paste0(my.year,' Inspections \nby Permanent Stations'),
+                type = 'symbol',
+                labels = unique(stations_ps_sf$bin_label),
+                col = my_pal(unique(stations_ps_sf$num_insp_b)),
+                size = log(unique(stations_ps_sf$num_insp_b)+1)) + 
+  tm_shape(bc_bound) +
+    tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(stations_ps_sf) + 
+    tm_symbols(col = "num_insp_b", palette = '-Spectral',
+               size = 'num_insp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               perceptual = F,
+               scale = 1.5,
+               title.col = '') +
+  tm_shape(station_labels[station_labels$station_name %in% stations_ps_sf$station_name,]) +
+    tm_text("map_label", auto.placement = F, 
+            size = 0.75) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('right','top'),
+            scale = 1.25)
+
+map_2b_tmap
+
+if(!interactive()) {
+tmap_save(tm = map_2b_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2b_Total_Inspections_by_Permanent_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+}
+```
+
+### Map 2.c Total Inspections by Roving Station
+
+```{r map2c_total_inspections_by_roving_station}
+# Grab inspection stations shapefile.
+stations_roving = read_sf(paste0(my_opts$remote_spatial_data,
+                          'Projects/ZQMussels/data/inspection_stations.gpkg'))
+
+# Drop stations from leaflet maps that we did not want to keep.
+stations_roving = stations_roving |> 
+  filter(station_type != 'Permanent Inspection Station' | station_name == 'Cutts (Hwy 93)') |> 
+  dplyr::filter(!station_name %in% c('Scheduled Inspection')) |> 
+  dplyr::filter(!stringr::str_detect(station_name, 'Notification')) |> 
+  dplyr::mutate(station_name = ifelse(station_name == 'Keremeos', 'Keremeos (Hwy 3)', station_name))
+
+if(my.year %in% c(2023,2024)){
+  stations_roving = stations_roving |> 
+    dplyr::mutate(map_label = ifelse(map_label == 'Fraser Valley Roving', 
+                                     'Lower Mainland Roving',
+                                     map_label),
+                  station_name = ifelse(station_name == 'Fraser Valley Roving',
+                                        'Lower Mainland Roving',
+                                        station_name))
+}
+
+st_rs = stations_roving |> 
+  left_join(dat |> 
+              count(Station, name = 'num_insp') |> 
+              dplyr::rename(station_name = Station)) |> 
+  filter(!is.na(num_insp))
+  
+# Ugh. Time to make some hand-drawn locations for the labels...
+station_labels_roving = stations_roving |> 
+  sf::st_drop_geometry() |> 
+  dplyr::mutate(lat = lat + 0.25) |> 
+  dplyr::mutate(lat = case_when(
+    map_label == 'Penticton Roving' ~ lat - 0.05,
+    map_label == 'Sumas Border' ~ lat - 0.4,
+    map_label == 'Keremeos' ~ lat - 0.4,
+    T ~ lat)) |> 
+  dplyr::mutate(lon = case_when(
+    map_label == 'Penticton Roving' ~ lon + 0.05,
+    map_label == 'Sumas Border' ~ lon + 0.15,
+    T ~ lon)) |> 
+  sf::st_as_sf(coords = c("lon","lat"),crs=4326)
+
+# Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
+st_rs = st_rs |> 
+  mutate(jenks = list(BAMMtools::getJenksBreaks(num_insp, k = 6))) |> 
+  unnest_wider(jenks, names_sep = '_') |> 
+  mutate(num_insp_b = case_when(
+    num_insp <= jenks_2 ~ 1,
+    num_insp <= jenks_3 ~ 2,
+    num_insp <= jenks_4 ~ 3,
+    num_insp <= jenks_5 ~ 4,
+    num_insp <= jenks_6 ~ 5,
+  )) |>
+  mutate(bin_label = case_when(
+    num_insp_b == 1 ~ paste0(jenks_1, ' - ', jenks_2),
+    num_insp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
+    num_insp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
+    num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
+    num_insp_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
+  )) |> 
+  arrange(num_insp_b) |> 
+  mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+stations_rs_sf = st_as_sf(st_rs, coords = c("lon","lat"), crs = 4326)
+
+# Make a custom-sized viewing box around stations in BC.
+bc_station_view_roving = st_bbox(tibble(lon = c(-126, -114.5),
+                         lat = c(48, 52)) |> 
+  st_as_sf(coords = c("lon","lat"), crs = 4326))
+
+bc_stations_basemap_green_roving = maptiles::get_tiles(x = bc_station_view_roving, provider = 'OpenStreetMap', zoom = 7, crop = T)
+
+tmap_mode('plot')
+
+my_pal_rs = leaflet::colorFactor(
+  palette = 'Spectral',
+  domain = st_rs$num_insp_b,
+  reverse = T
+)
+
+map_2c_tmap = tm_shape(bc_stations_basemap_green_roving, bbox = bc_station_view_roving) +
+    tm_rgb() + 
+  tm_add_legend(title = paste0(my.year,' Inspections \nby Roving Stations'),
+                type = 'symbol',
+                labels = unique(stations_rs_sf$bin_label),
+                col = my_pal(unique(stations_rs_sf$num_insp_b)),
+                size = log(unique(stations_rs_sf$num_insp_b)+1)) + 
+  tm_shape(bc_bound) +
+    tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(stations_rs_sf) + 
+    tm_symbols(col = "num_insp_b", palette = '-Spectral',
+               size = 'num_insp_b',
+               legend.col.show = FALSE,
+               legend.size.show = FALSE,
+               perceptual = F,
+               scale = 1.5,
+               title.col = '') +
+  tm_shape(station_labels_roving[station_labels_roving$station_name %in% stations_rs_sf$station_name,]) +
+    tm_text("map_label", auto.placement = F, 
+            size = 0.75) +
+  tm_scale_bar() + 
+  tm_layout(legend.frame = 'black', 
+            legend.position = c('left','top'),
+            scale = 1.25)
+
+map_2c_tmap
+
+if(!interactive()) {
+tmap_save(tm = map_2c_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2c_Total_Inspections_by_Roving_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -510,6 +751,131 @@ ggsave("Fig3_EncounterFrequency_HR.jpg",p3)
 }
 ```
 
+### Figure 3.b Encounter Frequency by Permanent Station
+
+```{r fig3_total_boats_by_permanent_station}
+fig3b_data = dat |> 
+  dplyr::filter(Station %in% permanent.stations) |> 
+  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
+         shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
+  group_by(Station,Shift_ID) |> 
+  reframe(NumberInsp = n(),
+            shift_hours = shift_end_time - shift_start_time) |>
+  # If we get some negative values for shift hours, just make those 0...
+  dplyr::mutate(shift_hours = ifelse(shift_hours < 0, 0, shift_hours)) |> 
+  distinct() |> 
+  group_by(Station) |> 
+  reframe(NumberInsp = sum(NumberInsp),
+          effort_hours = sum(shift_hours)) |> 
+  mutate(effort_hours = as.numeric(effort_hours/3600)) |> 
+  mutate(encounter_freq = NumberInsp / effort_hours) |> 
+  left_join(dat_hr |> 
+              filter(Year == my.year) |> 
+              group_by(Station) |> 
+              summarise(NumberHighRiskInsp = n())
+  ) |> 
+  #For any stations with 0 HR inspections, replace NA with 0.
+  mutate(NumberHighRiskInsp = replace_na(NumberHighRiskInsp, 0)) |> 
+  mutate(PercentHR = 100*NumberHighRiskInsp/NumberInsp) |> 
+  arrange(desc(NumberInsp)) |> 
+  mutate(Station = factor(Station)) |> 
+  mutate(Station = fct_inorder(Station)) |> 
+  left_join(station_types) |> 
+  mutate(StationLabel = ifelse(StationType == "Roving", paste0(Station,"*"),Station)) |> 
+  mutate(StationLabel = fct_inorder(StationLabel)) |> 
+  mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
+  mutate(col.width = replace(col.width, col.width == 3, 4))
+
+# The code below creates a double-Y-axis figure with encounter frequency (watercraft encounters divided by effort)
+# on the left Y axis.
+
+p3_b = fig3b_data |>
+  ggplot() +
+  geom_col(aes(x=StationLabel, y=encounter_freq), fill = my.grey, width = 0.40) +
+  geom_line(aes(x=StationLabel,y=PercentHR,group=1),col="red",linewidth=2) +
+   scale_y_continuous(#breaks = seq(0,10,2),
+                      #labels = paste0("10^",seq(0,10,2)),
+     # labels = number_format(suffix = "k"),
+                        sec.axis = sec_axis(~., name = "% High Risk",
+                                            breaks = seq(0,14,2))) +
+  theme_classic() +
+  labs(x = "", y = "Encounter Frequency \n(Inspections per Hour of Effort)") +
+  scale_fill_brewer(palette = "Dark2") +
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1),
+        axis.text.y.right = element_text(colour = "red"),
+        axis.title.y.right = element_text(colour = "red"),
+        panel.grid.major.y = element_line(linetype = 2, colour = "darkgrey"))
+
+p3_b
+
+if(!interactive()) {
+ggsave("Fig3b_EncounterFrequency_HR_PermanentStations.jpg",p3_b)
+}
+```
+
+### Figure 3.c Encounter Frequency by Roving Station
+
+```{r fig3_total_boats_by_roving_station}
+fig3c_data = dat |> 
+  dplyr::filter(!Station %in% permanent.stations) |> 
+  dplyr::filter(!Station %in% rovers_to_drop) |> 
+  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
+         shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
+  group_by(Station,Shift_ID) |> 
+  reframe(NumberInsp = n(),
+            shift_hours = shift_end_time - shift_start_time) |>
+  # If we get some negative values for shift hours, just make those 0...
+  dplyr::mutate(shift_hours = ifelse(shift_hours < 0, 0, shift_hours)) |> 
+  distinct() |> 
+  group_by(Station) |> 
+  reframe(NumberInsp = sum(NumberInsp),
+          effort_hours = sum(shift_hours)) |> 
+  mutate(effort_hours = as.numeric(effort_hours/3600)) |> 
+  mutate(encounter_freq = NumberInsp / effort_hours) |> 
+  left_join(dat_hr |> 
+              filter(Year == my.year) |> 
+              group_by(Station) |> 
+              summarise(NumberHighRiskInsp = n())
+  ) |> 
+  #For any stations with 0 HR inspections, replace NA with 0.
+  mutate(NumberHighRiskInsp = replace_na(NumberHighRiskInsp, 0)) |> 
+  mutate(PercentHR = 100*NumberHighRiskInsp/NumberInsp) |> 
+  arrange(desc(NumberInsp)) |> 
+  mutate(Station = factor(Station)) |> 
+  mutate(Station = fct_inorder(Station)) |> 
+  left_join(station_types) |> 
+  mutate(StationLabel = ifelse(StationType == "Roving", paste0(Station,"*"),Station)) |> 
+  mutate(StationLabel = fct_inorder(StationLabel)) |> 
+  mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
+  mutate(col.width = replace(col.width, col.width == 3, 4))
+
+# The code below creates a double-Y-axis figure with encounter frequency (watercraft encounters divided by effort)
+# on the left Y axis.
+
+p3_c = fig3c_data |>
+  ggplot() +
+  geom_col(aes(x=StationLabel, y=encounter_freq), fill = my.grey, width = 0.40) +
+  geom_line(aes(x=StationLabel,y=PercentHR,group=1),col="red",linewidth=2) +
+   scale_y_continuous(#breaks = seq(0,10,2),
+                      #labels = paste0("10^",seq(0,10,2)),
+     # labels = number_format(suffix = "k"),
+                        sec.axis = sec_axis(~., name = "% High Risk",
+                                            breaks = seq(0,14,2))) +
+  theme_classic() +
+  labs(x = "", y = "Encounter Frequency \n(Inspections per Hour of Effort)") +
+  scale_fill_brewer(palette = "Dark2") +
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1),
+        axis.text.y.right = element_text(colour = "red"),
+        axis.title.y.right = element_text(colour = "red"),
+        panel.grid.major.y = element_line(linetype = 2, colour = "darkgrey"))
+
+p3_c
+
+if(!interactive()) {
+ggsave("Fig3b_EncounterFrequency_HR_RovingStations.jpg",p3_c)
+}
+```
+
 ### Figure 3.x Total Inspections by Station
 
 ```{r}
@@ -545,7 +911,77 @@ if(interactive()){
 }
 
 if(!interactive()) {
-ggsave("Fig3x_TotalInspections_2020_to_2022_All_Stations.jpg",p3.x)
+ggsave(paste0("Fig3x_TotalInspections_",my.year-2,"_to_",my.year,"_All_Stations.jpg"),p3.x)
+}
+```
+
+### Figure 3.x_b Total Inspections by Permanent Station
+
+```{r}
+p3.x_b = dat_all |> 
+  filter(Year %in% c((my.year-2):my.year)) |> 
+  filter(Station %in% permanent.stations) |> 
+  group_by(Year, Station) |> 
+  summarise(NumberInsp = n()) |> 
+  group_by(Station) |> 
+  mutate(TotalInsp = sum(NumberInsp)) |> 
+  ungroup() |> 
+  arrange(desc(TotalInsp),desc(NumberInsp)) |> 
+  mutate(Station = fct_inorder(Station)) |> 
+  dplyr::mutate(Year = as.character(Year)) |> 
+  ggplot() + 
+  geom_col(aes(x=Station,y=NumberInsp,fill=Year), width = 0.40,position=position_dodge(preserve = "single")) +
+  scale_y_continuous(name = "Number of Inspections",
+                     breaks = c(0,1000,2500,5000,7500,10000,15000)) +
+  theme_classic() +
+  labs(x = "") +
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
+  scale_fill_brewer(palette = "Dark2")
+
+p3.x_b
+
+if(interactive()){
+  dat |> 
+    count(Station)
+}
+
+if(!interactive()) {
+ggsave(paste0("Fig3x_b_TotalInspections_",my.year-2,"_to_",my.year,"_Permanent_Stations.jpg"),p3.x_b)
+}
+```
+
+### Figure 3.x_c Total Inspections by Roving Station
+
+```{r}
+p3.x_c = dat_all |> 
+  filter(Year %in% c((my.year-2):my.year)) |> 
+  dplyr::filter(Station %in% roving.stations) |> 
+  group_by(Year, Station) |> 
+  summarise(NumberInsp = n()) |> 
+  group_by(Station) |> 
+  mutate(TotalInsp = sum(NumberInsp)) |> 
+  ungroup() |> 
+  arrange(desc(TotalInsp),desc(NumberInsp)) |> 
+  mutate(Station = fct_inorder(Station)) |> 
+  dplyr::mutate(Year = as.character(Year)) |> 
+  ggplot() + 
+  geom_col(aes(x=Station,y=NumberInsp,fill=Year), width = 0.40,position=position_dodge(preserve = "single")) +
+  scale_y_continuous(name = "Number of Inspections",
+                     breaks = c(0,1000,2500,5000,7500,10000,15000)) +
+  theme_classic() +
+  labs(x = "") +
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
+  scale_fill_brewer(palette = "Dark2")
+
+p3.x_c
+
+if(interactive()){
+  dat |> 
+    count(Station)
+}
+
+if(!interactive()) {
+ggsave(paste0("Fig3x_c_TotalInspections_",my.year-2,"_to_",my.year,"_Roving_Stations.jpg"),p3.x_c)
 }
 ```
 
@@ -890,7 +1326,7 @@ p11 = dat |>
   slice(1:15) |> 
   mutate(Destination_Waterbody_1_Name = as.factor(Destination_Waterbody_1_Name)) |>
   ggplot() + 
-  geom_col(aes(x=Destination_Waterbody_1_Name,
+  geom_col(aes(x=reorder(Destination_Waterbody_1_Name,-Percent),
                y=Percent),fill = my.grey, width = 0.40) +
   geom_text(aes(x=Destination_Waterbody_1_Name,
                 y=Percent+max(Percent)*0.05,
@@ -1129,7 +1565,8 @@ paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized
 ### Figure 13 Noncompliant Watercraft Breakdown
 ```{r fig13_noncompliant_breakdown}
 p13 = dat |> 
-  filter(!Station %in% c(rovers_to_drop,"Osoyoos","Sumas Border")) |> 
+  filter(!Station %in% c(rovers_to_drop)) |> 
+  # filter(!Station %in% c(rovers_to_drop,"Osoyoos","Sumas Border")) |> 
   group_by(Station,Shift_ID) |> 
   mutate(nonm = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
   select(Station,Shift_ID,nonm) |> 
@@ -1149,6 +1586,7 @@ p13 = dat |>
   summarise(`Non-Motorized` = 100*nonm/Total_Blowbys,
             Motorized = 100*m/Total_Blowbys) |> 
   arrange(desc(`Non-Motorized`)) |> 
+  dplyr::filter(!is.nan(Motorized)) |> 
   #mutate(Station = factor(Station, levels = .$Station)) |> 
   pivot_longer(cols = -Station) |>
   arrange(desc(value),Station) |> 
@@ -1190,7 +1628,7 @@ p14_dat = dat |>
   left_join(dat |> 
               filter(!Station %in% c("Scheduled Inspection",
                          "Okanagan",
-                         "Other", "Penticton Roving")) |> 
+                         "Other")) |> 
               filter(Previous_Inspection_Ind == T) |> 
               group_by(Station) |> 
               summarise(PrevInspected = n())
@@ -1199,7 +1637,8 @@ p14_dat = dat |>
   arrange(desc(PercPrevInsp)) |> 
   left_join(station_types) |> 
   mutate(StationLabel = ifelse(StationType == "Roving",paste0(Station,"*"),Station)) |> 
-  mutate(StationLabel = fct_inorder(StationLabel))
+  mutate(StationLabel = fct_inorder(StationLabel)) |> 
+  dplyr::filter(!is.na(PercPrevInsp))
   
 max_perc_plus_buffer = 10*ceiling(max(p14_dat$PercPrevInsp)*1.3 / 10)
 
@@ -1403,10 +1842,24 @@ stations_sf = st_as_sf(st, coords = c("lon","lat"), crs = 4326)
 # If interactive, show number of high-risk inspections by station as table.
 # if(interactive()){
 print("High-risk inspections by Station")
-  stations_sf |> st_drop_geometry() |> dplyr::select(station_name, num_insp) |> 
-    arrange(desc(num_insp)) |> 
-    knitr::kable()
+  
+stations_sf |> st_drop_geometry() |> dplyr::select(station_name, num_insp) |> 
+  arrange(desc(num_insp)) |> 
+  knitr::kable()
 # }
+
+station_labels = st |> 
+  sf::st_drop_geometry() |> 
+  dplyr::mutate(lat = lat + 0.25) |> 
+  dplyr::mutate(lat = case_when(
+    map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
+    map_label == 'Penticton Roving' ~ lat - 0.1,
+    T ~ lat)) |> 
+  dplyr::mutate(lon = case_when(
+    map_label == 'Lower Mainland Roving' ~ lon - 1,
+    map_label == 'Penticton Roving' ~ lon + 1,
+    T ~ lon)) |> 
+  sf::st_as_sf(coords = c("lon","lat"),crs=4326)
 
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
@@ -1414,7 +1867,7 @@ my_pal = leaflet::colorFactor(
   reverse = T
 )
 
-map_4_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+map_4_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' High Risk \nInspections'),
                 type = 'symbol',
@@ -1588,7 +2041,7 @@ ggsave("Fig18_Inspection_Source_Pie_Charts.jpg",p18)
 }
 ```
 
-### Figure 19 Destination Locations of High-Risk Inspections
+### Figure 19 Destination Regions of High-Risk Inspections
 
 ```{r fig19_pie_chart_destination_locations_HR_Insp}
 #Quick aside - Martina wants to know how many of the HR inspections that have "Unknown" recorded in the DestRegion field also have the Source_wb_prov_unknown field toggled as T.
@@ -1659,16 +2112,30 @@ fig19_dat = dat_hr |>
          is.na(REGION_N) & str_detect(DestRegion, '(Lake|River)') ~ 'Outside BC',
          T ~ REGION_N)) |> 
   group_by(REGION_N) |> 
-  summarise(prop = sum(PercBoatsFromPlace))
+  summarise(prop = sum(PercBoatsFromPlace)) |> 
+  dplyr::mutate(REGION_N = ifelse(REGION_N == 'No Match', 'Unknown', REGION_N)) |> 
+  dplyr::group_by(REGION_N) |> 
+  dplyr::summarise(prop = sum(prop))
 
-fig19_main_dat = fig19_dat |> 
-  filter(prop > 2) |> 
-  bind_rows(fig19_dat |> 
-              filter(prop <= 2) |> 
-              summarise(prop = sum(prop)) |> 
-              mutate(REGION_N = "Other")) |> 
-  arrange(desc(REGION_N)) |> 
-  mutate(lab.ypos = cumsum(prop) - 0.5*prop)
+# Quick test - how many regions fall into the 'Other' category?
+# If it's 2 or less, just keep a single figure.
+count_for_other_pie = nrow(fig19_dat |> 
+  filter(prop <= 2))
+
+if(count_for_other_pie > 2){
+  fig19_main_dat = fig19_dat |> 
+    filter(prop > 2) |> 
+    bind_rows(fig19_dat |> 
+                filter(prop <= 2) |> 
+                summarise(prop = sum(prop)) |> 
+                mutate(REGION_N = "Other")) |> 
+    arrange(desc(REGION_N)) |> 
+    mutate(lab.ypos = cumsum(prop) - 0.5*prop)
+} else {
+  fig19_main_dat = fig19_dat |> 
+    arrange(desc(REGION_N)) |> 
+    mutate(lab.ypos = cumsum(prop) - 0.5*prop)
+}
 
 #Make colour palette that has 9 colours!
 dark_pal_9 = brewer.pal(9, name = "Dark2") |> str_replace("#666666","#d63735")
@@ -1708,6 +2175,7 @@ scale_fill_darkpal9 <- function(palette = "main", discrete = TRUE, reverse = FAL
   }
 }
 
+if(count_for_other_pie > 2){
 p19 = ggarrange(
   ggplot(fig19_main_dat,
        aes(x = "", y = prop, 
@@ -1736,12 +2204,29 @@ p19 = ggarrange(
   scale_fill_brewer(palette = "Dark2") + 
   labs(fill = "Destination Region"),
   nrow = 1, ncol = 2)
+} else {
+  p19 = ggplot(fig19_main_dat,
+       aes(x = "", y = prop, 
+           fill = REGION_N)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  coord_polar("y", start = 0)+
+  geom_text_repel(aes(y = lab.ypos, x = 1, label = paste0(REGION_N,"\n",round(prop,1),"%")), color = "black",nudge_x=0.7,force=20)+
+  theme_void() + 
+  theme(legend.position = "none") +
+  ggtitle("Destination Regions") +
+  scale_fill_darkpal9() + 
+  labs(fill = "Destination Region")
+}
 
 p19
 
 if(!interactive()) {
-ggsave("Fig19_Highrisk_Destination_Regions_Pie_Charts.jpg",p19)
+  ggsave("Fig19_Highrisk_Destination_Regions_Pie_Charts.jpg",p19,height=5)
 }
+
+# getwd()
+
+# ggsave("02_IMDP_Figure_Generator/output/Fig19_Highrisk_Destination_Regions_Pie_Charts.jpg",p19)
 ```
 
 ### Map 5. Home Residence Frequency of High-risk Inspections
@@ -1846,7 +2331,7 @@ dest_wb_hr = dest_wb |>
 
 # We're going to lose the geometry of this table in the next step.
 # Save it to be reattached later!
-dest_wb_hr$geom
+# dest_wb_hr$geom
 
 # Get 5 levels of natural breaks ('jenks'); colour of waterbodies depends on these bins.
 dest_wb_hr = dest_wb_hr |> 
@@ -1866,7 +2351,6 @@ dest_wb_hr = dest_wb_hr |>
     HighRisk_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     HighRisk_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) |> 
-  # mutate(HighRisk_b = factor(HighRisk_b, levels = c(1:5))) |> 
   arrange(HighRisk_b)
 
 my_pal = leaflet::colorFactor(
@@ -1880,36 +2364,74 @@ labels = unique(dest_wb_hr$bin_label)
 dest_wb_hr = st_set_geometry(dest_wb_hr, dest_wb_hr$geom)
 
 # Remove labels for all waterbodies below a 'yellow' level of HR inspections.
-dest_wb_hr = dest_wb_hr |> 
-  mutate(GNIS_NA = ifelse(as.numeric(HighRisk_b) < 3, NA, GNIS_NA))
+dest_wb_hr = dest_wb_hr |>
+  mutate(GNIS_NA_label = ifelse(as.numeric(HighRisk_b) < 3, NA, GNIS_NA))
 
 # Buffer the destination waterbodies a bit.
 dest_wb_hr = st_buffer(dest_wb_hr, 500)
 
-# # Get basemap for all of BC.
-# bc_bbox = st_bbox(bc_bound)
-# # Expand the eastern border a bit more into Alberta.
-# bc_bbox[[3]] = -110
-# 
-# all_bc_basemap = maptiles::get_tiles(x = bc_bbox, provider = 'OpenStreetMap', zoom = 6, crop = F)
+# Add in counts for each of the bins.
+# bin_label_w_count = dest_wb_hr |> 
+#   sf::st_drop_geometry() |> 
+#   dplyr::count(bin_label) |> 
+#   dplyr::mutate(bin_label_w_count = paste0(bin_label, " (",n,")")) |> 
+#   dplyr::select(-n)
 
-map_6_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+# dest_wb_hr = dest_wb_hr |> 
+#   dplyr::left_join(bin_label_w_count)
+
+# Which bins are composed of a single lake?
+single_member_bins = dest_wb_hr |> 
+  sf::st_drop_geometry() |> 
+  dplyr::count(bin_label) |> 
+  dplyr::filter(n == 1) |> 
+  dplyr::pull(bin_label)
+
+# Add word 'watercraft' to bin labels
+
+dest_wb_hr = dest_wb_hr |> 
+  dplyr::mutate(bin_label_precise = case_when(
+    bin_label %in% single_member_bins ~ as.character(highrisk_Counter),
+    T ~ bin_label
+  )) |> 
+  dplyr::mutate(bin_label_precise = paste0(bin_label_precise,' watercraft'))
+
+# Calculate the centroid for each waterbody, add a dot there.
+dest_wb_hr_centr = sf::st_centroid(dest_wb_hr)
+
+# Make palette
+Breaks <- unique(c(dest_wb_hr$jenks_1,dest_wb_hr$jenks_2,dest_wb_hr$jenks_3,dest_wb_hr$jenks_4,dest_wb_hr$jenks_5))
+Labels <- unique(dest_wb_hr$bin_label_precise)
+MyPalette <- c("#4e92e6", "#26e0ce","gold","orange","darkred")
+
+bc_station_view_pushed_north = bc_station_view
+bc_station_view_pushed_north[4] = 57
+
+map_6_tmap = tm_shape(bc_stations_basemap_white, 
+                      bbox = bc_station_view_pushed_north
+                      # bbox = st_bbox(dest_wb_hr)
+                      ) +
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' High Risk\nDestination Waterbodies')) +
   tm_shape(bc_bound) + 
     tm_borders(col = 'grey', lwd = 2) +
+  tm_shape(dest_wb_hr_centr) + 
+    tm_dots(col = "bin_label", 
+            palette = MyPalette,
+            legend.show = F,
+            size = 0.25) +
   tm_shape(dest_wb_hr) +
-    tm_fill(col = "bin_label", 
-            palette = '-RdYlGn',
+    tm_fill(col = "bin_label_precise", 
+            palette = MyPalette,
             title = '',
             legend.col.show = T,
             title.col = '') +
-  tm_text("GNIS_NA", 
+  tm_text("GNIS_NA_label", 
           col = 'black',
           auto.placement = F, 
           overwrite.lines = T,
-          just = 'right',
-            size = 0.5) +
+          just = 'top',
+            size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
             legend.position = c('right','top'),
@@ -1920,6 +2442,8 @@ map_6_tmap
 if(!interactive()) {
 tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
 }
+
+tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 22 Pie Chart of Total Watercraft Types
@@ -2454,6 +2978,10 @@ if(my.year == 2023){
   lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/BC Veliger Sampling Inventory 2023_11-20_Final Report.xlsx'))
 }
 
+lab_dat =  lab_dat |> 
+  dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, " \\(.*")) |> 
+  dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, "\\,.*"))
+
 lab_sf = lab_dat |> 
   dplyr::rename(
     lat = `Lat (Decimal degrees)`,
@@ -2526,7 +3054,7 @@ sampling_pal = leaflet::colorFactor(
 lab_sf = lab_sf |> 
   mutate(my_colors = sampling_pal(`sampling group/agency`))
 
-map_9_tmap = tm_shape(bc_stations_basemap, bbox = bc_station_view) +
+map_9_tmap = tm_shape(bc_stations_basemap_white, bbox = bc_station_view) +
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' Invasive \nMussel Lake Monitoring'),
                 type = 'symbol',
