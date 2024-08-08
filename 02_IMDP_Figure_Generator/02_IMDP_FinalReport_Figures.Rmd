@@ -34,7 +34,7 @@ my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMusse
 my.year = 2023
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
-update.gis = TRUE
+update.gis = FALSE
 
 # Are there any station names we want to change / correct?
 stations.to.change = data.frame(
@@ -199,6 +199,7 @@ rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
 if(my.year == 2023){
   rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
                                 "Lower Mainland Roving","Pacific",
+                                "Sumas Border",
                                 "Penticton Roving","Cutts (Hwy 93)"),
                     StationType = "Roving")
 }
@@ -223,6 +224,16 @@ if(my.year == 2023){
                      "Scheduled Inspection (Other Notification)",
                      "Scheduled Inspection (Cbsa Notification)")
 }
+```
+
+```{r}
+# Apply corrections to some of the Lower Mainland or Penticton Roving station names, using information that was places in the shift start comment field.
+dat = dat |> 
+  mutate(Station = case_when(
+    str_detect(Shift_Start_Comment,"[s,S]cheduled") ~ 'Scheduled Inspection (Other Notification)',
+    str_detect(Station, "Roving$") & str_detect(Shift_Start_Comment,'97') ~ 'Hwy 97c',
+    T ~ Station
+  ))
 ```
 
 ```{r numbers_for_exec_summary}
@@ -1150,6 +1161,8 @@ ggsave("Fig7_NumberInspections_and_TotalEffort_day.jpg",p7)
 #This one requires grouping the data by the week number in the year (i.e. 1,2, 3 ... up to 54) and the day of the week to first calculate the standard error within each day of the week (which is the eventual grouping factor for the figure), then summarise by day of the week the calculate mean frequency.
 
 p8 = dat |> 
+  # Drop scheduled inspections?
+  filter(!str_detect(Station,"Scheduled")) |> 
   # Replace anything less than 1 hour for shift duration with a 1
   mutate(Shift_hours = ifelse(Shift_hours < 1, 1, Shift_hours)) |> 
   mutate(the.day = wday(TimeOfInspection,
@@ -1436,11 +1449,59 @@ tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width
 }
 ```
 
+### Optional Figure: Total and High-risk Inspections at Boat Launches
+
+```{r}
+boatlaunch_dat = dat |> 
+  filter(Station %in% c("Penticton Roving","Lower Mainland Roving")) |> 
+  filter(str_detect(Shift_Start_Comment,'(lake|Lake|boat l|Boat L)')) |> 
+  mutate(likely_lake = str_extract(Shift_Start_Comment,"[a-zA-Z]+(?= ((l|L)ake|(b|B)ay))")) |> 
+  # dplyr::select(Station,TimeOfInspection,High_Risk_AIS_Ind,Shift_Start_Comment,likely_lake) |> 
+  mutate(likely_lake = str_to_title(likely_lake)) |> 
+  mutate(likely_lake = case_when(
+    str_detect(Shift_Start_Comment,"summer land") ~ "Summerland",
+    str_detect(Shift_Start_Comment,"Island 22") ~ "Island 22",
+    str_detect(likely_lake,"(Kekuli|Kakuli)") ~ "Kekuli Bay",
+    T ~ likely_lake
+  )) 
+
+boatlaunch_dat_count = boatlaunch_dat |> 
+  dplyr::select(Station,TimeOfInspection,High_Risk_AIS_Ind,Shift_Start_Comment,likely_lake) |> 
+  count(Station,High_Risk_AIS_Ind,likely_lake) |> 
+  mutate(likely_lake = replace_na(likely_lake, 'Unknown Location')) |> 
+  arrange(desc(n)) |> 
+  mutate(likely_lake = as.factor(likely_lake)) |> 
+  mutate(likely_lake = forcats::fct_inorder(likely_lake))
+
+ggplot(boatlaunch_dat_count) + 
+  geom_col(aes(x = likely_lake, y = n, fill = Station, group = High_Risk_AIS_Ind, col = High_Risk_AIS_Ind), position = position_dodge()) + 
+  scale_color_manual(values = c("FALSE" = "transparent", "TRUE" = "red")) +
+  scale_fill_brewer(palette = 'Set2') +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) + 
+  labs(x = "Roving Inspection at Boat Launch", y = "Number of Inspections",
+       fill = 'Roving Station',
+       color = 'High Risk Inspection')
+```
+
+### Brief Aside: Breakdown of High-risk / Low-risk for Scheduled Inspections
+```{r}
+# Look at 'scheduled inspection' records
+dat |> 
+  filter(str_detect(Station,"^Scheduled")) |> 
+  count(Station,High_Risk_AIS_Ind, name = 'Number of Inspections') |> 
+  knitr::kable()
+
+
+### ADJUST THIS TO ALSO LOOK IN THE COMMENT FIELD FOR 'SCHEDULED' ETC.
+```
+
 ### Figure 12 Percent Compliance by station
 
 ```{r fig12_percent_compliance_by_station}
 p12 = dat |> 
   filter(!Station %in% rovers_to_drop) |> 
+  filter(!Station %in% c("Lower Mainland Roving","Penticton Roving")) |> 
   group_by(Station,Shift_ID) |> 
   summarise(NumberInsp = n()) |> 
   #Add number of non-motorized blow-bys per unique station / shift combo.
@@ -1564,19 +1625,43 @@ paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized
 
 ### Figure 13 Noncompliant Watercraft Breakdown
 ```{r fig13_noncompliant_breakdown}
-p13 = dat |> 
+# Make a version of our dataset that adopts temporary changes to 
+# station names based on shift start comments; if they mention 
+# a boat launch / lake name, change the station to 'Boat Launch'
+dat_bl = dat |> 
+  mutate(Station = ifelse(str_detect(Shift_Start_Comment,'(lake|Lake|boat l|Boat L)'),'Boat Launch',Station))
+
+dat_bl |> 
+  filter(str_detect(Station, "Scheduled") | Station %in% c("Lower Mainland Roving","Penticton Roving","Boat Launch")) |>
+  select(Shift_ID,
+         Station,
+         Motorized_Blow_Bys_Counter,
+         Non_Motorized_Blow_Bys_Counter) |> 
+  distinct() |> 
+  group_by(Station) |> 
+  dplyr::summarise(
+    nonmotorized_blowbys = sum(as.numeric(Non_Motorized_Blow_Bys_Counter)),
+    motorized_blowbys = sum(as.numeric(Motorized_Blow_Bys_Counter)),
+    number_rows = n()) |> 
+  ungroup() |> 
+  
+  mutate(Station = paste0(Station, " (N = ",number_rows,")")) |> 
+  knitr::kable()
+
+p13 = dat_bl |> 
   filter(!Station %in% c(rovers_to_drop)) |> 
-  # filter(!Station %in% c(rovers_to_drop,"Osoyoos","Sumas Border")) |> 
+  filter(!str_detect(Station, "Roving$")) |>
   group_by(Station,Shift_ID) |> 
   mutate(nonm = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
   select(Station,Shift_ID,nonm) |> 
   distinct() |> 
   #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(dat |> 
+  left_join(dat_bl |> 
               group_by(Station,Shift_ID) |> 
               mutate(m = as.numeric(Motorized_Blow_Bys_Counter)) |> 
               select(Station,Shift_ID,m) |> 
-              distinct()) |> 
+              distinct() |> 
+              ungroup()) |> 
   mutate(Total_Blowbys = nonm + m) |> 
   group_by(Station) |> 
   summarise(Total_Blowbys = sum(Total_Blowbys),
@@ -1608,7 +1693,7 @@ p13 = dat |>
   scale_y_continuous(breaks = seq(0,100,10), labels = paste0(seq(0,100,10),"%")) +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
 
-p13 
+p13
 
 if(!interactive()) {
 ggsave("Fig13_Percent_Blowbys_Station.jpg",p13)
@@ -2182,7 +2267,7 @@ p19 = ggarrange(
            fill = REGION_N)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x = 1, label = paste0(REGION_N,"\n",round(prop,1),"%")), color = "black",nudge_x=0.7,force=20)+
+  geom_text_repel(aes(y = lab.ypos, x = 1, label = paste0(REGION_N,"\n",round(prop,1),"%")), color = "black", nudge_x= 1)+
   theme_void() + 
   theme(legend.position = "none") +
   ggtitle("Main Destination Regions") +
@@ -2210,7 +2295,7 @@ p19 = ggarrange(
            fill = REGION_N)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x = 1, label = paste0(REGION_N,"\n",round(prop,1),"%")), color = "black",nudge_x=0.7,force=20)+
+  geom_text_repel(aes(y = lab.ypos, x = 1, label = paste0(REGION_N,"\n",round(prop,1),"%")), color = "black",nudge_x=1,force=1)+
   theme_void() + 
   theme(legend.position = "none") +
   ggtitle("Destination Regions") +
@@ -2322,7 +2407,7 @@ tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jp
 ### Map 6. Destination locations of High Risk Inspections
 
 ```{r dest_location_high_risk_inspections}
-dest_wb = read_sf(paste0('W:/CMadsen/Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.gpkg')) |> 
+dest_wb = read_sf(paste0('W:/CMadsen/Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Waterbodies_with_Inspection_Data_Summaries_',my.year,'.gpkg')) |> 
   st_transform(crs = 4326)
 
 dest_wb_hr = dest_wb |> 
@@ -2333,7 +2418,7 @@ dest_wb_hr = dest_wb |>
 # Save it to be reattached later!
 # dest_wb_hr$geom
 
-# Get 5 levels of natural breaks ('jenks'); colour of waterbodies depends on these bins.
+# Get 5 (or fewer, if data demands) levels of natural breaks ('jenks'); colour of waterbodies depends on these bins.
 dest_wb_hr = dest_wb_hr |> 
   mutate(jenks = list(BAMMtools::getJenksBreaks(HighRisk, k = 6))) |> 
   unnest_wider(jenks, names_sep = '_') |> 
@@ -2469,7 +2554,7 @@ p22 = dat |>
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
   geom_text_repel(aes(y = lab.ypos, x = 1.49,
-                      label = paste0(name,"\n",round(PercBoats,0),"%")), 
+                      label = paste0(name,"\n",round(PercBoats,1),"%")), 
             color = "black",nudge_x=0.7)+
   theme_void() + 
   scale_fill_brewer(palette = "Dark2") + 
@@ -2506,7 +2591,7 @@ p23 = dat_hr |>
            fill = name)) +
   geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
-  geom_text_repel(aes(y = lab.ypos, x=1.49, label = paste0(name,"\n",round(PercBoats,0),"%")), 
+  geom_text_repel(aes(y = lab.ypos, x=1.49, label = paste0(name,"\n",round(PercBoats,1),"%")), 
             color = "black",nudge_x=0.7)+
   theme_void() + 
   scale_fill_brewer(palette = "Dark2") + 

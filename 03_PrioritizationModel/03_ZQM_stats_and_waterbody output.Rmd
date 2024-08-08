@@ -25,7 +25,8 @@ setwd(here::here())
 
 my_opts = read_csv("Options.csv")
 
-my.year = my_opts$year
+# my.year = my_opts$year
+my.year = 2023
 
 knitr::opts_chunk$set(
 	echo = FALSE,
@@ -61,7 +62,7 @@ dams = dams |>
   st_as_sf(coords = c('lng','lat'), crs = 4326) |> 
   st_transform(crs = 3005)
 
-sar = sf::read_sf(paste0(my_opts$base_dir,'../species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available.gpkg')) |> 
+sar = sf::read_sf('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available_no_insects.gpkg') |> 
   sf::st_transform(3005)
 
 # # Calculate sar by subwatershed.
@@ -1161,13 +1162,25 @@ ggplot() +
 
 ```{r write_out_to_disk}
 #And write these guys out to disk.
-if(!dir.exists(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my_opts$year," IMDP Final Report/data/spatial"))) { 
-  dir.create(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my_opts$year," IMDP Final Report/data/spatial"), recursive = T)
+if(!dir.exists(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial"))) { 
+  dir.create(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial"), recursive = T)
 }
 
 write_sf(waterb_risk %>% 
            filter(InvasionRisk != "Unknown"),
-         paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my_opts$year," IMDP Final Report/data/spatial/waterbodies_zqm_ALL_risk_estimates.gpkg"))
+         paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/waterbodies_zqm_ALL_risk_estimates.gpkg"))
+
+# And write out the table that lists all of the unbinned versions too.
+waterb_with_all_vars = waterb_risk |> 
+  # dplyr::select(WATERSH,WATERBO,GNIS_NA) |> 
+  dplyr::left_join(
+  waterb_og_values |> 
+    sf::st_drop_geometry()
+  )
+
+
+write_sf(waterb_with_all_vars,
+         paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.gpkg"))
 ```
 
 ```{r save_data_files_as_Rdata}
