@@ -25,4 +25,19 @@ d_sorted |>
   geom_histogram(aes(Categories), stat = 'count')
 
 openxlsx::write.xlsx(d_sorted,
-                     "04_Extra_Figures_and_Scripts/output/2024_CBSA_sorting_results.xlsx")
+                     "04_Extra_Figures_and_Scripts/output/2023_CBSA_sorting_results.xlsx")
+
+# Part 2! Martina's asked for a little count summary.
+
+d = readxl::read_excel("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2023/GIS Maps and Excel Figures/2023_CBSA_sorting_results_MB.xlsx")
+
+d |> 
+  mutate(for_count = case_when(
+    Categories == 'public' ~ 'public',
+    str_detect(Categories,'^CBSA') ~ 'CBSA',
+    Categories == 'IMDP partner' ~ 'IMDP partner',
+    Categories %in% c("Alberta","Saskatchewan","Idaho","Montana") ~ 'State_or_Prov',
+    Categories == 'New boat shipment' ~ 'New boat shipment',
+    T ~ NA
+  )) |> 
+  count(for_count, sort = T)
