@@ -25,8 +25,8 @@ setwd(here::here())
 
 my_opts = read_csv("Options.csv")
 
-# my.year = my_opts$year
-my.year = 2023
+my.year = my_opts$year
+# my.year = 2023
 
 knitr::opts_chunk$set(
 	echo = FALSE,
@@ -198,9 +198,9 @@ waterb = waterb %>%
   ungroup() %>% 
   mutate(Lowrisk_mot = LowRisk_Complex_Counter + LowRisk_Simple_Counter + LowRisk_Very_Complex_Counter,
          HR_mot = HR_Simple_Counter + HR_Complex_Counter + HR_Very_Complex_Counter) %>% 
-  rename(Lowrisk_nonmot = LowRisk_Non_Motorized_Counter,
-         HR_nonmot = HR_Non_Motorized_Counter,
-         TotalInspections = TotalInspections)
+  rename(Lowrisk_nonmot = LowRisk_Non_Motorized_Counter)#,
+         # HR_nonmot = HR_Non_Motorized_Counter,
+         # TotalInspections = TotalInspections)
 ```
 
 ```{r pivot_data_long_and_bin}

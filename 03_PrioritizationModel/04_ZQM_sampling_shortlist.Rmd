@@ -34,7 +34,7 @@ knitr::opts_chunk$set(
 	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
 )
 
-update_remote_output_files = F
+update_remote_output_files = T
 
 if(interactive()){
   source('03_PrioritizationModel/utility_functions.R')
