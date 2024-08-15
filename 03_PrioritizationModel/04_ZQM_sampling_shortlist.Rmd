@@ -13,6 +13,9 @@ df_print: kable
 library(readxl)
 library(raster)
 library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
 library(sf)
 library(leaflet)
 library(BAMMtools)
@@ -20,6 +23,7 @@ library(RColorBrewer)
 library(openxlsx)
 library(diffdf)
 library(bcdata)
+library(readr)
 
 my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
@@ -119,12 +123,78 @@ waterb_risk_rivers_to_merge = waterb_risk |>
                         duplicated_rivers$WATERBO,
                         duplicated_rivers$GNIS_NA)))
  
-waterb_risk_rivers_merged = waterb_risk_rivers_to_merge |> 
- group_by(GNIS_NA) |> 
- #Arrange the dataframe so that the highest risk section of each river comes first.
- arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
- #Take the first value for each of our variables and set it as the default for each river (basically, homogenize the data in a nservative way), then merge polygons.
- summarise(across(!starts_with("geo"), first))
+# Also double check that the rivers we're looking at are touching each other. Or, look at how far apart river pieces with the same name are.
+# If they are closer than the length of either river, join them up.
+unique_duplicated_river_names = unique(waterb_risk_rivers_to_merge$GNIS_NA)
+
+waterb_risk_rivers_merged = list()
+
+for(i in 1:length(unique_duplicated_river_names)){
+
+  # print(i)
+  
+  the_name = unique_duplicated_river_names[i]
+  
+  the_rivers = waterb_risk_rivers_to_merge |> 
+    dplyr::filter(GNIS_NA == the_name)
+  
+  if(the_name %in% c('Fraser River','Columbia River','Kootenay River')){
+    
+    new_rivers = the_rivers |> 
+      group_by(GNIS_NA) |> 
+      arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+      summarise(across(!starts_with("geo"), first))
+    
+    waterb_risk_rivers_merged[[i]] = new_rivers
+  } else {
+    
+    rivers_product = list()
+    
+    for(y in 1:nrow(the_rivers)){
+      river_focus = the_rivers[y,]
+      river_length = river_focus |> 
+      st_cast("MULTILINESTRING") |> 
+      mutate(the_length = st_length(geom)) |> 
+      dplyr::pull(the_length)
+      
+      # Which of the other rivers should we merge?
+      rivers_to_merge = st_distance(the_rivers)[y,] <= river_length
+      
+      new_geom = the_rivers[rivers_to_merge,] |> 
+        arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+         summarise(across(!starts_with("geo"), first))
+
+      rivers_product[[y]] <- new_geom
+    }
+    
+    rivers_products_b = dplyr::bind_rows(
+      rivers_product
+    )
+    # Check to see if some rows are just subsets of other rows, in terms of geometry; remove such subsets...
+    subsets_to_remove = st_intersects(rivers_products_b) |> 
+      as.data.frame() |> 
+      dplyr::filter(row.id != col.id) |> 
+      mutate(combo = paste0(order(row.id, col.id), collapse = ',')) |> 
+      mutate(is_duplicated = duplicated(combo)) |> 
+      pull(is_duplicated)
+    
+    if(length(subsets_to_remove) > 0){
+      rivers_products_b = rivers_products_b[-subsets_to_remove,]
+    }
+    
+    waterb_risk_rivers_merged[[i]] =     dplyr::bind_rows(rivers_products_b)
+    }
+  }
+
+waterb_risk_rivers_merged = waterb_risk_rivers_merged |> 
+  dplyr::bind_rows()
+
+# waterb_risk_rivers_merged = waterb_risk_rivers_to_merge |> 
+#  group_by(GNIS_NA) |> 
+#  #Arrange the dataframe so that the highest risk section of each river comes first.
+#  arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+#  #Take the first value for each of our variables and set it as the default for each river (basically, homogenize the data in a nservative way), then merge polygons.
+#  summarise(across(!starts_with("geo"), first))
 rm(waterb_risk_rivers_to_merge)
 
 #Reattach rivers to the overall waterb_risk spatial object.
