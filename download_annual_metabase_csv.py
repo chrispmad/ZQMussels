@@ -131,7 +131,12 @@ file_pattern = f"query_result_{current_year}-{current_month}-{current_day}*csv"
 downloaded_file = wait_for_download(downloads_folder, file_pattern)
 
 # %%
-if downloaded_file:
+
+# Test that the download worked.
+files = glob.glob(os.path.join(downloads_folder, file_pattern))
+
+if files:
+    downloaded_file = files[0]
 
     # Define the path to the network drive folder
     network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"  # Example path
@@ -144,7 +149,21 @@ if downloaded_file:
     os.rename(downloaded_file, new_file_path)
     print(f"Renamed file to {new_file_path}")
 
+    # Remove the old version of this file that's on the J: drive, if it exists.
+    old_file = glob.glob(os.path.join(network_drive_folder, new_file_name))
+
+    if old_file != []:
+        # Pull out the full path to the old metabase summary file.
+        old_file = old_file[0]
+        # Delete the old file currently in the LAN folder
+        os.remove(old_file)
+        # Copy over the minty-fresh metabase summary file, from C:/.../Downloads to the LAN folder (J: for me)
+        shutil.copyfile(new_file_path, old_file)
+        # Remove te metabase summary from the local Downloads folder
+        os.remove(new_file_path)
 else:
     print("No files found matching the pattern.")
 
 driver.quit()
+
+# %%

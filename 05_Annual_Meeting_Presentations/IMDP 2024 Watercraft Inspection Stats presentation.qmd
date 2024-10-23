@@ -1,0 +1,1574 @@
+---
+title: "IMDP 2024 Watercraft Inspection Stats"
+title-slide-attributes:
+  data-background-image: data/zm_backdrop.jpg
+  data-background-size: contain
+  data-background-opacity: "0.5"
+author: "Martina Beck & Chris Madsen"
+format: 
+  revealjs:
+    css: data/imdp_2023_style.css
+    logo: data/co_service_crest.png
+    footer: "2024 IMDP Meeting"
+editor: visual
+fig-responsive: false
+---
+
+```{r prep, include=F}
+library(tidyverse)
+library(openxlsx)
+library(knitr)
+library(sf)
+library(plotly)
+
+knitr::opts_chunk$set(echo = F,warning = F, message = F)
+
+this_year = lubridate::year(lubridate::ymd(Sys.Date()))
+
+big_text = theme_minimal() + 
+  theme(axis.text.y = element_text(size = 13),
+        axis.text.x = element_text(size = 13, angle = 45, hjust = 1, vjust = 1),
+        axis.title = element_text(size = 16),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.475, size = 18, face = 'bold', colour = 'black'))
+
+# Read in options file.
+my_opts = read_csv('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv')
+
+# all_dat = openxlsx::read.xlsx(paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.xlsx'))
+# readr::write_csv(all_dat, paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.csv'))
+all_dat = vroom::vroom(paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.csv'))
+
+mf_dat = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,'Watercraft Inspection Data/2024 data/mussel_fouled_summary.xlsx')) |>
+  set_names(snakecase::to_snake_case) 
+
+# Number of people in party should be numeric, and we should use floor() on it.
+all_dat = all_dat |> 
+  mutate(Number_Of_People_In_Party = floor(as.numeric(Number_Of_People_In_Party)))
+
+# Find number of unique years of data.
+unique_years = unique(all_dat$Year)
+
+# Find most recent year.
+most_rec_year = max(as.numeric(all_dat$Year),na.rm=T)
+
+# Stations Labels
+station_labels = tibble(name = c('Olsen','Osoyoos','Pacific'),
+       label = c('Olsen (Hwy 3)','Osoyoos*','Pacific Border'))
+
+# Replace original station names with labels.
+all_dat = all_dat |> 
+  rowwise() |> 
+  mutate(Station = ifelse(Station %in% station_labels$name,
+                          station_labels[station_labels$name == Station,]$label,
+                          Station)) |> 
+  dplyr::ungroup()
+
+d = all_dat[all_dat$Year==2024,]
+
+unique(d$Station)
+# Station filter selection - only applied to certain figures!
+permanent_stations = c("Golden","Yahk","Olsen (Hwy 3)","Radium","Mt. Robson","Osoyoos*","Pacific Border","Sumas Border","Dawson Creek","Keremeos (Hwy 3)")
+
+roving_stations = c("Penticton Roving","Fraser Valley Roving",
+                    "Penticton 97C","Fraser Valley Cultus")
+
+# If focus is 2023, Penticton Roving could be split out into 97C and non-97C
+if(interactive()){
+  all_dat |> 
+    filter(Year == 2023, Station == 'Penticton Roving') |> 
+    filter(str_detect(Shift_Start_Comment, '(hwy|Hwy|97|Lake)'))
+}
+
+# Look at the Roving Stations - which do we have?
+if(interactive()){
+  d |> 
+  dplyr::filter(stringr::str_detect(Station,'Roving')) |> 
+  dplyr::count(Station, sort = T)
+# 1040 rows for Penticton Roving, 2 rows for Fraser Valley Roving.
+}
+
+# Pull out Highway 97C from Penticton Roving. Hopefully this is worth it.
+
+if(interactive()) nrow(all_dat)
+
+# First for 2023...
+pent = all_dat |> 
+  dplyr::filter(Year == 2023,
+                Station == 'Penticton Roving') |> 
+  mutate(Station = case_when(
+    str_detect(Shift_Start_Comment, '(hwy|Hwy|97)') ~ 'Penticton 97C',
+    !str_detect(Shift_Start_Comment, '(hwy|Hwy|97)') ~ 'Penticton Roving',
+    T ~ Station
+  ))
+
+all_dat = all_dat |> 
+  filter(!(Station == 'Penticton Roving' & 
+             Year == 2023)) |> 
+  bind_rows(pent)
+
+# Same for Fraser Valley Roving - Cultus Lake.
+cult = all_dat |> 
+  filter(Year == 2023) |> 
+  filter(Station == 'Fraser Valley Roving') |> 
+  filter(str_detect(Shift_Start_Comment, 'Cultus')) |> 
+  mutate(Station = 'Fraser Valley Cultus')
+
+all_dat = all_dat |> 
+  filter(!(Year == 2023 & Station == 'Fraser Valley Roving' & str_detect(Shift_Start_Comment, 'Cultus'))) |> 
+  bind_rows(cult)
+
+# Next for 2024...
+pent = all_dat |>
+  dplyr::filter(Year == 2024) |> 
+  filter(Station == 'Penticton Roving')
+  
+all_dat = all_dat |> 
+  dplyr::filter(!(Year == 2024 & Station == 'Penticton Roving'))
+
+roving_stations = c(roving_stations, "Keremeos","Kelowna",
+                    "Midway","Boat Launch","Kaleden")
+
+pent = pent |> 
+  dplyr::mutate(Station = dplyr::case_when(
+    stringr::str_detect(Shift_Start_Comment,"[k,K]eremeos") ~ 'Keremeos (Hwy 3)',
+    stringr::str_detect(Shift_Start_Comment,"[k,K]elowna") ~ 'Kelowna',
+    stringr::str_detect(Shift_Start_Comment,"[m,M]idway") ~ 'Midway',
+    stringr::str_detect(Shift_Start_Comment,"97[c,C]") ~ 'Penticton 97C',
+    stringr::str_detect(Shift_Start_Comment,"([h,H]wy|[h,H]ighway) 3") ~ 'Olsen (Hwy 3)',
+    stringr::str_detect(Shift_Start_Comment,"[b,B]oat( )[l,L]aunch") ~ 'Boat Launch',
+    stringr::str_detect(Shift_Start_Comment,"[k,K]aled[a,e]n") ~ 'Kaleden',
+    # stringr::str_detect(Shift_Start_Comment,"[s,S]cheduled") ~ 'Scheduled Inspection',
+    # stringr::str_detect(Shift_Start_Comment,"[d,D]e(a)?con") ~ 'Decontamination',
+    
+    T ~ Station
+      )
+  )
+
+all_dat = all_dat |> 
+  dplyr::bind_rows(pent)
+
+if(interactive()) nrow(all_dat)
+```
+
+```{r add_hour_field_to_all_dat}
+all_dat = all_dat |> 
+  mutate(Inspection_Hour = lubridate::hour(TimeOfInspection))
+```
+
+```{r calculate_max_inspections_per_day}
+stations_for_max_insp_calc = c("Golden","Yahk","Olsen (Hwy 3)","Radium","Mt. Robson","Osoyoos*","Pacific Border","Sumas Border","Dawson Creek","Penticton Roving","Fraser Valley Roving","Keremeos (Hwy 3)","Penticton 97C","Fraser Valley Cultus")
+
+# max_per_day = max_per_day |> 
+#   mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection))
+
+max_per_day = all_dat |>
+  filter(Station %in% stations_for_max_insp_calc) |>
+  filter(Year %in% c(2020:most_rec_year)) |> 
+  select(Station, Year, TimeOfInspection) |> 
+  mutate(Day = lubridate::yday(TimeOfInspection)) |> 
+  # group_by(Station, Year, Day) |> 
+  # reframe(n = n(),
+  #         Day) |> 
+  count(Station, Year, Day) |>
+  group_by(Station, Year) |>
+  slice_max(n) |>
+  mutate(Year = as.character(Year)) |>
+  mutate(Year = factor(Year, levels = c(2020:most_rec_year))) |>
+  dplyr::ungroup()
+
+max_per_day = max_per_day |> 
+  dplyr::group_by(Station) |> 
+  dplyr::mutate(station_total = sum(n)) |> 
+  dplyr::ungroup() |> 
+  arrange(desc(station_total), Year) |> 
+  mutate(Station = as.factor(Station)) |>
+  mutate(Station = forcats::fct_inorder(Station))
+
+# Pull out month and day from doy field.
+max_per_day = max_per_day |>
+  mutate(DOY = Day) |> 
+  mutate(date = as.Date(Day-1, origin=paste0(Year, "-01-01"))) |> 
+  mutate(Month = lubridate::month(date,abbr=T,label=T)) |> 
+  mutate(Day = lubridate::day(date))
+
+```
+
+```{r summary_table}
+summ_table = all_dat |> 
+  group_by(Year) |> 
+  summarise(
+    `Total Watercraft Inspected` = n(),
+    `People Interactions` = sum(Number_Of_People_In_Party,na.rm=T),
+    `High Risk` = sum(High_Risk_AIS_Ind,na.rm=T),
+    `Commercially Hauled` = sum(Commercially_Hauled_Ind,na.rm=T),
+    `Decontaminations Performed` = sum(Decontamination_Performed_Ind,na.rm=T),
+    `Decontamination Orders` = sum(Decontamination_order_issued_Ind,na.rm=T),
+    `Quarantine Periods` = sum(Quarantine_Period_Issued_Ind,na.rm=T),
+    `Mussel Fouled` = sum(MusselsFound_Ind,na.rm=T),
+    `Total Boats at Night*` = sum(Inspection_Hour >= 22 | Inspection_Hour <= 5),
+    `High-risk Boats at Night*` = sum((Inspection_Hour >= 22 | Inspection_Hour <= 5) & High_Risk_AIS_Ind),
+    `Mussel-fouled Boats at Night*` = sum((Inspection_Hour >= 22 | Inspection_Hour <= 5) & MusselsFound_Ind)
+    )
+
+# Some numbers are way off. Let's correct these by hand, though it pains me to do it!
+summ_table[summ_table$Year == 2021,'High Risk'] <- 244 # was 364
+summ_table[summ_table$Year == 2017,'Total Boats at Night*'] <- 121 # was 5625
+summ_table[summ_table$Year == 2018,'Total Boats at Night*'] <- 391 # was 628
+summ_table[summ_table$Year == 2019,'Total Boats at Night*'] <- 472
+summ_table[summ_table$Year == 2017,'High-risk Boats at Night*'] <- 7 # was 331
+summ_table[summ_table$Year == 2015,'Mussel Fouled'] <- 15 # was 11
+# summ_table[summ_table$Year == 2015,'Advanced Notification'] <- 7 # was 0
+# summ_table[summ_table$Year == 2016,'Tickets'] <- 7 # was 0
+# summ_table[summ_table$Year == 2016,'Warnings'] <- 7 # was 0
+
+summ_table = summ_table |> 
+  left_join(
+    tibble(
+      Year = c(2015:most_rec_year),
+      `Advanced Notification` = c(7,10,20,20,16,13,7,7,6,5),
+      Tickets = c(NA,46,59,82,113,101,85,63,NA,NA),
+      Warnings = c(NA,36,86,50,113,76,45,66,NA,NA)
+    )
+  ) |> 
+  mutate(across(c("Total Watercraft Inspected","People Interactions"), \(x) round(x,-2)))
+
+# Flip to have years on top row.
+summ_table = t(summ_table) |> 
+  as.data.frame()
+
+names(summ_table) = summ_table[1,]
+
+summ_table$vars = row.names(summ_table)
+
+row.names(summ_table) = NULL
+
+summ_table = summ_table |> 
+  filter(vars != 'Year') |> 
+  select(vars, everything()) |> 
+  mutate(across(everything(), \(x) as.character(x))) |> 
+  mutate(across(everything(), \(x) replace_na(x, '?')))
+
+summ_table = summ_table |> 
+  rename(" " = "vars")
+
+# kable(summ_table)
+```
+
+## Summary Table
+
+```{r, fig.width=12}
+# kableExtra::kbl(summ_table, table.attr = "style='width:90%'") |> 
+#   kableExtra::kable_styling(full_width = F)
+kableExtra::kbl(summ_table, format = "html", table.attr = "style='width:50%';font-size=10px;") |> 
+  kableExtra::kable_paper(full_width = T) |> 
+  kableExtra::kable_minimal()
+```
+
+## Summary Table
+
+```{r}
+# kableExtra::kbl(summ_table) |> 
+kableExtra::kbl(summ_table, format = "html", table.attr = "style='width:50%';font-size=10px;") |> 
+  kableExtra::kable_paper(full_width = T) |> 
+  kableExtra::kable_minimal() |> 
+  kableExtra::column_spec(ncol(summ_table), 
+                          color = "black", 
+                          bold = T,
+                          background = 'lightblue')
+```
+
+\*22:00 - 05:00
+
+## Total Inspections (2021-2024)
+
+```{r}
+make_bar_with_lbls = function(data,y_var_label,
+                              station_filter,year_filter,
+                              label_cutoff,
+                              highlight_field = NA,
+                              ggplotify = TRUE){
+  
+  if(length(station_filter) > 1 | station_filter[1] != 'none'){
+    plot_dat = data |> 
+      filter(Station %in% station_filter)
+  } else {
+    plot_dat = data
+  }
+  plot_dat_sum = plot_dat |> 
+    filter(Year %in% year_filter) |> 
+    mutate(Year = as.character(Year)) |> 
+    mutate(Year = factor(Year, levels = year_filter)) |> 
+    count(Year,Station) |> 
+    group_by(Station) |> 
+    mutate(station_total = sum(n)) |> 
+    ungroup() |> 
+    arrange(desc(station_total)) |> 
+    mutate(Station = as.factor(Station)) |> 
+    mutate(Station = forcats::fct_inorder(Station))
+  
+  text_labels = plot_dat_sum |> 
+    dplyr::mutate(text_label = ifelse(n <= label_cutoff, n, NA))
+  
+  if(is.na(highlight_field)){
+  ggplot_fig = plot_dat_sum |> 
+    ggplot(aes(x = Station, y = n, 
+               group = Year, fill = Year)) + 
+    geom_col(position='dodge') + 
+    geom_text(position=position_dodge(width = .9),
+              aes(y = n, group = Year,label = text_label),
+              data = text_labels) + 
+    labs(y = y_var_label, x = '') + 
+    scale_fill_brewer(palette = 'Dark2') + 
+    big_text
+  }
+
+  if(!is.na(highlight_field)){
+    highlight_dat = plot_dat |> 
+      dplyr::filter(!!rlang::sym(highlight_field)) |> 
+      filter(Year %in% year_filter) |> 
+      mutate(Year = as.character(Year)) |> 
+      mutate(Year = factor(Year, levels = year_filter)) |> 
+      count(Year,Station,name = "highlight_field") |> 
+      group_by(Station) |> 
+      mutate(hl_station_total = sum(highlight_field)) |> 
+      ungroup() |> 
+      arrange(desc(hl_station_total)) |> 
+      mutate(Station = as.factor(Station)) |> 
+      mutate(Station = forcats::fct_inorder(Station))
+    
+    ggplot_fig = plot_dat_sum |> 
+      dplyr::left_join(highlight_dat) |> 
+      dplyr::mutate(highlight_field = tidyr::replace_na(highlight_field,0)) |> 
+      ggplot(aes(x = Station, group = Year)) + 
+      geom_col(aes(y=n), fill = 'red', position='dodge') + 
+      geom_col(aes(y=n-highlight_field, fill = Year), position='dodge') + 
+      geom_col(aes(y=n-highlight_field), fill = 'white', alpha = 0.6, position='dodge') + 
+      geom_text(position=position_dodge(width = .9),
+                aes(y = n, group = Year,label = paste0(100*round(highlight_field/n,3),"%"))) + 
+      labs(y = y_var_label, x = '') + 
+      scale_fill_brewer(palette = 'Dark2') + 
+      big_text
+  }
+  
+  if(!ggplotify){
+    return(ggplot_fig)
+  }
+  if(ggplotify){
+    return(
+      ggplotly(
+        ggplot_fig,
+        width = 1000,
+        height = 600
+      )
+    )
+  }
+}
+```
+
+```{r make_sure_station_names_are_capitalized_etc}
+all_dat = all_dat |> 
+  dplyr::mutate(Station = str_replace_all(Station, "Cbsa", "CBSA")) |> 
+  dplyr::mutate(Station = str_replace_all(Station, "Ab Notification", "AB Notification")) |> 
+  dplyr::mutate(Station = str_replace_all(Station,"Rapp Notification","RAPP Notification")) |> 
+  # Look for location keywords that can help us split 'Scheduled Inspection' into either Lower Mainland or Penticton.
+  dplyr::mutate(Station = dplyr::case_when(
+    Station == 'Scheduled Inspection' & str_detect(Shift_Start_Comment,"([r,R]ichmond|[d,D]ockside)") ~ 'Lower Mainland Scheduled Inspection',
+    Station == 'Scheduled Inspection' & str_detect(Shift_Start_Comment,"([l,L]ake [c,C]ountry|[l,L]akehouse|Martin|martin|MARTIN|[p,P]enticton|[k,K]elowna)") ~ 'Penticton Scheduled Inspection',
+    T ~ Station
+  ))
+```
+
+```{r total_inspections}
+make_bar_with_lbls(
+  data = all_dat,
+  y_var_label = "Total Inspections",
+  label_cutoff = 100,
+  station_filter = permanent_stations,
+  year_filter = c(2021:most_rec_year)
+)
+```
+
+<em>\*For 2021 only, Osoyoos includes Penticton roving crew and stats from Keremeos, Greenwood, Kaleden and boat launch data.</em>
+
+## Total Inspections - Roving Stations (2021-2024)
+
+```{r}
+make_bar_with_lbls(
+  data = all_dat,
+  y_var_label = "Total Inspections",
+  label_cutoff = 50,
+  station_filter = roving_stations[roving_stations!='Boat Launch'],
+  year_filter = c(2021:most_rec_year)
+)
+```
+
+## Total Inspections - Boat Launches (2021-2024)
+
+```{r}
+# Summarise boat launches from shift comments.
+all_dat |> 
+  dplyr::filter(Station == 'Boat Launch') |> 
+  dplyr::mutate(Station = dplyr::case_when(
+    str_detect(Shift_Start_Comment,"Skaha") &  str_detect(Shift_Start_Comment,"summerland")~ "Multiple",
+    str_detect(Shift_Start_Comment,"Christina") ~ "Christina Lake",
+    str_detect(Shift_Start_Comment,"(Gellatley|Gellatly)") ~ "Gellatley Bay",
+    str_detect(Shift_Start_Comment,"Skaha") ~ "North Skaha",
+    str_detect(Shift_Start_Comment,"Peach") ~ "Peachland Yacht Club",
+    str_detect(Shift_Start_Comment,"Kekuli") ~ "Kekuli",
+    str_detect(Shift_Start_Comment,"Summerland") ~ "Summerland",
+    T ~ "Unknown"
+  )) |> 
+make_bar_with_lbls(
+  y_var_label = "Total Inspections",
+  label_cutoff = 5,
+  station_filter = 'none',
+  year_filter = c(2021:most_rec_year)
+)
+```
+
+## Total Inspections - Scheduled Inspections (2021-2024)
+
+```{r}
+all_dat |> 
+  filter(str_detect(Station, 'Scheduled')) |> 
+  mutate(Station = str_remove_all(Station, 'Scheduled Inspection \\(')) |> 
+  mutate(Station = str_remove_all(Station, '\\)$')) |> 
+  make_bar_with_lbls(
+    y_var_label = "Total Inspections",
+    label_cutoff = 10,
+    station_filter = 'none',
+    year_filter = c(2021:most_rec_year)
+  )
+```
+
+## Percent High Risk Inspections (2023-2024)
+
+```{r perc_hr_inspections_all}
+# # dual-y-axis bar chart and line graph.
+# a = all_dat |> 
+#   filter(Station %in% permanent_stations) |> 
+#   filter(Year %in% c((most_rec_year-1):most_rec_year)) |> 
+#   mutate(Year = as.character(Year)) |> 
+#   mutate(Year = factor(Year, levels = c((most_rec_year-1):most_rec_year))) |> 
+#   count(Year,Station) |> 
+#   group_by(Station) |> 
+#   mutate(station_total = sum(n)) |> 
+#   ungroup() |> 
+#   arrange(desc(station_total)) |> 
+#   mutate(Station = as.factor(Station)) |> 
+#   mutate(Station = forcats::fct_inorder(Station))
+# 
+# h = all_dat |> 
+#   filter(High_Risk_AIS_Ind == T) |> 
+#   filter(Station %in% permanent_stations) |> 
+#   filter(Year %in% c((most_rec_year-1):most_rec_year)) |> 
+#   mutate(Year = as.character(Year)) |> 
+#   mutate(Year = factor(Year, levels = c((most_rec_year-1):most_rec_year))) |> 
+#   count(Year,Station) |> 
+#   group_by(Station) |> 
+#   mutate(station_total = sum(n)) |> 
+#   ungroup() |> 
+#   arrange(desc(station_total)) |> 
+#   mutate(Station = as.factor(Station)) |> 
+#   mutate(Station = forcats::fct_inorder(Station))
+# 
+# plot_d = left_join(
+#   a |> 
+#     filter(Year == most_rec_year) |> 
+#     select(Station, total_insp = n) |> 
+#     arrange(desc(total_insp)) |> 
+#     mutate(Station = as.factor(Station)) |>
+#     mutate(Station = forcats::fct_inorder(Station)),
+#   h |> 
+#     filter(Year == most_rec_year) |> 
+#     select(Station, hr_insp = n)
+# ) |> 
+#   mutate(perc_hr = 100 * hr_insp / (total_insp)) |> 
+#   mutate(across(everything(), \(x) replace_na(x, 0)))
+#   
+# hr_labels = plot_d |> 
+#   # filter(perc_hr >= 0.1) |> 
+#   mutate(y_pos = total_insp - hr_insp - max(plot_d$total_insp)*0.04) |> 
+#   mutate(y_pos = replace(y_pos, y_pos < 0, 0))
+#   
+# perc_high_risk_initial 
+# 
+# plot_d |> 
+#   ggplot(aes(x = Station)) + 
+#   geom_col(aes(y = total_insp)) + 
+#   labs(y = 'Total Inspections', x = 'Stations') +
+#   scale_y_continuous(breaks = seq(0,9000,1000)) +
+#   big_text
+# 
+# perc_high_risk_reveal = plot_d |> 
+#   mutate(total_insp = total_insp - hr_insp) |> 
+#   pivot_longer(c('total_insp','hr_insp')) |> 
+#   ggplot(aes(x = Station)) + 
+#   geom_col(aes(y = value, fill = name)) + 
+#   geom_label(aes(x = Station, y = y_pos, label = paste0(round(perc_hr,1),"%")), data = hr_labels) +
+#   labs(y = 'Total Inspections', x = 'Stations') +
+#   scale_fill_manual(values = c("total_insp" = "grey",
+#                                "hr_insp" = "red")) + 
+#   scale_y_continuous(breaks = seq(0,9000,1000)) +
+#   big_text + 
+#   theme(legend.position = 'none')
+
+#::: {.fragment .fade-in-then-out .absolute}
+#```{r fig.height = 6.5}
+#perc_high_risk_initial
+#```
+#:::
+
+#::: {.fragment .fade-in .absolute}
+#```{r fig.height = 6.5}
+#perc_high_risk_reveal
+#```
+#:::
+```
+
+```{r}
+make_bar_with_lbls(
+  data = all_dat,
+  y_var_label = "High-risk Inspections",
+  station_filter = permanent_stations,
+  year_filter = c((this_year-1):this_year),
+  label_cutoff = 0,
+  highlight_field = "High_Risk_AIS_Ind",
+  ggplotify = F
+)
+```
+
+## Percent High Risk Inspections - Roving Stations (2023-2024)
+
+```{r perc_hr_inspections roving}
+make_bar_with_lbls(
+  data = all_dat,
+  y_var_label = "High-risk Inspections",
+  station_filter = roving_stations[roving_stations!='Boat Launch'],
+  year_filter = c((this_year-1):this_year),
+  label_cutoff = 0,
+  highlight_field = "High_Risk_AIS_Ind",
+  ggplotify = F
+)
+```
+
+## Percent High Risk Inspections - Boat Launches (2023-2024)
+
+```{r}
+# Summarise boat launches from shift comments.
+all_dat |> 
+  dplyr::filter(Station == 'Boat Launch') |> 
+  dplyr::mutate(Station = dplyr::case_when(
+    str_detect(Shift_Start_Comment,"Skaha") &  str_detect(Shift_Start_Comment,"summerland")~ "Multiple",
+    str_detect(Shift_Start_Comment,"Christina") ~ "Christina Lake",
+    str_detect(Shift_Start_Comment,"(Gellatley|Gellatly)") ~ "Gellatley Bay",
+    str_detect(Shift_Start_Comment,"Skaha") ~ "North Skaha",
+    str_detect(Shift_Start_Comment,"Peach") ~ "Peachland Yacht Club",
+    str_detect(Shift_Start_Comment,"Kekuli") ~ "Kekuli",
+    str_detect(Shift_Start_Comment,"Summerland") ~ "Summerland",
+    T ~ "Unknown"
+  )) |> 
+make_bar_with_lbls(
+  y_var_label = "High-risk Inspections",
+  label_cutoff = 0,
+  station_filter = 'none',
+  year_filter = c(2023:most_rec_year),
+  highlight_field = "High_Risk_AIS_Ind",
+  ggplotify = F
+)
+```
+
+## Percent High Risk Inspections - Scheduled Inspections (2023-2024)
+
+```{r perc_hr_inspections scheduled_inspections}
+all_dat |> 
+  filter(str_detect(Station, 'Scheduled')) |> 
+  mutate(Station = str_remove_all(Station, 'Scheduled Inspection \\(')) |> 
+  mutate(Station = str_remove_all(Station, '\\)$')) |> 
+  make_bar_with_lbls(
+    y_var_label = "High-risk Inspections",
+    label_cutoff = 0,
+    station_filter = 'none',
+    year_filter = c(2023:most_rec_year),
+    highlight_field = "High_Risk_AIS_Ind",
+    ggplotify = F
+  )
+```
+
+## Max Inspections per Day
+
+```{r max_insp_per_day}
+# max_per_day = vroom::vroom('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/04_Extra_Figures_and_Scripts/data/max_records_per_day.csv') |> 
+  # mutate(Year = factor(Year, levels = c(2020:most_rec_year))) |> 
+
+
+# max_per_day_f = max_per_day |>
+#   dplyr::arrange(Station, Year) |> 
+#   filter(!str_detect(Station, '.*(Penticton|Fraser Valley).*')) |> 
+#   ggplot(aes(x = Station, y = n, text = paste0('Date: ',Month,' ',Day), fill = Year)) +
+#   geom_col(position=position_dodge2(preserve = 'single')) +
+#   labs(y = 'Max Inspections per Day', x = '') +
+#   scale_fill_brewer(palette = 'Dark2') +
+#   # scale_y_continuous(breaks = seq(0,300,50)) +
+#   big_text
+
+max_per_day_f = max_per_day |> 
+  dplyr::filter(!Station %in% roving_stations) |> 
+  ggplot(aes(x = Year, y = n, fill = Year)) + 
+  geom_col() +
+  facet_wrap( ~ Station, nrow = 1, strip.position = "bottom") + 
+  big_text +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13),
+        strip.background = element_blank(),
+        strip.clip = "off") + 
+  labs(y = 'Max Inspections per Day', x = '') +
+  scale_fill_brewer(palette = 'Dark2')
+  
+max_per_day_f
+```
+
+## Max Inspections per Day - Roving Stations
+
+```{r}
+# max_per_day_f = max_per_day |>
+#   filter(str_detect(Station, '.*(Penticton|Fraser Valley).*')) |> 
+#   ggplot(aes(x = Station)) +
+#   geom_col(aes(x = Station, y = n, text = paste0('Date: ',Month,' ',Day), fill = Year),
+#            position=position_dodge(preserve = 'single')) +
+#   labs(y = 'Max Inspections per Day', x = '') +
+#   scale_fill_brewer(palette = 'Dark2') +
+#   # scale_y_continuous(breaks = seq(0,300,50)) +
+#   big_text
+
+max_per_day_f = max_per_day |> 
+  dplyr::filter(Station %in% roving_stations) |> 
+  ggplot(aes(x = Year, y = n, fill = Year)) + 
+  geom_col() +
+  facet_wrap( ~ Station, nrow = 1, strip.position = "bottom") + 
+  big_text +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13),
+        strip.background = element_blank(),
+        strip.clip = "off") + 
+  labs(y = 'Max Inspections per Day', x = '') +
+  scale_fill_brewer(palette = 'Dark2')
+
+# ggplotly(max_per_day_f, 
+#          height = 600,
+#          width = 1000)
+max_per_day_f
+```
+
+## Compliance by Station
+
+```{r compliance_by_station}
+compliance_dat = tibble(
+  Station = c("Mt. Robson","Osoyoos","Olsen (Hwy 3)","Yahk","Radium","Dawson Creek","Golden","Pacific","Average Compliance"),
+  `2017` = c(0.97,0.95,NA,0.73,0.75,0.88,0.76,0.48,0.77),
+  `2018` = c(0.97,1,0.9,0.84,0.85,0.94,0.85,0.58, 0.81),
+  `2019` = c(0.98,1,0.93,0.89,0.89,0.93,0.85,0.6, 0.83),
+  `2020` = c(0.966,0.87,0.884,0.884,0.838,NA,0.863,0.666,0.877),
+  `2021` = c(0.98,0.98,0.91,0.89,0.88,0.88,0.86,0.75,0.874),
+  `2022` = c(0.97,0.99,0.92,NA,0.88,0.92,0.89,0.59,0.880),
+  `2023` = c(0.97,1,0.885,0.9,NA,0.94,0.87,0.59,0.88),
+  `2024` = c(0.991,0.997,0.876,0.901,0.982,0.963,0.920,0.764,0.881)
+)
+
+compliance_table = compliance_dat |> 
+  mutate(across(-Station, \(x) ifelse(!is.na(x), paste0(100*x,'%'), x))) |> 
+  as.data.frame()
+
+compliance_table_k = knitr::kable(compliance_table)
+
+compliance_trendline = compliance_dat[nrow(compliance_dat),] |> 
+  pivot_longer(-Station, names_to = 'Year') |> 
+  ggplot() + 
+  geom_line(aes(x = Year, y = value, group = 1), col = 'purple', linewidth = 2) + 
+  scale_y_continuous(limits = c(0.7,1), labels = scales::percent) + 
+  labs(y = "Average \nCompliance") + 
+  big_text
+
+# compliance_table_k
+
+```
+
+::: {.fragment .fade-in-then-out .absolute}
+```{r}
+# ggpubr::ggarrange(
+#     gridExtra::tableGrob(compliance_table),
+#     ggplot() + theme(panel.background = element_rect(fill = 'white')), ncol = 1, nrow = 2, heights = c(2,1))
+compliance_table_k
+```
+
+```{r fig.height = 2.5}
+# ggpubr::ggarrange(
+#     gridExtra::tableGrob(compliance_table), compliance_trendline, ncol = 1, nrow = 2, heights = c(2,1))
+compliance_trendline
+```
+:::
+
+## Source Provinces/States (2024)
+
+```{r}
+sources_sum = d |> 
+  ungroup() |> 
+  dplyr::mutate(boat_source = coalesce(Previous_Waterbody_1_Province_Or_State, Previous_Waterbody_1_Closest_City, Previous_Major_City, Province_Code)
+  ) |> 
+  dplyr::select(boat_source) |> 
+  mutate(boat_source = as.factor(boat_source)) |> 
+  mutate(boat_source = forcats::fct_lump(boat_source, n = 15)) |> 
+  count(boat_source) |> 
+  dplyr::arrange(-n) |> 
+  mutate(total = nrow(d)) |> 
+  mutate(prop = paste0(round(100*n/total,1), "%"))
+
+sources_sum |> 
+  filter(boat_source != 'Other') |> 
+  bind_rows(sources_sum |> filter(boat_source == 'Other')) |> 
+  mutate(boat_source = fct_inorder(boat_source)) |> 
+  ggplot() + 
+  geom_col(aes(x = boat_source, y = n)) + 
+  geom_text(aes(x = boat_source, y = n + 0.08*max(n), label = n),data = sources_sum, fontface = 'bold') +
+  geom_text(aes(x = boat_source, y = n + 0.02*max(n), label = prop),data = sources_sum) +
+  geom_text(aes(x = "TX", y = max(n), label = paste0("Total Inspections: ",scales::comma(total))), data = sources_sum[1,]) +
+  labs(y = 'Count', x = 'Source Province/State') + 
+  big_text
+```
+
+## Mussel Fouled by Month
+
+```{r mf_by_month}
+# April to November, number of mussel-fouled inspections.
+
+#2023
+# tibble(Month = month.name[c(4:11)]) |> 
+#   left_join(
+#     mf_dat |> 
+#       reframe(Month = lubridate::month(start_time, 
+#                                        abbr = F, 
+#                                        label = T)) |> 
+#       count(Month)
+#     )
+
+
+mf_by_m = tibble(
+  Month = month.name[c(4:11)],
+  `2017` = c(1,5,5,4,2,4,4,0),
+  `2018` = c(3,5,5,4,2,4,2,0),
+  `2019` = c(1,4,4,6,1,5,0,1),
+  `2020` = c(0,2,2,7,2,1,2,0),
+  `2021` = c(1,6,3,2,3,1,1,0),
+  `2022` = c(0,2,4,2,3,1,0,0),
+  `2023` = c(1,1,5,3,0,2,2,0),
+  `2024` = c(4,2,0,2,2,0,0,0)
+)
+
+mf_p = mf_by_m |> 
+  mutate(Month = factor(Month, levels = c(month.name))) |> 
+  pivot_longer(cols = -Month) |> 
+  ggplot() + 
+  geom_col(aes(x = Month, y = value, fill = name), position = position_dodge2(preserve = 'total')) + 
+  big_text +
+  labs(fill = 'Year', y = 'Mussel Fouled Boats')
+
+ggplotly(mf_p,
+         height = 600,
+         width = 1000)
+```
+
+## Mussel Fouled -- Source and Destination
+
+```{r mf_source_and_dest}
+# pie chart 1: source provinces/states.
+library(ggrepel)
+
+make_pie = function(dat, variable){
+  dat |> 
+    ungroup() |> 
+    count(!!sym(variable)) |> 
+    arrange(desc(!!sym(variable))) |>  
+    mutate(lab.ypos = cumsum(n) - 0.5*n) |> 
+    mutate(prop = paste0(round(100*(n / sum(n)), 0), "%")) |> 
+  ggplot(aes(x = "", y = n, 
+             fill = !!sym(variable))) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0)+
+    geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(!!sym(variable),"\n",n)), 
+                    color = "black",
+                    size = 5,
+                    nudge_x=0.4) +
+    geom_text(aes(y = lab.ypos, x = 1.49 / 2, label = prop), 
+                    color = "white",
+                    size = 4,
+                    nudge_x=0.4) +
+    theme_void() + 
+    scale_fill_brewer(palette = "Dark2") + 
+    labs(fill = variable) + 
+    theme(legend.position = 'none',
+          plot.title = element_text(hjust = 0.475, size = 18, face = 'bold', colour = 'black'))
+    # big_text +
+    # theme(legend.position = "none",
+    #       axis.text = element_blank(),
+    #       axis.title = element_blank(),
+    #       axis.ticks = element_blank(),
+    #       axis = element_blank()
+    # )
+}
+
+pie_1 = make_pie(mf_dat, 'big_source_summary') + 
+  labs(title = "Source Province/State")
+
+# pie chart 2: destination regions in BC.
+
+pie_2 = mf_dat |> 
+  make_pie('big_dest_summary') + 
+  labs(title = 'Destination Region')
+
+ggpubr::ggarrange(pie_1, pie_2, ncol = 2, nrow = 1)
+```
+
+## Mussels - Commercially Hauled and Days out of Water
+
+```{r mussels_ch_and_days_water}
+# Pie chart 1: Commercially hauled
+pie_1 = mf_dat |> 
+  select(commercially_hauled_ind) |> 
+  mutate(commercially_hauled_ind = as.character(commercially_hauled_ind)) |> 
+  mutate(commercially_hauled_ind = replace_na(commercially_hauled_ind, 'Unknown')) |> 
+  make_pie('commercially_hauled_ind') + 
+  labs(title = 'Commercially Hauled')
+
+# Pie chart 2: Days out of Water
+pie_2 = mf_dat |> 
+  select(prev = previous_waterbody_1_days_out_of_water) |> 
+  mutate(prev = as.character(prev)) |> 
+  mutate(prev = replace_na(prev, 'Unknown')) |> 
+  mutate(prev = replace(prev, prev == '30 days to 6 months', '30 days to\n6 months')) |> 
+  mutate(prev = ifelse(prev == '> 1 year', 'Greater than 1 year', prev)) |> 
+  make_pie('prev') + 
+  labs(title = 'Days out of Water')
+
+ggpubr::ggarrange(pie_1, pie_2, ncol = 2, nrow = 1)
+
+```
+
+## Mussels - Intercepting Station
+
+```{r}
+pie_3 = mf_dat |> 
+  # filter(Year == most_rec_year) |> 
+  select(station) |> 
+  dplyr::mutate(station = ifelse(
+    station == "Scheduled Inspection (CBSA notification)",
+    "Scheduled Inspection\n(CBSA notification)",
+    station)) |> 
+  ungroup() |> 
+  make_pie('station')
+
+pie_3
+```
+
+```{r}
+prevs = all_dat |> 
+  filter(Year == most_rec_year) |> 
+  filter(Dreissenid_mussels_found_during_previous_inspection)
+
+prevs_mf = prevs |> 
+  filter(!MusselsFound_Ind) |> 
+  summarise(n = n()) |> 
+  count(n, name = 'total') |> 
+  pull(total)
+
+# ::: {.fragment .fade-in .absolute}
+# 
+# <br><br>
+# 
+# 
+# <h5 style = 'margin-top: 50px;'>Total Such Inspections `r prevs_mf`</h5>
+# 
+# :::
+```
+
+## Mussels Found Previously, CDD on Inspection in BC
+
+Total Such Inspections: `r prevs_mf`.
+
+```{r mussels_found_prev_insp}
+# Pie chart 1: source state/province
+pie_1 = prevs |> 
+  filter(!MusselsFound_Ind) |> 
+  ungroup() |> 
+  make_pie('Previous_Waterbody_1_Province_Or_State') + 
+  labs(title = 'Source Province/State')
+
+# Pie chart 2: Destination region in BC
+pie_2 = prevs |> 
+  filter(!MusselsFound_Ind) |> 
+  mutate(big_dest_summary = coalesce(Destination_Waterbody_1_Name,
+                                    Destination_Waterbody_1_Closest_City,
+                                    Destination_Major_City)) |>
+  select(big_dest_summary) |> 
+  # filter(!str_detect(big_dest_summary,'Ontario')) |> 
+  mutate(dest_region = case_when(
+    big_dest_summary %in% c('Charlie Lake') ~ 'Northeast',
+    big_dest_summary %in% c('Christina Lake near Grand Forks') ~ 'Kootenay-Boundary',
+    str_detect(big_dest_summary,'(Kelowna|Okanagan|Osoyoos|Shuswap|Lake Country)') ~ 'Thompson-Okanagan',
+    str_detect(big_dest_summary,'Ocean') ~ 'Pacific Ocean \n(Vancouver Island)',
+    big_dest_summary %in% c('Ocean Pacific BC near Richmond','Squamish, British Columbia, CAN','Fraser River at Richmond') ~ 'Lower Mainland',
+    # T ~ paste0('Unknown \n(',big_dest_summary,')')
+    T ~ 'Thompson-Okanagan'
+  )) |> 
+  ungroup() |> 
+  make_pie('dest_region') + 
+  labs(title = 'Destination Region')
+
+ggpubr::ggarrange(pie_1, pie_2, ncol = 2, nrow = 1)
+
+```
+
+## Mussels Found Previously, CDD on Inspection in BC
+
+Total Such Inspections: `r prevs_mf`.
+
+```{r mf_prev_insp_station_in_bc}
+# Pie chart 3: Station where previously inspected by was intercepted in BC
+pie_3 = all_dat |> 
+  filter(!MusselsFound_Ind) |> 
+  filter(Year == most_rec_year) |> 
+  filter(Dreissenid_mussels_found_during_previous_inspection) |> 
+  select(Station) |> 
+  ungroup() |> 
+  make_pie('Station') + 
+  labs(title = "Intercepting Station")
+
+pie_3
+
+```
+
+```{r}
+## Watercraft from Snake River, Idaho - 2023
+
+# all_dat |> 
+#     filter(Year == 2023) |> 
+#     filter(stringr::str_detect(Previous_Waterbody_1_Name,'Snake')) |> 
+#     count(Previous_Waterbody_1_Name, 
+#           Previous_Waterbody_1_Province_Or_State,
+#           Destination_Waterbody_1_Name) |> 
+#   rename(`Prev WB Name` = Previous_Waterbody_1_Name,
+#          `Prev WB Prov/State` = Previous_Waterbody_1_Province_Or_State,
+#          `Dest WB Name` = Destination_Waterbody_1_Name) |> 
+#   knitr::kable()
+```
+
+## Watercraft from Snake River, Idaho - All Years
+
+```{r}
+sn_r_d = all_dat |> 
+  # filter(Year == 2023) |>
+  filter(stringr::str_detect(Previous_Waterbody_1_Name,'Snake'),
+         Previous_Waterbody_1_Province_Or_State == 'ID') |> 
+  mutate(Destination_Waterbody_1_Name = case_when(
+    Destination_Waterbody_1_Name == 'No Match' ~ 'Not Specified',
+    is.na(Destination_Waterbody_1_Name) ~ 'Not Specified',
+    T ~ Destination_Waterbody_1_Name
+  )) |>
+  count(Year, Station, Destination_Waterbody_1_Name, Destination_Waterbody_1_Closest_City, Destination_Waterbody_1_Province_Or_State, sort = T, name = 'Number of Inspections') |> 
+  arrange(desc(Year)) |> 
+  rename('Dest WB Name' = Destination_Waterbody_1_Name,
+         'Dest WB Closest City' = Destination_Waterbody_1_Closest_City, 
+         'Dest WB Prov/State' = Destination_Waterbody_1_Province_Or_State)
+
+# knitr::kable(
+#   sn_r_d |> dplyr::select(-'Dest WB Prov/State')
+# )
+# kableExtra::kbl(
+#   sn_r_d |> dplyr::select(-'Dest WB Prov/State'), 
+#   format = "html", 
+#   table.attr = "style='width:50%';font-size=10px;"
+# ) |> 
+#   kableExtra::kable_paper(full_width = T) |> 
+#   kableExtra::kable_minimal()
+sn_r_d |> 
+  dplyr::select(-'Dest WB Prov/State') |> 
+  DT::datatable(options = list(
+  headerCallback = DT::JS(
+    "function(thead) {",
+    "  $(thead).css('font-size', '1em');",
+    "}"
+  )
+))
+```
+
+```{r}
+dfo = d |> 
+  dplyr::ungroup() |> 
+  dplyr::filter(Shift_Start_Comment == 'DFO/BC joint shift' | Shift_End_Comment == 'DFO/BC join shift')
+```
+
+## DFO / Peace Arch Crossing - Inspections by Shift
+
+```{r}
+# Add Shift Date below 
+
+dfo |> 
+  dplyr::mutate(date_of_insp = lubridate::date(TimeOfInspection)) |> 
+  dplyr::mutate(Workflow_ID = paste0(date_of_insp)) |> 
+  # mutate(the_day = lubridate::wday(TimeOfInspection,label=T)) |> 
+  dplyr::count(High_Risk_AIS_Ind, Workflow_ID) |> 
+  mutate(High_Risk_AIS_Ind = ifelse(High_Risk_AIS_Ind,'High Risk','Low Risk')) |> 
+  ggplot() + 
+  geom_col(aes(x = Workflow_ID,y = n,fill=High_Risk_AIS_Ind)) +
+  big_text + 
+  labs(x = "Shift Date", y = "Number of Inspections",
+       fill = 'High or Low Risk') + 
+  scale_fill_manual(values = c("Low Risk" = "lightblue"))
+```
+
+## DFO / Peace Arch Crossing - Inspections by Hour
+
+```{r}
+dfo |> 
+  mutate(the_hour = lubridate::hour(TimeOfInspection)) |> 
+  dplyr::count(High_Risk_AIS_Ind, the_hour) |> 
+  mutate(High_Risk_AIS_Ind = ifelse(High_Risk_AIS_Ind,'High Risk','Low Risk')) |> 
+  ggplot() + 
+  geom_col(aes(x = the_hour,y = n,fill=High_Risk_AIS_Ind)) +
+  big_text + 
+  labs(x = "Hour of Day", y = "Number of Inspections",
+       fill = 'High or Low Risk') + 
+  scale_fill_manual(values = c("Low Risk" = "lightblue"))
+```
+
+## DFO / Peace Arch Crossing - Source Jurisdictions
+
+```{r}
+# Pie chart 1: source state/province
+pie_1 = dfo |> 
+  ungroup() |> 
+  make_pie('Previous_Waterbody_1_Province_Or_State') + 
+  labs(title = 'Source Province/State')
+
+pie_1
+```
+
+## DFO / Peace Arch Crossing - Destination Regions
+```{r}
+# Pie chart 2: Destination region in BC
+pie_2 = dfo |> 
+  mutate(big_dest_summary = coalesce(
+    Destination_Waterbody_1_Name,
+    Destination_Waterbody_1_Closest_City,
+    Destination_Major_City)
+  ) |>
+  select(big_dest_summary) |> 
+  # filter(!str_detect(big_dest_summary,'Ontario')) |> 
+  mutate(dest_region = case_when(
+    big_dest_summary %in% c('Charlie Lake') ~ 'Northeast',
+    big_dest_summary %in% c('Christina Lake near Grand Forks') ~ 'Kootenay-Boundary',
+    str_detect(big_dest_summary,'(Kelowna|Okanagan|Osoyoos|Shuswap|Lake Country)') ~ 'Thompson-Okanagan',
+    str_detect(big_dest_summary,'Ocean') ~ 'Pacific Ocean \n(Vancouver Island)',
+    big_dest_summary %in% c('Ocean Pacific BC near Richmond','Squamish, British Columbia, CAN','Fraser River at Richmond') ~ 'Lower Mainland',
+    # T ~ paste0('Unknown \n(',big_dest_summary,')')
+    T ~ 'Thompson-Okanagan'
+  )) |> 
+  ungroup() |> 
+  make_pie('dest_region') + 
+  labs(title = 'Destination Region')
+
+pie_2
+```
+
+## Pull the Plug Compliance - Fast Facts
+
+Note: pull the plug compliance calculated for inspections after June 18th, 2024 (first date of inspector recording drainplug information was June 19th, 2024).
+
+```{r}
+# What date did we add the drainplug field? Looks like maybe 2024-06-19.
+drainplugs_summary = d |> 
+  dplyr::mutate(the_month = lubridate::month(Start_Time),
+                the_day = lubridate::day(Start_Time)) |> 
+  dplyr::filter(the_month == 6 & the_day >= 19 | the_month >= 7) |> 
+  dplyr::mutate(Watercraft_Has_Drainplugs_Ind = ifelse(
+    Drainplug_Removed_at_Inspection_Ind == T,
+    T,
+    Watercraft_Has_Drainplugs_Ind
+  ))
+  
+dp_tbl = drainplugs_summary |> 
+  dplyr::ungroup() |> 
+  dplyr::count(Watercraft_Has_Drainplugs_Ind, Drainplug_Removed_at_Inspection_Ind, name = 'count') |> 
+  dplyr::rename(`Drainplugs Present` = Watercraft_Has_Drainplugs_Ind,
+                `Drainplugs Removed` = Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::group_by(`Drainplugs Present`) |> 
+  dplyr::mutate(compliance_percentage = scales::percent(count / sum(count))) |> 
+  dplyr::ungroup()
+
+wc_with_dp = scales::comma(sum(dp_tbl[dp_tbl$`Drainplugs Present`,]$count))
+
+wc_with_dp_p = scales::percent(sum(dp_tbl[dp_tbl$`Drainplugs Present`,]$count)/(sum(dp_tbl$count)))
+
+wc_dp_not_rm = scales::comma(dp_tbl[dp_tbl$`Drainplugs Removed`,]$count)
+
+wc_dp_not_rm_p = dp_tbl[dp_tbl$`Drainplugs Removed`,]$compliance_percentage
+```
+
+#### `r wc_with_dp` inpsected watercraft were equipped with drainplugs (`r wc_with_dp_p` of watercraft inspections after June 18th, 2024).
+
+#### Of these watercraft, `r wc_dp_not_rm` were compliant in removing drainplug(s) (`r wc_dp_not_rm_p`).
+
+## Pull the Plug Compliance - Compliance by Station
+
+Note: Scheduled Inspections, 'Other' Station, and Fraser Valley Roving removed due to low inspection number.
+
+```{r}
+plug_summary = drainplugs_summary |> 
+  dplyr::rename("Drainplug<br>Removed" = Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::filter(!(Station %in% c("Other","Fraser Valley Roving") | stringr::str_detect(Station,"Scheduled Inspection"))) |> 
+  dplyr::mutate(Watercraft_Has_Drainplugs_Ind = ifelse(
+    Watercraft_Has_Drainplugs_Ind,
+    "Has Drainplugs",
+    "No Drainplugs"
+  )) |> 
+  dplyr::count(Station,Watercraft_Has_Drainplugs_Ind, `Drainplug<br>Removed`, name = 'count')
+
+plug_summary = plug_summary |> 
+  dplyr::group_by(Watercraft_Has_Drainplugs_Ind) |> 
+  mutate(`Drainplug<br>Removed` = as.character(`Drainplug<br>Removed`)) |> 
+  mutate(`Drainplug<br>Removed` = factor(`Drainplug<br>Removed`,
+                                                      levels = c("FALSE","TRUE"))) |> 
+  group_by(Watercraft_Has_Drainplugs_Ind,
+           `Drainplug<br>Removed`) |> 
+  mutate(y_pos = (count))
+
+plug_sum_w_plugs = plug_summary |> 
+  dplyr::filter(Watercraft_Has_Drainplugs_Ind == 'Has Drainplugs')
+  
+# Add y_pos field
+plug_sum_w_plugs = plug_sum_w_plugs |> 
+  dplyr::group_by(Station) |> 
+  dplyr::mutate(station_max = sum(count)) |> 
+  dplyr::ungroup() |> 
+  dplyr::mutate(y_pos = 1.05*max(station_max))
+
+# Calculate percentages
+plug_sum_percentages = plug_sum_w_plugs |> 
+  dplyr::group_by(Station) |> 
+  dplyr::mutate(percentage = paste0(100*round(count / sum(count),3),'%')) |> 
+  dplyr::ungroup() |> 
+  dplyr::filter(`Drainplug<br>Removed` == TRUE) |> 
+  dplyr::select(Station, Watercraft_Has_Drainplugs_Ind, 
+                `Drainplug<br>Removed`, y_pos, percentage) |> 
+  dplyr::distinct()
+
+w_with_plugs = plug_sum_w_plugs |> 
+  ggplot(
+    aes(x = reorder(Station,-count), y = count, 
+        fill = `Drainplug<br>Removed`, 
+        label = count)
+  ) +
+  geom_bar(stat = "identity") +
+  # geom_text(size = 4, position = position_stack(vjust = 0.5)) +
+  geom_text(aes(x = Station, y = y_pos, label = percentage), data = plug_sum_percentages) +
+  labs(x = 'Station') +
+  big_text +
+  theme(legend.position = 'bottom',
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+  
+ggplotly(w_with_plugs)
+```
+
+## Pull the Plug Compliance - Compliance by Month
+
+```{r}
+compl_by_month = drainplugs_summary |> 
+  dplyr::rename("Drainplug<br>Removed" = Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::filter(!(Station %in% c("Other","Fraser Valley Roving") | stringr::str_detect(Station,"Scheduled Inspection"))) |> 
+  dplyr::filter(Watercraft_Has_Drainplugs_Ind) |> 
+  dplyr::mutate(the_month = lubridate::month(TimeOfInspection, label = T)) |> 
+  dplyr::count(the_month, `Drainplug<br>Removed`, name = 'count') |> 
+  dplyr::mutate(the_month = factor(the_month, levels = month(1:12, label = T))) |> 
+  dplyr::group_by(the_month)
+
+perc_compl_by_month = compl_by_month |> 
+  dplyr::group_by(the_month) |> 
+  dplyr::reframe(perc = paste0(100*round(count / sum(count),3),"%"),
+                   `Drainplug<br>Removed`) |> 
+  dplyr::ungroup() |> 
+  dplyr::left_join(compl_by_month) |> 
+  dplyr::group_by(the_month) |> 
+  dplyr::mutate(y_level = sum(count)) |> 
+  dplyr::ungroup() |> 
+  dplyr::mutate(y_level = 1.1*max(y_level)) |> 
+  dplyr::select(-count) |> 
+  dplyr::filter(`Drainplug<br>Removed`)
+
+compl_by_month |> 
+  ggplot(
+    aes(x = the_month, y = count, 
+        fill = `Drainplug<br>Removed`, 
+        label = count)
+  ) +
+  geom_bar(stat = "identity") +
+  geom_text(size = 4, position = position_stack(vjust = 0.5),
+            data = compl_by_month |> dplyr::filter(the_month != 'Oct')) +
+  geom_text(aes(x = the_month, y = y_level, label = perc), data = perc_compl_by_month) + 
+  labs(x = 'Station', fill = "Drainplug Removed") +
+  big_text +
+  theme(legend.position = 'bottom',
+        axis.text.x = element_text(angle = 90))
+```
+
+## Pull the Plug Compliance - Compliance by Source Jurisdiction
+
+```{r}
+compl_by_sj = drainplugs_summary |> 
+  dplyr::ungroup() |> 
+  dplyr::rename("Drainplug<br>Removed" = Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::select(prev_j = Previous_Waterbody_1_Province_Or_State,
+                Watercraft_Has_Drainplugs_Ind,
+                `Drainplug<br>Removed`) |> 
+  dplyr::filter(Watercraft_Has_Drainplugs_Ind) |> 
+  dplyr::mutate(prev_j = forcats::fct_lump(prev_j, n = 10)) |> 
+  dplyr::count(prev_j,
+               `Drainplug<br>Removed`,
+               name = "count", 
+               sort = T) |>  
+  dplyr::group_by(prev_j) |> 
+  dplyr::mutate(total_c = sum(count)) |> 
+  dplyr::ungroup() |> 
+  dplyr::arrange(dplyr::desc(total_c)) |> 
+  dplyr::mutate(prev_j = as.factor(prev_j))
+  
+perc_compl_by_sj = compl_by_sj |> 
+  dplyr::group_by(prev_j) |> 
+  dplyr::reframe(perc = paste0(100*round(count / sum(count),3),"%"),
+                   `Drainplug<br>Removed`) |> 
+  dplyr::ungroup() |> 
+  dplyr::filter(`Drainplug<br>Removed`) |> 
+  dplyr::distinct()
+
+y_level_for_plot = 1.1*max(compl_by_sj$total_c)
+  
+ggplot(compl_by_sj)  +
+  geom_col(aes(x = prev_j,
+               y = count, 
+               fill = `Drainplug<br>Removed`)) +
+  geom_text(aes(x = prev_j, y = y_level_for_plot, label = perc),
+            data = perc_compl_by_sj) +
+  big_text +
+  theme(legend.position = 'bottom') + 
+  labs(x = "Previous Jurisdiction", fill = "Drainplug Removed")
+```
+
+```{r}
+blowb = vroom::vroom("C:/Users/CMADSEN/Downloads/metabase_2024_blowbys.csv") |> 
+  purrr::set_names(snakecase::to_snake_case) |> 
+  dplyr::mutate(observer_work_flow_id = as.character(observer_work_flow_id))
+
+# Get station name through link with observer workflow id 
+
+blowb = blowb |> 
+  dplyr::mutate(observer_work_flow_id = as.numeric(observer_work_flow_id)) |> 
+  left_join(
+    d |> 
+      dplyr::select(Workflow_ID,
+                   Station) |> 
+      dplyr::rename(observer_work_flow_id = Workflow_ID) |> 
+      dplyr::distinct()
+  ) |> 
+  dplyr::filter(!is.na(Station))
+```
+
+## Blowby Timing - Total Blowbys
+
+```{r}
+blowb |> 
+  dplyr::select(blow_by_time) |> 
+  mutate(blow_by_char = as.character(blow_by_time)) |> 
+  mutate(hours = stringr::str_extract(blow_by_char,"[0-9]{1,2}:.*")) |> 
+  mutate(hours = lubridate::hms(hours)) |> 
+  dplyr::mutate(the_hour = lubridate::hour(hours)) |> 
+  dplyr::count(the_hour) |> 
+  ggplot() + 
+  geom_col(aes(x = the_hour, y = n)) +
+  labs(x = "Hour of Day", y = "Number of Blowbys") +
+  big_text
+```
+
+## Blowby Timing - By Station
+
+```{r}
+blowby_by_station = blowb |> 
+  dplyr::select(Station,blow_by_time) |> 
+  # dplyr::filter(!Station %in% c()) |> 
+  dplyr::filter(!stringr::str_detect(Station,'Scheduled')) |>
+  mutate(blow_by_char = as.character(blow_by_time)) |> 
+  mutate(hours = stringr::str_extract(blow_by_char,"[0-9]{1,2}:.*")) |> 
+  mutate(hours = lubridate::hms(hours)) |> 
+  dplyr::mutate(the_hour = lubridate::hour(hours)) |> 
+  dplyr::count(the_hour,Station)
+
+blowby_p = blowby_by_station |> 
+  ggplot() + 
+  geom_col(aes(the_hour,y=n,fill = Station)) + 
+  labs(y = "Number of Blowbys",
+       x = "Hour of Day")  +
+  big_text
+
+ggplotly(blowby_p)
+```
+
+## Blowby Timing - By Station V.2
+
+```{r}
+blowby_by_station |> 
+  ggplot() + 
+  geom_col(aes(the_hour,y=n,fill = Station)) + 
+  facet_wrap( ~ Station) + 
+  theme(legend.position = 'none') + 
+  labs(y = "Number of Blowbys",
+       x = "Hour of Day")
+```
+
+## Blow Bys - Total Hours Worked
+
+```{r}
+# Summarise blowbys by workflow id
+blowb_by_workflow_id = blowb |> 
+  dplyr::count(observer_work_flow_id, watercraft_complexity) |> 
+  tidyr::pivot_wider(names_from = watercraft_complexity, values_from = n, names_prefix = 'watercraft_') |> 
+  dplyr::mutate(dplyr::across(dplyr::everything(), \(x) tidyr::replace_na(x, 0))) |> 
+  dplyr::mutate(total_blowbys = `watercraft_Non-motorized` + watercraft_Simple + watercraft_Complex + `watercraft_Very Complex`)
+
+# Summarise number of inspector hours by Station and hour of day.
+hours_worked_by_station_hod = d |> 
+  # dplyr::filter(Workflow_ID == 6744) |> # Shift length in hours
+  dplyr::group_by(Station, Workflow_ID) |> 
+  dplyr::reframe(Start_Time = min(Start_Time,na.rm=T),
+                   End_Time = max(End_Time,na.rm=T)) |> 
+  # This should have been corrected already... but make sure End Times
+  # are a day ahead of start times, if End Times are currently before Start Times.
+  dplyr::mutate(End_Time = ifelse(End_Time < Start_Time, End_Time + lubridate::days(1), End_Time)) |> 
+  dplyr::mutate(End_Time = lubridate::as_datetime(End_Time)) |> 
+  dplyr::mutate(shift_length = as.numeric(End_Time - Start_Time)) |> 
+  dplyr::select(Station, Workflow_ID, Start_Time, End_Time, shift_length) |> 
+  dplyr::distinct() |> 
+  dplyr::mutate(start_hour = lubridate::hour(Start_Time),
+                end_hour = lubridate::hour(End_Time)) |> 
+  # If the start hour is in the same day as the end hour, this is simple;
+  # if end hour is the next day (but usually earlier in the day than the start hour),
+  # this is more complex.
+  dplyr::rowwise() |> 
+  dplyr::mutate(hours_inclusive = dplyr::case_when(
+    lubridate::date(Start_Time) == lubridate::date(End_Time) ~ list(start_hour:end_hour),
+    T ~ list(c(start_hour:23,0:end_hour))
+    )
+  )|> 
+  dplyr::ungroup() |> 
+  tidyr::unnest(hours_inclusive) |> 
+  dplyr::count(Station,hours_inclusive) |> 
+  dplyr::mutate(hours_inclusive = ifelse(hours_inclusive == 0, 24, hours_inclusive))
+
+hours_worked_by_hod = hours_worked_by_station_hod |> 
+  dplyr::count(hours_inclusive, wt = n, name = 'hours_worked')
+
+# insp_per_hour = d |> 
+#   dplyr::ungroup() |> 
+#   dplyr::mutate(hours_inclusive = lubridate::hour(TimeOfInspection)) |> 
+#   dplyr::mutate(hours_inclusive = ifelse(hours_inclusive == 0, 24, hours_inclusive)) |> 
+#   dplyr::count(hours_inclusive, name = 'inspections')
+
+hours_worked_by_hod |> 
+  # dplyr::left_join(insp_per_hour) |> 
+  # tidyr::pivot_longer(cols = -hours_inclusive) |> 
+  ggplot2::ggplot() + 
+  ggplot2::geom_col(ggplot2::aes(x = hours_inclusive, y = hours_worked), 
+                    position = position_dodge()) + 
+  labs(y = "Hours Worked or Inspections, by Hour",
+       x = "Hour of Day",
+       fill = "Data Type") + 
+  scale_x_discrete(limits = c(1:24))
+
+```
+
+## Blow Bys - Hours Worked by Station
+```{r}
+hours_worked_by_station_hod |> 
+  dplyr::filter(!stringr::str_detect(Station,'Scheduled')) |>
+  ggplot2::ggplot() + 
+  ggplot2::geom_col(ggplot2::aes(x = hours_inclusive, y = n, fill = Station), 
+                    position = position_dodge()) + 
+  labs(y = "Hours Worked or Inspections, by Hour",
+       x = "Hour of Day",
+       fill = "Data Type") + 
+  scale_x_discrete(limits = c(1:24)) + 
+  theme(legend.position = 'none') +
+  facet_wrap( ~ Station)
+```
+
+
+```{r}
+## Hours Worked with Total Inspections by Station
+
+# hours_worked_by_station_hod
+
+# insp_per_hour_station = d |> 
+#   dplyr::ungroup() |> 
+#   dplyr::mutate(hours_inclusive = lubridate::hour(TimeOfInspection)) |> 
+#   dplyr::mutate(hours_inclusive = ifelse(hours_inclusive == 0, 24, hours_inclusive)) |> 
+#   dplyr::count(Station,hours_inclusive, name = 'inspections')
+# 
+# hours_worked_by_station_hod |> 
+#   dplyr::filter(!stringr::str_detect(Station, "Scheduled")) |> 
+#   dplyr::filter(!Station %in% c("Other","Fraser Valley Roving")) |> 
+#   dplyr::rename("hours_worked" = n) |> 
+#   dplyr::left_join(insp_per_hour_station) |> 
+#   tidyr::pivot_longer(cols = -c(hours_inclusive,Station)) |> 
+#   ggplot2::ggplot() + 
+#   ggplot2::geom_col(ggplot2::aes(x = hours_inclusive, y = value, fill = name),
+#                     position = position_dodge()) + 
+#   labs(y = "Hours Worked or Inspections, by Hour",
+#        x = "Hour of Day",
+#        fill = "Data Type") + 
+#   scale_x_discrete(limits = c(1:24)) + 
+#   facet_wrap( ~ Station)
+```
+
+## Blow Bys - Blowbys per Effort
+
+```{r}
+
+## Total Blowbys with Effort
+
+blowb_hour_station_summary = blowb |> 
+  dplyr::select(blow_by_time, workflow_id = observer_work_flow_id, Station) |> 
+  mutate(blow_by_char = as.character(blow_by_time)) |> 
+  mutate(hours = stringr::str_extract(blow_by_char,"[0-9]{1,2}:.*")) |> 
+  mutate(hours = lubridate::hms(hours),
+         the_hour = lubridate::hour(hours)) |>  
+  dplyr::count(Station,the_hour) |> 
+  dplyr::mutate(the_hour = ifelse(the_hour == 0, 24, the_hour))
+  
+blowb_hour_summary = blowb_hour_station_summary |> 
+  dplyr::group_by(the_hour) |> 
+  dplyr::summarise(n = sum(n))
+
+blowb_hour_summary |> 
+  dplyr::rename(blowbys = n) |> 
+  dplyr::left_join(hours_worked_by_hod |> 
+                     dplyr::rename(the_hour = hours_inclusive)) |> 
+  dplyr::mutate(blowbys_per_effort = blowbys / hours_worked) |> 
+  ggplot() + 
+  geom_col(aes(x = the_hour, y = blowbys_per_effort)) + 
+  labs(y = "Blowbys by Effort (# Blowbys / Total Inspector Hours)",
+       x = "Hour of Day")
+```
+
+## COS Inbox Summary (2022 - 2024)
+
+```{r}
+
+# non-2024 data
+cos_d = openxlsx::read.xlsx("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2023/GIS Maps and Excel Figures/2023_CBSA_sorting_results_MB.xlsx",
+                            sheet = "summary_figure")
+
+# 2024
+cos_24 = openxlsx::read.xlsx("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2024/GIS Maps and Excel Figures/ExcelFigures/COS inbox notifications 2024.xlsx",
+                            sheet = "sorted")
+
+cos_24 = cos_24[,c(6,7)]
+
+names(cos_24) = c("category","2024")
+
+cos_24 = cos_24 |> 
+  dplyr::filter(!is.na(`2024`))
+
+cbsa_24 = cos_24 |> 
+  dplyr::filter(stringr::str_detect(category,"CBSA")) |> 
+  dplyr::mutate(Location = stringr::str_remove_all(category,
+                                                   "CBSA ")) |> 
+  dplyr::mutate(Location = stringr::str_squish(Location)) |> 
+  dplyr::mutate(Location = ifelse(Location == 'Rooseville',
+                                  'Roosville',
+                                  Location)) |> 
+  dplyr::mutate(Location = stringr::str_to_title(Location)) |> 
+  dplyr::select(-category)
+
+cos_d = cos_d |> 
+  dplyr::full_join(cbsa_24) |> 
+  dplyr::mutate(dplyr::across(dplyr::everything(), \(x) tidyr::replace_na(x, 0)))
+
+cos_d |> 
+  tidyr::pivot_longer(-Location) |> 
+  dplyr::filter(name %in% c("2022","2023","2024")) |> 
+  ggplot() + 
+  geom_col(aes(x = Location, y = value, fill = name),
+           position = position_dodge2()) +
+  labs(y = 'Number of Notifications',
+       fill = "Year") + 
+  big_text
+```
+
+## Whirling Disease - by Station
+
+Note: these inspections are all inspections flagged to be "High_Risk_Area_Ind".
+
+```{r}
+# Not sure which field to use! High_Risk_Area_Ind?
+wdd = d |> 
+  dplyr::filter(High_Risk_Area_Ind)
+
+wdd |> 
+  dplyr::count(Station,sort = T) |> 
+  dplyr::mutate(Station = stringr::str_replace(Station,"Scheduled Inspection ","Scheduled Inspection<br>")) |> 
+  dplyr::mutate(Station = as.factor(Station)) |> 
+  dplyr::mutate(Station = forcats::fct_inorder(Station)) |> 
+  ggplot(aes(x = Station, y = n)) + 
+  geom_col() + 
+  labs(y = "Watercraft from High-risk Areas\n for High Whirling Disease") +
+  big_text + 
+  theme(axis.text.x = ggtext::element_markdown())
+```
+
+## Whirling Disease - by Source
+```{r}
+wdd |> 
+  dplyr::rename(prevj = Previous_Waterbody_1_Province_Or_State) |> 
+  dplyr::count(prevj,sort = T) |> 
+  dplyr::mutate(prevj = as.factor(prevj)) |> 
+  dplyr::mutate(prevj = forcats::fct_inorder(prevj)) |> 
+  ggplot(aes(x = prevj, y = n)) + 
+  geom_col() + 
+  labs(y = "Watercraft from High-risk Areas\n for High Whirling Disease",
+       x = "Previous Jurisdiction") +
+  big_text
+```
+
+
+## Previously Inspected High Risk (Out of Province) 
+
+```{r}
+d |> 
+  dplyr::filter(High_Risk_AIS_Ind) |> 
+  dplyr::filter(Previous_Inspection_Ind) |> 
+  dplyr::filter(Previous_Waterbody_1_Province_Or_State != "BC") |> 
+  dplyr::rename(Previous_Jurisdiction = Previous_Waterbody_1_Province_Or_State) |> 
+  dplyr::count(Previous_Jurisdiction, name = "count", sort = T) |> 
+  dplyr::mutate(Previous_Jurisdiction = as.factor(Previous_Jurisdiction)) |> 
+  dplyr::mutate(Previous_Jurisdiction = forcats::fct_inorder(Previous_Jurisdiction)) |> 
+  ggplot(aes(x = Previous_Jurisdiction, y = count)) + 
+  geom_col() + 
+  geom_text(aes(y = count/2, label = count), col = 'white') +
+  labs(x = "Previous Jurisdiction", y = "Number of Watercraft") +
+  big_text
+```
+
+
+## Additional Assessments
+
+<a href = "data/2024_metabase_data_exploration.html" style = "font-size: xx-large">Data Gaps Assessment (2024)</a>

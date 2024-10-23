@@ -682,6 +682,17 @@ tmap_save(tm = map_2c_tmap, filename = paste0(my.external.output.folder,'/GIS Ma
 }
 ```
 
+### Aside: Number of Shifts by Station
+```{r}
+# Number of shifts
+dat |> 
+  filter(!Station %in% rovers_to_drop) |> 
+  dplyr::select(Station, Shift_ID) |> 
+  dplyr::distinct() |> 
+  dplyr::count(Station, sort = T) |> 
+  knitr::kable()
+```
+
 ### Figure 3 Encounter Frequency by Station
 
 ```{r fig3_total_boats_by_station}
@@ -691,7 +702,7 @@ fig3_data = dat |>
          shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
   group_by(Station,Shift_ID) |> 
   reframe(NumberInsp = n(),
-            shift_hours = shift_end_time - shift_start_time) |>
+          shift_hours = shift_end_time - shift_start_time) |>
   # If we get some negative values for shift hours, just make those 0...
   dplyr::mutate(shift_hours = ifelse(shift_hours < 0, 0, shift_hours)) |> 
   distinct() |> 
@@ -1484,6 +1495,15 @@ ggplot(boatlaunch_dat_count) +
        color = 'High Risk Inspection')
 ```
 
+### Brief Aside: Roving Stations whose location is unknown (not boat launch nor scheduled inspection)
+```{r}
+boatlaunch_dat |> 
+  dplyr::select(Station,TimeOfInspection,High_Risk_AIS_Ind,Shift_Start_Comment,likely_lake) |> 
+  dplyr::filter(is.na(likely_lake)) |> 
+  dplyr::select(Station,Shift_Start_Comment) |> 
+  knitr::kable()
+```
+
 ### Brief Aside: Breakdown of High-risk / Low-risk for Scheduled Inspections
 ```{r}
 # Look at 'scheduled inspection' records
@@ -1623,6 +1643,7 @@ number_motorized = dat |>
 paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized),4), "%")
 ```
 
+### Roving Station but not Boat Launch nor
 ### Figure 13 Noncompliant Watercraft Breakdown
 ```{r fig13_noncompliant_breakdown}
 # Make a version of our dataset that adopts temporary changes to 
@@ -1630,6 +1651,8 @@ paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized
 # a boat launch / lake name, change the station to 'Boat Launch'
 dat_bl = dat |> 
   mutate(Station = ifelse(str_detect(Shift_Start_Comment,'(lake|Lake|boat l|Boat L)'),'Boat Launch',Station))
+
+
 
 dat_bl |> 
   filter(str_detect(Station, "Scheduled") | Station %in% c("Lower Mainland Roving","Penticton Roving","Boat Launch")) |>
@@ -1644,7 +1667,6 @@ dat_bl |>
     motorized_blowbys = sum(as.numeric(Motorized_Blow_Bys_Counter)),
     number_rows = n()) |> 
   ungroup() |> 
-  
   mutate(Station = paste0(Station, " (N = ",number_rows,")")) |> 
   knitr::kable()
 

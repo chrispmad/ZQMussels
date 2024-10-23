@@ -15,8 +15,13 @@ ZQMussels.Rproj
 04_Extra_Figures_and_Scripts/**.html
 temp_files/**
 temp.html
-04_Extra_Figures_and_Scripts/quarto**
 02_IMDP_Figure_Generator/02_IMDP_FinalReport_Figures_files/**
-04_Extra_Figures_and_Scripts/CRB/output/**
-docs/**
 02_IMDP_Figure_Generator/04_Generate_Final_Report.Rmd
+04_Extra_Figures_and_Scripts/quarto**
+04_Extra_Figures_and_Scripts/CRB/output/**
+05_Annual_Meeting_Presentations/data/**
+05_Annual_Meeting_Presentations/output/**
+05_Annual_Meeting_Presentations/IMDP 2024 Watercraft Inspection Stats presentation_files/**
+05_Annual_Meeting_Presentations/IMDP-2024-Watercraft-Inspection-Stats-presentation_files/**
+05_Annual_Meeting_Presentations/output/**
+docs/**
