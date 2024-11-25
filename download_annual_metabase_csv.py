@@ -15,6 +15,7 @@ import glob
 from datetime import datetime
 
 
+# %%
 def wait_for_download(directory, file_pattern, timeout=60, check_interval=5):
     """
     Wait for a file matching the file_pattern to appear in the directory and finish downloading.
@@ -52,7 +53,6 @@ the_year = int(my_opts["year"].iloc[0])
 # Create the WebDriver instance outside the loop
 driver = webdriver.Chrome()
 
-# url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/"
 url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/366"
 
 driver.get(url)
@@ -98,7 +98,11 @@ csv_download_button = driver.find_element(By.TAG_NAME, "form")
 
 csv_download_button.click()
 
+# %%
+# Wait for 3 minutes for download, just in case it takes that long.
+time.sleep(180)
 # We need to wait for this download to complete.
+
 # %%
 
 # Define the path to the Downloads folder
@@ -149,21 +153,25 @@ if files:
     os.rename(downloaded_file, new_file_path)
     print(f"Renamed file to {new_file_path}")
 
-    # Remove the old version of this file that's on the J: drive, if it exists.
-    old_file = glob.glob(os.path.join(network_drive_folder, new_file_name))
+    # LAN folder path plus file name
+    lan_file_path = os.path.join(network_drive_folder, new_file_name)
 
-    if old_file != []:
+    # Remove the old version of this file that's on the J: drive, if it exists.
+    old_file_on_lan = glob.glob(lan_file_path)
+
+    if old_file_on_lan != []:
         # Pull out the full path to the old metabase summary file.
-        old_file = old_file[0]
+        old_file_on_lan = old_file_on_lan[0]
         # Delete the old file currently in the LAN folder
-        os.remove(old_file)
+        os.remove(old_file_on_lan)
         # Copy over the minty-fresh metabase summary file, from C:/.../Downloads to the LAN folder (J: for me)
-        shutil.copyfile(new_file_path, old_file)
-        # Remove te metabase summary from the local Downloads folder
+        shutil.copyfile(new_file_path, old_file_on_lan)
+        # Remove the metabase summary from the local Downloads folder
         os.remove(new_file_path)
 else:
-    print("No files found matching the pattern.")
+    shutil.copyfile(src=new_file_path, dst=lan_file_path)
 
+print("Finished downloading metabase file from the website! Transferring to R now.")
 driver.quit()
 
 # %%
