@@ -25,6 +25,8 @@ setwd(here::here())
 
 my_opts = read_csv("Options.csv")
 
+onedrive_wd = "C:/Users/CMADSEN/OneDrive - Government of BC/data/"
+
 my.year = my_opts$year
 # my.year = 2023
 
@@ -39,7 +41,7 @@ knitr::opts_chunk$set(
 
 ```
 
-This R Markdown document estimates the invasion risk of Zebra-Quagga Mussels in freshwater water bodies in British Columbia. 
+This R Markdown document estimates the invasion risk of Zebra-Quagga Mussels in freshwater waterbodies in British Columbia. Please note: only named waterbodies have been included in this analysis! Also, for the final introduction and economic risk maps, only waterbodies with at least one watercraft inspection record are retained.
 
 # Methodology {.tabset}
 
@@ -62,23 +64,26 @@ dams = dams |>
   st_as_sf(coords = c('lng','lat'), crs = 4326) |> 
   st_transform(crs = 3005)
 
-sar = sf::read_sf('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available_no_insects.gpkg') |> 
+# CDC listed species
+cdc_sar_sp = sf::read_sf('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available_no_insects.gpkg') |>
   sf::st_transform(3005)
 
-# # Calculate sar by subwatershed.
-# sar_by_subw = sar |> 
-#   sf::st_join(dplyr::select(subw, WATERSH = WATERSHED_),
-#               st_intersects) |> 
-#   sf::st_drop_geometry() |> 
-#   dplyr::count(ENG_NAME,SCI_NAME,WATERSH) |> 
-#   count(WATERSH, name = 'distinct_SAR')
+fed_sara_sp = sf::read_sf(paste0(onedrive_wd,"CNF/DFO_SARA_occ_data_QGIS_simplified.gpkg")) |> 
+  sf::st_transform(3005) |> 
+  sf::st_make_valid()
 
-
-# if(!file.exists(paste0(my_opts$base_dir,'03_PrioritizationModel/data/number_of_waterbodies_in_wb_networks.csv'))){
-#   source(paste0(my_opts$base_dir,'04_Extra_Figures_and_Scripts/find_waterbody_networks_in_province.R'))
-# }
-
+# Connectivity of roads and streams!
 connectivity = read_csv(paste0(my_opts$base_dir,'03_PrioritizationModel/data/number_stream_and_road_table.csv'))
+
+waterb = waterb |>
+  dplyr::left_join(connectivity)
+
+# # Number of inflows per waterbody?
+# library(fwa.connect)
+# inflow_tbl = fwa.connect::stream_conn_tbl
+
+# # DFO calcium map
+# dfo_calc_estab_risk = terra::rast(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZQM_Calcium_Establishment_Potential.tif'))
 ```
 
 ```{r join_extra_data_to_waterb}
@@ -86,19 +91,35 @@ connectivity = read_csv(paste0(my_opts$base_dir,'03_PrioritizationModel/data/num
 #   dplyr::left_join(sar_by_subw)
 
 # Add in dams and species at risk at waterbody scale
-sar_by_waterb = sar |> 
+cdc_sar_sp_by_waterb = cdc_sar_sp |> 
   st_join(waterb, st_intersects)
   
-sar_by_waterb = sar_by_waterb |> 
+cdc_sar_sp_by_waterb = cdc_sar_sp_by_waterb |> 
   sf::st_drop_geometry() |> 
   dplyr::filter(!is.na(GNIS_NA)) |> 
   dplyr::group_by(GNIS_NA,WATERBO,WATERSH) |> 
-  summarise(SAR_present = paste0(SCI_NAME, collapse = ', ')) |> 
-  dplyr::mutate(distinct_SAR = stringr::str_detect(SAR_present,',') + 1)
+  summarise(CDC_listed_SAR = paste0(SCI_NAME, collapse = ', ')) |> 
+  dplyr::ungroup() |> 
+  dplyr::mutate(distinct_CDC_listed_SAR = stringr::str_detect(CDC_listed_SAR,',') + 1)
 
 waterb = waterb |> 
-  dplyr::left_join(sar_by_waterb)
+  dplyr::left_join(cdc_sar_sp_by_waterb)
 
+fed_sara_sp_by_wb = fed_sara_sp |> 
+  st_join(waterb, st_intersects)
+  
+fed_sara_sp_by_wb = fed_sara_sp_by_wb |> 
+  sf::st_drop_geometry() |> 
+  dplyr::filter(!is.na(GNIS_NA)) |> 
+  dplyr::group_by(GNIS_NA,WATERBO,WATERSH) |> 
+  summarise(Fed_SARA_listed_SAR = paste0(Scientific_Name, collapse = ', ')) |> 
+  dplyr::ungroup() |> 
+  dplyr::mutate(distinct_Fed_SARA_listed_SAR = stringr::str_detect(Fed_SARA_listed_SAR,',') + 1)
+
+waterb = waterb |> 
+  dplyr::left_join(fed_sara_sp_by_wb)
+
+# Dams
 dams_by_waterb = dams |> 
   st_buffer(dist = 100) |>
   st_join(waterb, st_intersects) |> 
@@ -126,7 +147,7 @@ bc_m = bcmaps::bc_bound()
 watershed_m = subw[10,]
 
 lakes_m = waterb |> 
-  dplyr::filter(GNIS_NA == watershed_m$WATERSHE_1)
+  sf::st_intersection(watershed_m)
 
 subw_wb_example_left = ggplot() + 
   geom_sf(data = bc_m) + 
@@ -154,18 +175,20 @@ ggpubr::ggarrange(subw_wb_example_left,
 ### Invasion and Establishment Risk
 
 * Five categories of variables were defined: 
-  + 1. Use (Total Watercraft Inspections, Angler use, and number of marinas) (number of abutting streams and number of nearby roads removed for this iteration)
+  + 1. Use (Total Watercraft Inspections, Angler use (2010 survey), Days fished (2023 survey), and number of marinas) (number of abutting streams and number of nearby roads removed for this iteration)
   + 2. High-risk (High-risk Inspections and Transport Canada Operation Restrictions)
   + 3. Mussel-Fouled (Mussel-fouled Inspections)
   + 4. Subwatershed-scale mean dissolved calcium
+  + 5. Connectivity (number of abutting streams and number of roads within 15 meters)
 
 ### Economic Value Risk
 
-* Two categories of variables were defined:
+* Three categories of variables were defined:
   + 1. Summed Capacity of Hydroelectric Dams by subwatershed (dam points buffered by 100m)
-  + 2. Species Richness of Aquatic Species-at-risk by subwatershed
+  + 2. Species Richness of Federally SARA-listed Aquatic Species-at-risk by subwatershed
+  + 3. Species Richness of Provincial Conservation Data Center listed Aquatic Species-at-risk by subwatershed
   
-Prior to running the model, each variable was binned separately into three bins as defined by that variable's natural breaks. Because of a small number of outliers with exceptionally high values for many variables, the top 5% of each variable's distribution was temporarily excluded to find these natural breaks. Bin 1 represents the lowest risk estimate and 3 represents the highest risk of invasion. 
+Prior to running the model, each variable was binned separately into three bins as defined by that variable's natural breaks. Because of a small number of outliers with exceptionally high values for many variables, the top 5% of each variable's distribution was temporarily excluded to find these natural breaks. Bin 1 represents the lowest risk estimate and 3 represents the highest risk of invasion.
 
 Three of the variables were classified differently. Operational restrictions on power/electric propulsion of vessels were assigned a value of -2, and restrictions on power propulsion were assigned a value of -1. Mussel-fouled inspections were  waterbodies with any mussel-fouled inspections were assigned a value of 1 for the variable *M*, while those waterbodies without mussel-fouled inspections received a 0 for *M*. Mean dissolved calcium was binned into three levels prior to inclusion in this analysis: minimal risk (<=12 mg/L), moderate (between 12 and 30 mg/L), and high risk (30+ mg/L), but in this analysis the minimal risk subwatersheds (or subwatersheds lacking EMS data) were assigned a value of 0 risk, moderate subwatersheds were assigned a value of 1, and high risk watersheds were assigned a value of 2.
 
@@ -186,12 +209,12 @@ The number of abutting streams and the number of nearby roads were calculated fo
 
 The following risk models were constructed with _a priori_ knowledge of key variable inputs:
 
-$$I_w = (\frac{T_w+A_w+M_w}{n_w}) + (\frac{H_w-O_w}{n_w}) + (\frac{M_w}{n_w}) + (C_s)$$
+$$I_w = (\frac{T_w+A_w+M_w}{n_w}) + (\frac{H_w-O_w}{n_w}) + (\frac{MF_w}{n_w}) + (C_s) + (\frac{SA_w+AR_w}{n_w})$$
 
-Where _Iw_ represents the invasion / establishment risk estimate of a water body *w*. *T* refers to the total number of watercraft inspections of watercraft headed to waterbody *y*, *A* to angling effort (sum of angling days), *M* to the number of marinas in waterbody *w*, *H* to high-risk inspections and *O* refers to operational restrictions. *M* to mussel-fouled inspections, and *C* stands for the subwatershed-level calcium level (calculated using Environment Monitoring System data). *SA* stands for the number of streams abutting the waterbody and *AR* stands for the number of potential access roads near the waterbody, but both were removed for this run of the model. *O* represents a risk reduction, and so it is subtracted from the overall risk estimate.
+Where _Iw_ represents the invasion / establishment risk estimate of a water body *w*. *T* refers to the total number of watercraft inspections of watercraft headed to waterbody *y*, *A* to angling effort (sum of angling days), *M* to the number of marinas in waterbody *w*, *H* to high-risk inspections and *O* refers to operational restrictions. *MF* to mussel-fouled inspections, *C* stands for the subwatershed-level calcium level (calculated using Environment Monitoring System data), *SA* stands for the number of streams abutting the waterbody, and *AR* stands for the number of potential access roads near the waterbody. *O* represents a risk reduction, and so it is subtracted from the overall risk estimate.
 
-$$EV_w = (D_s) + (SAR_s)$$
-Where _EV_w_ represents the economic value risk estimate of a water body. *D* refers to the summed dam capacity at the waterbody scale and *SAR* refers to the number of distinct species of aquatic species-at-risk at the waterbody scale.
+$$EV_w = (D_w) + (FSARA_w) + (PSAR_w)$$
+Where _EV_w_ represents the economic value risk estimate of a water body. *D* refers to the summed dam capacity at the waterbody scale, *FSARA* refers to the number of distinct species of aquatic, federally SARA-listed species-at-risk, and *PSAR* refers to the number of distinct species of aquatic, provincially listed by the Conservation Data Centre as species-at-risk, all at the waterbody scale.
 
 ```{r split_into_motorized_and_non}
 waterb = waterb %>% 
@@ -208,18 +231,25 @@ waterb = waterb %>%
 # all.my.vars = c("TotalInspections","Marinas","Sum.of.days.fished",
 #                  "HR_mot","HR_nonmot","NumberMusselFouled","OperRes",
 #                 "number_streams","number_roads","SummedDamCapacity","distinct_SAR")
-all.my.vars = c("Marinas","Sum.of.days.fished",
+all.my.vars = c("Marinas","Sum.of.days.fished_2010_survey",
+                "days_fished_2023_survey",
                 "NumberMusselFouled","OperRes",
-                "SummedDamCapacity","distinct_SAR",
-                "TotalInspections","HR_mot","HR_nonmot")
+                "SummedDamCapacity",
+                #"CDC_listed_SAR",
+                "distinct_CDC_listed_SAR",
+                #"Fed_SARA_listed_SAR",
+                "distinct_Fed_SARA_listed_SAR",
+                "TotalInspections","HR_mot","HR_nonmot",
+                "number_roads","number_streams")
 # six.binners = c("TotalInspections", "HR_mot","HR_nonmot")
 MusselFouledvar = "NumberMusselFouled"
 # Usevars = c("TotalInspections","Sum.of.days.fished","Marinas","number_streams","number_roads")
-Usevars = c("TotalInspections","Sum.of.days.fished","Marinas")
+Usevars = c("TotalInspections","Sum.of.days.fished_2010_survey","days_fished_2023_survey","Marinas")
+Connectivityvars = c("number_streams","number_roads")
 Highriskvars = c("HR_mot","HR_nonmot","OperRes")
 # Connectivity = c("number_streams")
 Damvars = c("SummedDamCapacity")
-SARvars = c("distinct_SAR")
+SARvars = c("distinct_CDC_listed_SAR","Fed_SARA_listed_SAR")
 EVvars = c(Damvars, SARvars)
 Subwatershedvars = c('ZQ_CalcRisk')
 
@@ -251,6 +281,8 @@ data_long = waterb %>%
     TRUE ~ OperRes)) %>% 
   mutate(OperRes = replace(OperRes, OperRes == "3", "NA")) %>% 
   mutate(OperRes = as.numeric(OperRes)) %>% 
+  # Count up the number of CDC listed and Fed SARA listed species
+  # dplyr::select(-c(CDC_listed_SAR,Fed_SARA_listed_SAR)) |> 
   pivot_longer(all_of(c(all.my.vars,"total_HR")), names_to = "varname", values_to = "original.value") %>% 
   filter(!is.na(original.value))
 
@@ -489,7 +521,7 @@ my.colours = c("#f3ed8e","#eb9e4e","#F00320","darkgrey")
 
 ### Waterbody Risk Estimation - Use Variables
 
-These variables include the number of total inspections, the sum of days fished, the number of marinas (removed for this run: the number of abutting streams, and the number of nearby access roads for a given water body). 
+These variables include the number of total inspections, the sum of days fished (2010 and 2023 surveys), and the number of marinas. 
 
 Note that the histogram figures do not display data points where the value was 0; however, a large number of such data points exist in the dataset.
 
@@ -519,6 +551,7 @@ risk_data_use = risk_data %>%
   group_by(WATERSH,WATERBO,GNIS_NA,Grouper) %>% 
   #Calculate the mean value for each of the 3 groups of variables.
   mutate(MeanValue = mean(value)) %>% 
+  dplyr::ungroup() |> 
   #Get rid of the original variables, keeping the mean values.
   dplyr::select(-name,-value) %>% 
   distinct() %>% 
@@ -584,7 +617,7 @@ These variables include the number of high-risk inspections and Transport Canada
 
 ```{r 2nd_fig_high_risk}
 #Note, we are also going to bump the risk_bin down 1 for any records that are
-#non-motorized ONLY, with no transport canada data.
+#non-motorized ONLY, with no transport Canada data.
 # The following water bodies have only non-motorized inspections (both high-risk and total inspections). The risk estimate of these water bodies was reduced by 1.
 
 just_nonmot = waterb %>%
@@ -625,7 +658,8 @@ risk_data_highrisk = risk_data %>%
     name %in% Highriskvars ~ "Highrisk")) %>% 
   group_by(WATERSH,WATERBO,GNIS_NA,Grouper) %>% 
   #Calculate the mean value for each of the 3 groups of variables.
-  mutate(MeanValue = mean(value)) %>% 
+  mutate(MeanValue = mean(value)) %>%
+  dplyr::ungroup() |> 
   #Get rid of the original variables, keeping the mean values.
   dplyr::select(-name,-value) %>% 
   distinct() %>% 
@@ -664,7 +698,8 @@ waterb_risk = waterb %>%
          value > 0) %>% 
   group_by(Variable) %>% 
   summarise(mean = round(mean(value),1),
-            median = median(value))
+            median = median(value)) |> 
+    knitr::kable()
 # )
 
 # #Number of lakes/rivers in each category of high-risk motorized inspections?
@@ -822,6 +857,104 @@ ggplot() +
 # }
 ```
 
+### Connectivity
+
+The number of abutting streams, and the number of nearby access roads for each waterbody.
+
+```{r}
+risk_data_connectivity = risk_data %>% 
+  # dplyr::filter(!is.na(TotalInspections)) |> 
+  dplyr::select(WATERSH,WATERBO,GNIS_NA,Connectivityvars) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(cols = all_of(Connectivityvars)) %>% 
+  #Get rid of empty rows and 0s.
+  filter(!is.na(value),
+         value > 0) %>% 
+  mutate(Grouper = case_when(
+    name %in% Connectivityvars ~ "Connectivity")) %>% 
+  group_by(WATERSH,WATERBO,GNIS_NA,Grouper) %>% 
+  #Calculate the mean value for each of the 3 groups of variables.
+  mutate(MeanValue = mean(value)) %>% 
+  dplyr::ungroup() |> 
+  #Get rid of the original variables, keeping the mean values.
+  dplyr::select(-name,-value) %>% 
+  distinct() %>% 
+  #Pivot wider again, splitting the three averages into 3 columns.
+  pivot_wider(names_from = Grouper, values_from = MeanValue) %>% 
+  #Replace NA in the 3 variable group columns with 0s
+  mutate(Connectivity = replace_na(Connectivity)) %>% 
+  #Calculate risk column.
+  mutate(Risk = Connectivity) %>% 
+  #Bin the risk values.
+  mutate(Risk = round(Risk,2)) |> 
+  dplyr::ungroup()
+
+waterb_connectivity = waterb %>% 
+  # dplyr::filter(!is.na(TotalInspections)) |>
+  dplyr::select(WATERSH,WATERBO,GNIS_NA) %>% 
+  left_join(risk_data_connectivity) %>% 
+  mutate(Risk = as.character(Risk)) %>% 
+  #Replace NA's with a factor called "Unknown"
+  mutate(Risk = replace_na(Risk, "Unknown")) |> 
+  dplyr::mutate(Risk = as.numeric(Risk)) |> 
+  dplyr::mutate(Risk = case_when(
+    Risk < 1.5 ~ 1, 
+    Risk >= 1.5 & Risk < 2.5 ~ 2,
+    Risk >= 2.5 ~ 3
+  )) |> 
+  dplyr::mutate(Risk = as.character(Risk)) |> 
+  dplyr::mutate(Risk = factor(Risk, levels = c("1","2","3")))
+
+#Mean, median
+# knitr::kable(
+waterb %>% 
+  dplyr::select(all_of(Connectivityvars)) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(cols = everything()) %>% 
+  rename(Variable = name) %>% 
+  filter(!is.na(value),
+         value > 0) %>% 
+  group_by(Variable) %>% 
+  summarise(mean = round(mean(value),1),
+            median = median(value))
+# )
+```
+
+#### Number of Tributary Waterbodies
+```{r}
+risk_data[!is.na(risk_data$number_streams),] |> 
+  dplyr::mutate(number_streams = factor(number_streams, levels = c(NA,1,2,3))) |> 
+  ggplot() + 
+  geom_sf(data = bc, fill = "lightgrey") +
+  geom_sf(aes(fill = number_streams, col = number_streams)) +
+  scale_fill_brewer(palette = "RdYlGn", direction = -1) +
+  scale_colour_brewer(palette = "RdYlGn", direction = -1) +
+  ggthemes::theme_map() + 
+  ggtitle("Number of Tributary Streams/Rivers") +
+  theme(
+    title = element_text(size = 16)
+  ) + 
+  labs(fill = 'Binned\nNumber of\nStreams',
+       colour = 'Binned\nNumber of\nStreams')
+```
+
+#### Number of Nearby Roads
+```{r}
+risk_data[!is.na(risk_data$number_roads),] |> 
+  dplyr::mutate(number_roads = factor(number_roads, levels = c(NA,1,2,3))) |> 
+  ggplot() + 
+  geom_sf(data = bc, fill = "lightgrey") +
+  geom_sf(aes(fill = number_roads, col = number_roads)) +
+  scale_fill_brewer(palette = "RdYlGn", direction = -1) +
+  scale_colour_brewer(palette = "RdYlGn", direction = -1) +
+  ggthemes::theme_map() + 
+  ggtitle("Number of Tributary Streams/Rivers") +
+  theme(
+    title = element_text(size = 16)
+  ) + 
+  labs(fill = 'Binned\nNumber of\nRoads',
+       colour = 'Binned\nNumber of\nRoads')
+```
 
 ## Ecosystem Values
 
@@ -906,9 +1039,9 @@ ggplot() +
   )
 ```
 
-### Distinct Species-at-Risk
+### Distinct Federal SARA-listed Species-at-Risk
 
-```{r distinct_sar}
+```{r distinct_federal_sara_species}
 
 ## The below code plots # of distinct SAR as a ggplot2.
 # subw_w_dat |> 
@@ -933,27 +1066,27 @@ ggplot() +
 #   )
 
 # data for mussel-fouled inspections.
-risk_data_sar = risk_data %>% 
+risk_data_fed_sara = risk_data %>% 
   st_drop_geometry() %>% 
   #Get rid of empty rows.
-  filter(!is.na(distinct_SAR)) %>% 
+  filter(!is.na(distinct_Fed_SARA_listed_SAR)) %>% 
   #Calculate risk column.
-  mutate(Risk = distinct_SAR) %>% 
+  mutate(Risk = distinct_Fed_SARA_listed_SAR) %>% 
   #Round the risk values to nearest whole number.
   mutate(Risk = round(Risk,2)) %>% 
   mutate(Risk = as.character(Risk)) %>% 
   mutate(Risk = replace_na(Risk, "Unknown")) |> 
-  dplyr::select(WATERSH, WATERBO, GNIS_NA, distinct_SAR, Risk)
+  dplyr::select(WATERSH, WATERBO, GNIS_NA, distinct_Fed_SARA_listed_SAR, Risk)
 
 waterb_risk = waterb %>% 
   dplyr::select(WATERSH,WATERBO,GNIS_NA) %>% 
-  left_join(risk_data_sar) %>% 
+  left_join(risk_data_fed_sara) %>% 
   #Replace NA's with a factor called "Unknown"
   mutate(Risk = replace_na(Risk, "Unknown"))
 
 # Table
 waterb %>% 
-  dplyr::select(distinct_SAR) %>% 
+  dplyr::select(distinct_Fed_SARA_listed_SAR) %>% 
   st_drop_geometry() %>% 
   pivot_longer(cols = everything()) %>% 
   rename(Variable = name) %>% 
@@ -974,7 +1107,61 @@ ggplot() +
   scale_fill_brewer(palette = "RdYlGn", direction = -1) +
   scale_colour_brewer(palette = "RdYlGn", direction = -1) +
   ggthemes::theme_map() + 
-  ggtitle("Distinct Aquatic SAR",
+  labs(fill = "Binned Values", col = "Binned Values") +
+  ggtitle("Distinct Federal SARA sp.",
+          subtitle = 'At the Waterbody Scale') +
+  theme(
+    title = element_text(size = 16)
+  )
+```
+
+### Distinct Provincial CDC-listed Species-at-Risk
+
+```{r distinct_provincial_cdc_listed_species}
+# data for mussel-fouled inspections.
+risk_data_cdc_sar = risk_data %>% 
+  st_drop_geometry() %>% 
+  #Get rid of empty rows.
+  filter(!is.na(distinct_CDC_listed_SAR)) %>% 
+  #Calculate risk column.
+  mutate(Risk = distinct_CDC_listed_SAR) %>% 
+  #Round the risk values to nearest whole number.
+  mutate(Risk = round(Risk,2)) %>% 
+  mutate(Risk = as.character(Risk)) %>% 
+  mutate(Risk = replace_na(Risk, "Unknown")) |> 
+  dplyr::select(WATERSH, WATERBO, GNIS_NA, distinct_CDC_listed_SAR, Risk)
+
+waterb_risk = waterb %>% 
+  dplyr::select(WATERSH,WATERBO,GNIS_NA) %>% 
+  left_join(risk_data_cdc_sar) %>% 
+  #Replace NA's with a factor called "Unknown"
+  mutate(Risk = replace_na(Risk, "Unknown"))
+
+# Table
+waterb %>% 
+  dplyr::select(distinct_CDC_listed_SAR) %>% 
+  st_drop_geometry() %>% 
+  pivot_longer(cols = everything()) %>% 
+  rename(Variable = name) %>% 
+  filter(!is.na(value),
+         value > 0) %>% 
+  group_by(Variable) %>% 
+  summarise(mean = round(mean(value),1),
+            median = median(value),
+            number_of_wbs_with_data = n())
+
+ggplot() +
+  geom_sf(data = bc, fill = "lightgrey") +
+  geom_sf(data = waterb_risk %>% 
+            filter(Risk != 'Unknown') |> 
+            filter(Risk > 0) |> 
+            filter(!GNIS_NA %in% c('Dry Storage','Commercially Hauled','Pacific Ocean')), 
+          aes(fill = Risk, col = Risk)) +
+  scale_fill_brewer(palette = "RdYlGn", direction = -1) +
+  scale_colour_brewer(palette = "RdYlGn", direction = -1) +
+  ggthemes::theme_map() + 
+  labs(fill = "Binned Values", col = "Binned Values") +
+  ggtitle("Distinct CDC SAR sp.",
           subtitle = 'At the Waterbody Scale') +
   theme(
     title = element_text(size = 16)
@@ -994,7 +1181,9 @@ risk_data_means = risk_data_use %>%
   full_join(risk_data_mf %>% 
               dplyr::select(-Risk,
                             MusselFouled = NumberMusselFouled)) %>% 
-  left_join(risk_data_sar |> dplyr::select(-Risk)) |> 
+  full_join(risk_data_connectivity |> dplyr::select(-Risk)) |> 
+  left_join(risk_data_fed_sara |> dplyr::select(-Risk)) |> 
+  left_join(risk_data_cdc_sar |> dplyr::select(-Risk)) |> 
   left_join(risk_data_sdc |> dplyr::select(-Risk)) |> 
   # left_join(risk_data_wb_connectivity |> 
   #             dplyr::select(WATERSH,WATERBO,GNIS_NA,Risk) |> 
@@ -1009,9 +1198,10 @@ risk_data_means = risk_data_use %>%
   mutate(MusselFouled = replace_na(MusselFouled, 0),
          Use = replace_na(Use, 0),
          Highrisk = replace_na(Highrisk, 0),
-         # Connectivity = replace_na(Connectivity, 0),
+         Connectivity = replace_na(Connectivity, 0),
          SummedDamCapacity = replace_na(SummedDamCapacity, 0),
-         distinct_SAR = replace_na(distinct_SAR, 0)) %>% 
+         distinct_CDC_listed_SAR = replace_na(distinct_CDC_listed_SAR, 0),
+         distinct_Fed_SARA_listed_SAR = replace_na(distinct_Fed_SARA_listed_SAR, 0)) %>% 
 #Mussel-fouled will be reclassified as 1 or 0 (true or false)
   rename(Watershed = WATERSH) |> 
   st_drop_geometry() %>% 
@@ -1030,8 +1220,8 @@ risk_data_means = risk_data_use %>%
   #Replace missing values for calc with 0.
   mutate(calcium_bin = replace_na(calcium_bin, 0)) %>% 
   #Calculate risk column.
-  mutate(InvasionRisk = Use + MusselFouled + Highrisk + calcium_bin,
-         EVRisk = SummedDamCapacity + distinct_SAR) %>% 
+  mutate(InvasionRisk = Use + MusselFouled + Highrisk + calcium_bin + Connectivity,
+         EVRisk = SummedDamCapacity + distinct_CDC_listed_SAR + distinct_Fed_SARA_listed_SAR) %>% 
   #Round the risk values.
   mutate(InvasionRisk = round(InvasionRisk,2),
          EVRisk = round(EVRisk,2)) %>% 
@@ -1110,7 +1300,7 @@ ggplot() +
 ```{r EV_unbinned_histogram, fig.width = 6, fig.height = 6}
 waterb_risk |> 
   st_drop_geometry() |> 
-  dplyr::mutate(ENRisk_unbin = distinct_SAR + SummedDamCapacity) |> 
+  dplyr::mutate(ENRisk_unbin = distinct_Fed_SARA_listed_SAR + distinct_CDC_listed_SAR + SummedDamCapacity) |> 
   dplyr::select(ENRisk_unbin) |> 
   ggplot() + 
   geom_histogram(aes(ENRisk_unbin)) + 

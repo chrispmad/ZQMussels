@@ -20,6 +20,8 @@ library(sf)
 library(ggspatial)
 library(ggthemes)
 library(bcdata)
+library(DBI)
+library(RSQLite)
 ```
 
 ```{r read_and_set_options}
@@ -71,56 +73,75 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
 }
 
 #Environmental Monitoring System calcium data (total and dissolved)
-#Load in the first dataset (last 2 years) - downloaded at the beginning of 2021, will need to be re-downloaded when run in the future!
-df <- read_csv(paste0(data.path,"ems_sample_results_current_expanded.csv"), 
-                col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
-                                 COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
-                                 UPPER_DEPTH = col_integer(),
-                                 LOWER_DEPTH = col_integer(),
-                                 TIDE = col_integer(),
-                                 AIR_FILTER_SIZE = col_integer(),
-                                 AIR_FLOW_VOLUME = col_integer(),
-                                 FLOW_UNIT = col_character(),
-                                 COMPOSITE_ITEMS = col_integer(),
-                                 CONTINUOUS_AVERAGE = col_integer(),
-                                 CONTINUOUS_MAXIMUM = col_integer(),
-                                 CONTINUOUS_MINIMUM = col_integer(),
-                                 CONTINUOUS_UNIT_CODE = col_integer(),
-                                 CONTINUOUS_DURATION = col_integer(),
-                                 CONTINUOUS_DURATION_UNIT = col_character())) %>% 
-  filter(is.na(LATITUDE)==F) %>% 
-  mutate(UNIT = MDL_UNIT) |> 
-  filter(PARAMETER_CODE %in% c("CA-T","CA-D","0004"))
+
+# Query from EMS!
+ems_path = paste0(stringr::str_extract(my_opts$base_dir,".*long_term_projects"),"/EMS/output/EMS.sqlite")
+conn = dbConnect(SQLite(), ems_path)
+df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
+DBI::dbDisconnect(conn)
+# #Load in the first dataset (last 2 years) - downloaded at the beginning of 2021, will need to be re-downloaded when run in the future!
+# df <- read_csv(paste0(data.path,"ems_sample_results_current_expanded.csv"), 
+#                 col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
+#                                  COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
+#                                  UPPER_DEPTH = col_integer(),
+#                                  LOWER_DEPTH = col_integer(),
+#                                  TIDE = col_integer(),
+#                                  AIR_FILTER_SIZE = col_integer(),
+#                                  AIR_FLOW_VOLUME = col_integer(),
+#                                  FLOW_UNIT = col_character(),
+#                                  COMPOSITE_ITEMS = col_integer(),
+#                                  CONTINUOUS_AVERAGE = col_integer(),
+#                                  CONTINUOUS_MAXIMUM = col_integer(),
+#                                  CONTINUOUS_MINIMUM = col_integer(),
+#                                  CONTINUOUS_UNIT_CODE = col_integer(),
+#                                  CONTINUOUS_DURATION = col_integer(),
+#                                  CONTINUOUS_DURATION_UNIT = col_character())) %>% 
+#   filter(is.na(LATITUDE)==F) %>% 
+#   mutate(UNIT = MDL_UNIT) |> 
+#   filter(PARAMETER_CODE %in% c("CA-T","CA-D","0004"))
 
 #Get rid of columns 29 to 60, which we do not need.
 df = df[,c(1:28)]
 
-## Load in the mammoth dataset ###
-mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium_and_pH.csv"),
-
-                           col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"),
-                                            COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"),
-                                            UPPER_DEPTH = col_integer(),
-                                            LOWER_DEPTH = col_integer(),
-                                            TIDE = col_integer(),
-                                            AIR_FILTER_SIZE = col_integer(),
-                                            AIR_FLOW_VOLUME = col_integer(),
-                                            FLOW_UNIT = col_character(),
-                                            COMPOSITE_ITEMS = col_integer(),
-                                            CONTINUOUS_AVERAGE = col_integer(),
-                                            CONTINUOUS_MAXIMUM = col_integer(),
-                                            CONTINUOUS_MINIMUM = col_integer(),
-                                            CONTINUOUS_UNIT_CODE = col_integer(),
-                                            CONTINUOUS_DURATION = col_integer(),
-                                            CONTINUOUS_DURATION_UNIT = col_character()))
-
-mammoth_dataset = mammoth_dataset[,c(1:28)]
+# ## Load in the mammoth dataset ###
+# mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium_and_pH.csv"),
+# 
+#                            col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"),
+#                                             COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"),
+#                                             UPPER_DEPTH = col_integer(),
+#                                             LOWER_DEPTH = col_integer(),
+#                                             TIDE = col_integer(),
+#                                             AIR_FILTER_SIZE = col_integer(),
+#                                             AIR_FLOW_VOLUME = col_integer(),
+#                                             FLOW_UNIT = col_character(),
+#                                             COMPOSITE_ITEMS = col_integer(),
+#                                             CONTINUOUS_AVERAGE = col_integer(),
+#                                             CONTINUOUS_MAXIMUM = col_integer(),
+#                                             CONTINUOUS_MINIMUM = col_integer(),
+#                                             CONTINUOUS_UNIT_CODE = col_integer(),
+#                                             CONTINUOUS_DURATION = col_integer(),
+#                                             CONTINUOUS_DURATION_UNIT = col_character()))
+# 
+# mammoth_dataset = mammoth_dataset[,c(1:28)]
 ```
 
 ```{r combine_data}
-df = bind_rows(df, mammoth_dataset) %>% 
+# df = bind_rows(df, mammoth_dataset) %>% 
+df = df |> 
   dplyr::select(EMS_ID, MONITORING_LOCATION,LOCATION_TYPE,COLLECTION_START,COLLECTION_END,SAMPLING_AGENCY,COLLECTION_METHOD,PARAMETER,ANALYTICAL_METHOD,RESULT,UNIT,LONGITUDE,LATITUDE)
-rm(mammoth_dataset)
+# rm(mammoth_dataset)
+
+
+# Ensure we dont' have points with missing locations or sampling dates.
+df = df |> 
+  dplyr::filter(!is.na(LATITUDE),
+                !is.na(LONGITUDE)) |> 
+  dplyr::filter(!(is.na(COLLECTION_START) & is.na(COLLECTION_END)))
+
+# Clean up date columns!
+df = df |> 
+  dplyr::mutate(COLLECTION_START = lubridate::ymd_hms(COLLECTION_START),
+                COLLECTION_END = lubridate::ymd_hms(COLLECTION_END))
 
 hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
 ```
@@ -148,11 +169,9 @@ watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Watersh
 # We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
 
 # Calculate number of data points for pH and calcium
-total_pH = nrow(df_f |> 
-                  dplyr::filter(PARAMETER == 'pH'))
+total_pH = nrow(df_f |> dplyr::filter(PARAMETER == 'pH'))
 
-total_calc = nrow(df_f |> 
-                  dplyr::filter(PARAMETER != 'pH'))
+total_calc = nrow(df_f |> dplyr::filter(PARAMETER != 'pH'))
 
 # Simple spatial match to waterbodies
 

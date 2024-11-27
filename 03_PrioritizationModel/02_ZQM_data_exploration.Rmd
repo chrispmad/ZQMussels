@@ -11,7 +11,7 @@ output:
 
 ```{r setup, include=FALSE}
 library(readxl)
-library(raster)
+library(terra)
 library(sf)
 library(tidyverse)
 library(ggrepel)
@@ -35,7 +35,9 @@ This R Markdown document explores the datasets we plan to use to inform our asse
   
 ```{r import_waterbody_data_and_filtering}
 # Inspections joined to water bodies.
+
 waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+# waterb2 = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/Waterbodies_with_Inspection_Data_Summaries_all_years.gpkg"))
 
 # colnames(waterb) = openxlsx::read.xlsx("column_names_for_waterb_with_data.xlsx") %>% filter(`colnames(waterb)` != "geometry") %>% add_row(`colnames(waterb)` = "geometry") %>% pull(`colnames(waterb)`)
 
@@ -164,11 +166,19 @@ my.summary = function(x){
 
 
 ```{r sum_days_fished}
-my.summary(waterb$Sum.of.days.fished)
+my.summary(waterb$Sum.of.days.fished_2010_survey)
 
-exploration_big10(x = "Sum.of.days.fished")
+exploration_big10(x = "Sum.of.days.fished_2010_survey")
 
-exploration_battery(x = "Sum.of.days.fished")
+exploration_battery(x = "Sum.of.days.fished_2010_survey")
+```
+
+```{r angling_days}
+my.summary(waterb$days_fished_2023_survey)
+
+exploration_big10(x = "days_fished_2023_survey")
+
+exploration_battery(x = "days_fished_2023_survey")
 ```
 
 ```{r average_angler_days}
@@ -199,7 +209,7 @@ exploration_battery(x = "Sum.of.days.fished")
 
 ### Boat Launches
 
-We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
+We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), 2010 angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
 
 ```{r boat_launches}
 my.summary(waterb$BoatLaunches)
@@ -445,6 +455,75 @@ exploration_big10(x = "NumberDams")
 exploration_battery(x = "NumberDams")
 
 ``` 
+
+### DFO Predicted Suitability for Zebra and Quagga Mussels (Ca2+ model) {.tabset}
+
+These interpolated maps utilized EMS data for BC (2000-2020), filtered away any negative or 0 values for calcium, applied a spatial filter to remove calcium points outside of waterbodies, and removed calcium values of type 'Industrial Effluent.' The predicted value is the establishment potential based on (dissolved) calcium. There are also MaxEnt-derived models that give predictions of Zebra and Quagga mussel establishment potential (based on the following predictor variables: Ca2+, Max Temp in warmest month, min Temp in coldest month, min Temp in wettest quarter, precipitation in wettest month, precip seasonality, precip in coldest quarter, and pH, the last of which was by far the least significant predictor!) but those models' predictions perhaps under-predict the suitability of habitat across North America, so they have not been utilized or visualized here.
+
+```{r}
+# DFO interpolated calcium TIF
+dfo_calc_qm = terra::rast(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_QM_Calcium_Establishment_Potential.tif'))
+dfo_calc_zm = terra::rast(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_Calcium_Establishment_Potential.tif'))
+
+# Clip to BC.
+bc_vect = terra::project(terra::vect(dplyr::summarise(bc)), terra::crs(dfo_calc_qm))
+
+dfo_calc_qm = terra::mask(terra::crop(dfo_calc_qm, bc_vect), bc_vect)
+dfo_calc_zm = terra::mask(terra::crop(dfo_calc_zm, bc_vect), bc_vect)
+
+# Take larger predicted value for any given raster cell.
+dfo_calc = max(dfo_calc_qm, dfo_calc_zm,na.rm=T)
+
+terra::writeRaster(dfo_calc, paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZQM_Calcium_Establishment_Potential.tif'))
+
+# DFO subwatershed values.
+dfo_qm_subdr = sf::read_sf(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_QM_Shapefiles/QM_Ecological_Risk_Sub-Drainage.shp'))
+dfo_zm_subdr = sf::read_sf(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_QM_Shapefiles/ZM_Ecological_Risk_Sub-Drainage.shp'))
+
+dfo_qm_subdr = sf::st_intersection(dfo_qm_subdr, sf::st_transform(dplyr::summarise(bc), terra::crs(dfo_qm_subdr)))
+dfo_zm_subdr = sf::st_intersection(dfo_zm_subdr, sf::st_transform(dplyr::summarise(bc), terra::crs(dfo_zm_subdr)))
+```
+
+#### Zebra Mussel Establishment Potential (Ca2+)
+```{r}
+ggplot() + 
+  tidyterra::geom_spatraster(data = terra::project(dfo_calc_zm, 'EPSG:3005')) + 
+  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
+  ggthemes::theme_map()
+```
+
+#### Quagga Mussel Establishment Potential (Ca2+)
+
+```{r}
+ggplot() + 
+  tidyterra::geom_spatraster(data = terra::project(dfo_calc_qm, 'EPSG:3005')) + 
+  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
+  ggthemes::theme_map()
+```
+
+#### Combined 
+```{r}
+ggplot() + 
+  tidyterra::geom_spatraster(data = terra::project(dfo_calc, 'EPSG:3005')) + 
+  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
+  ggthemes::theme_map()
+```
+
+### DFO Predicted Ecological Risk at Sub-Drainage level {.tabset}
+
+#### Zebra Mussel
+```{r}
+ggplot() + geom_sf(data = dfo_zm_subdr |> sf::st_transform(3005), aes(fill = ZMME_Mx_E)) + 
+  scale_fill_manual(values = c("Low" = "lightgreen", "Moderate" = 'gold', "High" = 'darkred')) + 
+  ggthemes::theme_map()
+```
+
+#### Quagga Mussel
+```{r}
+ggplot() + geom_sf(data = dfo_qm_subdr |> sf::st_transform(3005), aes(fill = QMME_Mx_E)) + 
+  scale_fill_manual(values = c("Low" = "lightgreen", "Moderate" = 'gold', "High" = 'darkred')) + 
+  ggthemes::theme_map()
+```
 
 ```{r variable_choice_table}
 var_table = waterb %>% 
