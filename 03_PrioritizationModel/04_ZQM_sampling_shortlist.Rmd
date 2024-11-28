@@ -27,7 +27,7 @@ library(readr)
 
 my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
-my.year = 2024
+my.year = my_opts$year + 1
 
 knitr::opts_chunk$set(
 	echo = FALSE,
@@ -81,10 +81,14 @@ waterb_og_values_and_bins = waterb_risk |>
               st_drop_geometry() |> 
               dplyr::rename(
                 SummedDamCapacity_unbinned = SummedDamCapacity,
-                distinct_SAR_unbinned = distinct_SAR,
+                # distinct_SAR_unbinned = distinct_SAR,
+                distinct_Fed_SARA_listed_SAR_unbinned = distinct_Fed_SARA_listed_SAR,
+                distinct_CDC_listed_SAR_unbinned = distinct_CDC_listed_SAR,
                 OperRes_unbinned = OperRes) |> 
               dplyr::mutate(SummedDamCapacity_unbinned = replace_na(SummedDamCapacity_unbinned, 0),
-                            distinct_SAR_unbinned = replace_na(distinct_SAR_unbinned, 0),
+                            # distinct_SAR_unbinned = replace_na(distinct_SAR_unbinned, 0),
+                            distinct_Fed_SARA_listed_SAR_unbinned = replace_na(distinct_Fed_SARA_listed_SAR_unbinned),
+                            distinct_CDC_listed_SAR_unbinned = replace_na(distinct_CDC_listed_SAR_unbinned),
                             OperRes_unbinned = replace_na(OperRes_unbinned, 'No Restriction'))
   ) #|> 
  # left_join(subw_w_dat |> 
@@ -131,7 +135,7 @@ waterb_risk_rivers_merged = list()
 
 for(i in 1:length(unique_duplicated_river_names)){
 
-  # print(i)
+  if(interactive()) print(paste0(i, ' out of ',length(unique_duplicated_river_names)))
   
   the_name = unique_duplicated_river_names[i]
   
@@ -253,6 +257,10 @@ sample_protocol_2023 = get_wb_list_from_protocol_doc(
   officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2023/Sampling protocol/2023 Invasive Mussel Field Protocol_Draft_V1.docx')
 )
 
+# 2024 waterbodies to be sampled.
+sample_protocol_2024 = get_wb_list_from_protocol_doc(
+  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx')
+)
 # sample_protocol_2023 = sample_protocol_2023 |> 
 #   dplyr::mutate(`Veliger Sampling Frequency` = 'Undecided') |> 
 #   dplyr::select(
@@ -267,25 +275,28 @@ sample_protocol_2023 = get_wb_list_from_protocol_doc(
 past_sample_protocols = sample_protocol_2021 |> 
  mutate(sampling_year = 2021) |> 
  bind_rows(sample_protocol_2022 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2022)) |> 
- bind_rows(sample_protocol_2023 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2023))
+ bind_rows(sample_protocol_2023 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2023)) |> 
+  bind_rows(sample_protocol_2024 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2024))
 
 #We have some waterbodies with various sampling stations proposed. We just need 1 row per wb.
 sample_protocol = past_sample_protocols |>
- group_by(Region,Waterbody,sampling_year) |>
- slice(1)
+  group_by(Region,Waterbody,sampling_year) |>
+  slice(1) |> 
+  dplyr::ungroup()
 
 #Some names are spelled differently between this excel sheet and the BCG Warehouse waterbody layers. Fix these manually.
 sample_protocol = sample_protocol |>
- mutate(Waterbody = case_when(
-   Waterbody == "Atlin lake" ~ "Atlin Lake",
-   Waterbody == "Columbia River (Lower)" ~ "Columbia River",
-   Waterbody == "Kinaskan" ~ "Kinaskan Lake",
-   Waterbody == "Koocanusa Lake" ~ "Lake Koocanusa",
-   Waterbody == "Marquart & Lunbom Lakes" ~ "Marquart Lake",
-   T ~ Waterbody
- )) |>
- group_by(Region,Waterbody,sampling_year) |>
- slice(1)
+  mutate(Waterbody = case_when(
+    Waterbody == "Atlin lake" ~ "Atlin Lake",
+    Waterbody == "Columbia River (Lower)" ~ "Columbia River",
+    Waterbody == "Kinaskan" ~ "Kinaskan Lake",
+    Waterbody == "Koocanusa Lake" ~ "Lake Koocanusa",
+    Waterbody == "Marquart & Lunbom Lakes" ~ "Marquart Lake",
+    T ~ Waterbody
+  )) |>
+  group_by(Region,Waterbody,sampling_year) |>
+  slice(1) |> 
+  dplyr::ungroup()
 
 # # Rename regions to match with inspection data regions.
 # sample_protocol = sample_protocol |> 
@@ -310,37 +321,13 @@ rm(past_sample_protocols)
 #Do a name match between "waterb_risk" and the protocol list
 waterb_risk = waterb_risk |>
   dplyr::rename(REGION_NAME = REGION_N) |>
-  # dplyr::mutate(REGION_NAME = stringr::str_remove_all(REGION_NAME,
-  #                                                     ' Natural Resource Region')) |> 
-  # dplyr::mutate(REGION_NAME = stringr::str_replace_all(REGION_NAME,
-  #                                                      'Northeast',
-  #                                                      'Peace')) |> 
  #Name join
   left_join(sample_protocol, by = join_by(GNIS_NA, REGION_NAME)) |> 
   mutate(on_2021_protocol_list = replace_na(on_2021_protocol_list, F)) |>
   mutate(on_2022_protocol_list = replace_na(on_2022_protocol_list, F)) |>
   mutate(on_2023_protocol_list = replace_na(on_2023_protocol_list, F)) |>
-  # #For each name match with more than 1 match, just keep the highest risk WB.
-  # group_by(GNIS_NA) |>
-  # arrange(desc(InvasionRisk)) |>
-  # mutate(name_risk_ranking = row_number()) |>
-  # mutate(prot_list_name_join_2021 = case_when(
-  #   prot_list_name_join_2021 == T & name_risk_ranking == 1 ~ T,
-  #   prot_list_name_join_2021 == T & name_risk_ranking > 1 ~ F,
-  #   prot_list_name_join_2021 == F ~ F
-  # )) |> 
-  # mutate(prot_list_name_join_2022 = case_when(
-  #   prot_list_name_join_2022 == T & name_risk_ranking == 1 ~ T,
-  #   prot_list_name_join_2022 == T & name_risk_ranking > 1 ~ F,
-  #   prot_list_name_join_2022 == F ~ F
-  # )) |> 
-  # mutate(prot_list_name_join_2023 = case_when(
-  #   prot_list_name_join_2023 == T & name_risk_ranking == 1 ~ T,
-  #   prot_list_name_join_2023 == T & name_risk_ranking > 1 ~ F,
-  #   prot_list_name_join_2023 == F ~ F
-  # )) |> 
-ungroup()
-rm(sample_protocol); rm(sample_protocol_2021); rm(sample_protocol_2022); rm(sample_protocol_2023)
+  ungroup()
+rm(sample_protocol); rm(sample_protocol_2021); rm(sample_protocol_2022); rm(sample_protocol_2023); rm(sample_protocol_2024)
 ```
 
 ```{r add_lake_monitoring_lab_results}
@@ -373,9 +360,48 @@ lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lak
   dplyr::mutate(`# of Plankton tows` = as.character(`# of Plankton tows`)) |> 
   dplyr::mutate(Year = 2023)
 
+# 2024 
+#2023 Lake monitoring lab results.
+lakes_monitored_2024 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Lab results/Final report/Copy of BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx")) |> 
+  dplyr::mutate(`Lat (Decimal degrees)` = as.numeric(`Lat (Decimal degrees)`),
+                `Long (Decimal degrees)` = as.numeric(`Long (Decimal degrees)`)) |> 
+  dplyr::mutate(`Water temperature (°C)*` = as.character(`Water temperature (°C)*`),
+                `pH (in water column)` = as.character(`pH (in water column)`),
+                `Total Volume Sampled (L)` = as.numeric(`Total Volume Sampled (L)`),
+                `Sample pH (at the time preserved)` = as.character(`Sample pH (at the time preserved)`)) |> 
+  dplyr::filter(!is.na(Waterbody),
+                !stringr::str_detect(Waterbody,'[0-9]+'),
+                Waterbody != 'waterbodies') |> 
+  dplyr::mutate(Waterbody = stringr::str_squish(Waterbody)) |> 
+  dplyr::mutate(Waterbody = case_when(
+    Waterbody == 'Alouette' ~ 'Alouette Lake',
+    Waterbody == 'Leighton' ~ 'Leighton Lake',
+    Waterbody == 'Wahleach' ~ 'Wahleach Lake',
+    Waterbody == 'Peter-Hope' ~ 'Peter Hope Lake',
+    Waterbody %in% c('St. Marys Lake',"St. Mary's Lake") ~ 'St. Mary Lake',
+    Waterbody %in% c('Surveyors Lake',"Surveyor's Lake") ~ 'Surveyors Lake',
+    Waterbody == 'Arrow Lake, Lower' ~ 'Lower Arrow Lake',
+    Waterbody == 'Arrow Lake, Upper' ~ 'Upper Arrow Lake',
+    Waterbody == 'Enid Lake' ~ 'Lake Enid',
+    Waterbody == 'Koocanusa Lake' ~ 'Lake Koocanusa',
+    stringr::str_detect(Waterbody, 'Kootenay River \\(*') ~ 'Kootenay River',
+    Waterbody == 'Lower Fraser River' ~ 'Fraser River',
+    Waterbody == 'Lac La Hache' ~ 'Lac la Hache',
+    Waterbody == 'Lac le Jeune' ~ 'Lac Le Jeune',
+    Waterbody == 'Lower Kettle River' ~ 'Kettle River',
+    Waterbody == 'Upper Kettle River' ~ 'Kettle River',
+    Waterbody == 'Norbury Lake' ~ 'Norbury Lakes',
+    Waterbody == 'Winderemere Lake' ~ 'Windermere Lake',
+    Waterbody == "Pend d'Oreille River" ~ "Pend-d'Oreille River",
+    T ~ Waterbody
+  )) |> 
+  dplyr::mutate(`# of Plankton tows` = as.character(`# of Plankton tows`)) |> 
+  dplyr::mutate(Year = 2024)
+
 # Find the natural resource region, add in for each wb.
 lakes_monitored = lakes_monitored_2022 |> 
   dplyr::bind_rows(lakes_monitored_2023) |> 
+  dplyr::bind_rows(lakes_monitored_2024) |> 
   dplyr::filter(!is.na(`Lat (Decimal degrees)`)) |> 
   st_as_sf(coords = c('Long (Decimal degrees)',
                       'Lat (Decimal degrees)'),
@@ -395,41 +421,11 @@ lakes_monitored = lakes_monitored_2022 |>
   pivot_wider(names_from = Year, values_from = sampled, values_fill = FALSE) |> 
   dplyr::rename(REGION_NAME = REGION_N)
 
-# #Just keep 1 row per water body name.
-# lakes_monitored_2022 = lakes_monitored_2022 |>
-#  rename(GNIS_NA = Waterbody) |>
-#  dplyr::select(GNIS_NA) |>
-#  distinct() |>
-#  mutate( = T) |> 
-#  filter(!is.na(GNIS_NA))
-# 
-# lakes_monitored_2023 = lakes_monitored_2023 |>
-#  rename(GNIS_NA = Waterbody) |>
-#  dplyr::select(GNIS_NA) |>
-#  distinct() |>
-#  mutate(Sampled2023 = T) |> 
-#  filter(!is.na(GNIS_NA))
-# 
-# lakes_monitored = full_join(
-#   lakes_monitored_2022,
-#   lakes_monitored_2023
-# )
-
 waterb_risk = waterb_risk |>
   dplyr::left_join(lakes_monitored, by = join_by(GNIS_NA, REGION_NAME)) |> 
   dplyr::mutate(Sampled_in_2022 = replace_na(Sampled_in_2022, FALSE),
                 Sampled_in_2023 = replace_na(Sampled_in_2023, FALSE))
- #Just keep the biggest lake as the sampled lake for any given name.
- # mutate(Sampled2022 = case_when(
- #   name_risk_ranking == 1 & Sampled2022 == T ~ T,
- #   name_risk_ranking > 1 ~ F,
- #   T ~ F
- # )) |> 
- #  dplyr::mutate(Sampled2023 = case_when(
- #   name_risk_ranking == 1 & Sampled2023 == T ~ T,
- #   name_risk_ranking > 1 ~ F,
- #   T ~ F
- # ))
+
 rm(lakes_monitored); rm(lakes_monitored_2022); rm(lakes_monitored_2023)
 ```
 
@@ -715,6 +711,10 @@ setColWidths(my.wb, "Metadata",
 #              "output/waterbodies with risk estimates post filtering.xlsx",
 #              overwrite = T)
 
+if(!dir.exists(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"))) {
+  dir.create(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"), recursive = T)
+}
+
 saveWorkbook(my.wb,
             paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,".xlsx"),
             overwrite = T)
@@ -772,7 +772,7 @@ openxlsx::write.xlsx(final_waterbody_list,
 
 # last_year = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Prioritization model/Final waterbody list based on risk estimates_2023.xlsx"))
 
-last_year = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Prioritization model/Final waterbody list based on risk estimates_2023.xlsx"))
+last_year = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Prioritization model/Final waterbody list based on risk estimates_2024.xlsx"))
 
 # #Update Region names.
 # last_year = last_year |> 
