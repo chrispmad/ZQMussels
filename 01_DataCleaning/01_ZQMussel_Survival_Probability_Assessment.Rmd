@@ -78,59 +78,111 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
 ems_path = paste0(stringr::str_extract(my_opts$base_dir,".*long_term_projects"),"/EMS/output/EMS.sqlite")
 conn = dbConnect(SQLite(), ems_path)
 df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
+# ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
 DBI::dbDisconnect(conn)
-# #Load in the first dataset (last 2 years) - downloaded at the beginning of 2021, will need to be re-downloaded when run in the future!
-# df <- read_csv(paste0(data.path,"ems_sample_results_current_expanded.csv"), 
-#                 col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"), 
-#                                  COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"), 
-#                                  UPPER_DEPTH = col_integer(),
-#                                  LOWER_DEPTH = col_integer(),
-#                                  TIDE = col_integer(),
-#                                  AIR_FILTER_SIZE = col_integer(),
-#                                  AIR_FLOW_VOLUME = col_integer(),
-#                                  FLOW_UNIT = col_character(),
-#                                  COMPOSITE_ITEMS = col_integer(),
-#                                  CONTINUOUS_AVERAGE = col_integer(),
-#                                  CONTINUOUS_MAXIMUM = col_integer(),
-#                                  CONTINUOUS_MINIMUM = col_integer(),
-#                                  CONTINUOUS_UNIT_CODE = col_integer(),
-#                                  CONTINUOUS_DURATION = col_integer(),
-#                                  CONTINUOUS_DURATION_UNIT = col_character())) %>% 
-#   filter(is.na(LATITUDE)==F) %>% 
-#   mutate(UNIT = MDL_UNIT) |> 
-#   filter(PARAMETER_CODE %in% c("CA-T","CA-D","0004"))
 
 #Get rid of columns 29 to 60, which we do not need.
 df = df[,c(1:28)]
 
-# ## Load in the mammoth dataset ###
-# mammoth_dataset = read_csv(paste0(data.path,"mammoth_dataset_filtered_for_total_and_dissolved_calcium_and_pH.csv"),
+```
+
+```{r brief_aside_does_latitude_elevation_and_air_temp_predict_water_temp}
 # 
-#                            col_types = cols(COLLECTION_END = col_datetime(format = "%Y%m%d%H%M%S"),
-#                                             COLLECTION_START = col_datetime(format = "%Y%m%d%H%M%S"),
-#                                             UPPER_DEPTH = col_integer(),
-#                                             LOWER_DEPTH = col_integer(),
-#                                             TIDE = col_integer(),
-#                                             AIR_FILTER_SIZE = col_integer(),
-#                                             AIR_FLOW_VOLUME = col_integer(),
-#                                             FLOW_UNIT = col_character(),
-#                                             COMPOSITE_ITEMS = col_integer(),
-#                                             CONTINUOUS_AVERAGE = col_integer(),
-#                                             CONTINUOUS_MAXIMUM = col_integer(),
-#                                             CONTINUOUS_MINIMUM = col_integer(),
-#                                             CONTINUOUS_UNIT_CODE = col_integer(),
-#                                             CONTINUOUS_DURATION = col_integer(),
-#                                             CONTINUOUS_DURATION_UNIT = col_character()))
+# temp_by_depth = ems_temp |> 
+#   dplyr::group_by(UPPER_DEPTH) |> 
+#   dplyr::reframe(mean_temp = mean(RESULT,na.rm=T))
 # 
-# mammoth_dataset = mammoth_dataset[,c(1:28)]
+# # ggplot(ems_temp) + geom_histogram(aes(UPPER_DEPTH))
+# 
+# # Average ems temperature by season and location.
+# # Seasons: winter == 1, spring == 2, summer == 3, fall == 4. 
+# # Winter: Dec, Jan, Feb; so on and so forth.
+# library(data.table)
+# 
+# bc = bcmaps::bc_bound() |> dplyr::summarise() |> terra::vect()
+# 
+# ems_temp = as.data.table(ems_temp)
+# 
+# ems_temp_w_date = ems_temp[,my_date := lubridate::ymd_hms(COLLECTION_START)]
+# 
+# # ggplot(ems_temp_w_date) + geom_histogram(aes(my_date))
+# 
+# ems_temp_w_date$season = as.numeric(ems_temp_w_date[,.(season = format(my_date,'%m'))]$season)
+# 
+# ems_temp_w_date = ems_temp_w_date[, season := fcase(
+#   season %in% c(12,1:2), 'winter',
+#   season %in% c(3:5), 'spring',
+#   season %in% c(6:8), 'summer',
+#   season %in% c(9:11), 'fall'
+# )]
+# 
+# # Average by location.
+# mean_t_by_coords = ems_temp_w_date[,.(av_temp = mean(RESULT)), by = .(LATITUDE,LONGITUDE)][!is.na(LATITUDE),]
+# mean_t_by_c_sf = sf::st_as_sf(mean_t_by_coords, coords = c("LONGITUDE","LATITUDE"), crs = 4326)
+# 
+# # Average by location and season.
+# mean_t_by_season_coords = ems_temp_w_date[,.(av_temp = mean(RESULT)), by = .(season,LATITUDE,LONGITUDE)][!is.na(LATITUDE),]
+# meant_by_s_c_sf = sf::st_as_sf(mean_t_by_season_coords, coords = c("LONGITUDE","LATITUDE"), crs = 4326)
+# mean_t_by_winter_sf = sf::st_as_sf(mean_t_by_season_coords[season == 'winter',], coords = c("LONGITUDE","LATITUDE"),crs = 4326)
+# 
+# mean_t_by_summer_sf = sf::st_as_sf(mean_t_by_season_coords[season == 'summer',], coords = c("LONGITUDE","LATITUDE"),crs = 4326)
+# 
+# # Get elevation
+# library(elevatr)
+# el = elevatr::get_elev_point(locations = mean_t_by_c_sf)
+# sf::write_sf(el, "ems_water_temp_data_averaged_by_location_with_elevation_data_added.gpkg")
+# 
+# # Add mean annual air temperature from bioclim
+# air_temp = terra::rast("C:/Users/CMADSEN/OneDrive - Government of BC/data/CNF/climate/wc2.1_10m/wc2.1_10m_bio_1.tif")
+# 
+# el$mean_air_temp = terra::extract(air_temp, terra::vect(mean_t_by_c_sf))[,2]
+# 
+# el$lat = sf::st_coordinates(el)[,2]
+# 
+# # First test: can we predict water temp with air temp, latitude, and elevation?
+# annual_model = lm(av_temp ~ mean_air_temp + lat + elevation, data = el)
+# summary(annual_model)
+# annual_model_glm = glm(av_temp ~ mean_air_temp + lat + elevation, data = el)
+# summary(annual_model_glm)
+# # Terrible!
+# 
+# # Maybe we can predict max and min temps?
+# air_temp_mean_of_warmest_q = terra::rast("C:/Users/CMADSEN/OneDrive - Government of BC/data/CNF/climate/wc2.1_10m/wc2.1_10m_bio_10.tif")
+# air_temp_mean_of_coldest_q = terra::rast("C:/Users/CMADSEN/OneDrive - Government of BC/data/CNF/climate/wc2.1_10m/wc2.1_10m_bio_11.tif")
+# 
+# ems_dat_winter = ems_temp_w_date |> dplyr::filter(season == 'winter')
+# ems_dat_summer = ems_temp_w_date |> dplyr::filter(season == 'summer')
+# 
+# # Average by location
+# mean_t_by_coords_winter = ems_dat_winter[,.(av_temp = mean(RESULT)), by = .(LATITUDE,LONGITUDE)][!is.na(LATITUDE),]
+# mean_t_by_coords_summer = ems_dat_summer[,.(av_temp = mean(RESULT)), by = .(LATITUDE,LONGITUDE)][!is.na(LATITUDE),]
+# 
+# winter_el = elevatr::get_elev_point(locations = sf::st_as_sf(mean_t_by_coords_winter, coords = c("LONGITUDE","LATITUDE"), crs = 4326))
+# 
+# summer_el = elevatr::get_elev_point(locations = sf::st_as_sf(mean_t_by_coords_summer, coords = c("LONGITUDE","LATITUDE"), crs = 4326))
+# 
+# winter_el$lat = sf::st_coordinates(winter_el)[,2]
+# summer_el$lat = sf::st_coordinates(summer_el)[,2]
+# 
+# winter_el$mean_air_temp = terra::extract(air_temp, terra::vect(sf::st_as_sf(mean_t_by_coords_winter, coords = c("LONGITUDE","LATITUDE"), crs = 4326)))[,2]
+# 
+# summer_el$mean_air_temp = terra::extract(air_temp, terra::vect(sf::st_as_sf(mean_t_by_coords_summer, coords = c("LONGITUDE","LATITUDE"), crs = 4326)))[,2]
+# 
+# annual_model = lm(av_temp ~ mean_air_temp + lat + elevation, data = winter_el)
+# summary(annual_model)
+# annual_model_glm = glm(av_temp ~ mean_air_temp + lat + elevation, data = winter_el)
+# summary(annual_model_glm)
+# 
+# annual_model = lm(av_temp ~ mean_air_temp + lat + elevation, data = summer_el)
+# summary(annual_model)
+# annual_model_glm = glm(av_temp ~ mean_air_temp + lat + elevation, data = summer_el)
+# summary(annual_model_glm)
+
 ```
 
 ```{r combine_data}
-# df = bind_rows(df, mammoth_dataset) %>% 
 df = df |> 
   dplyr::select(EMS_ID, MONITORING_LOCATION,LOCATION_TYPE,COLLECTION_START,COLLECTION_END,SAMPLING_AGENCY,COLLECTION_METHOD,PARAMETER,ANALYTICAL_METHOD,RESULT,UNIT,LONGITUDE,LATITUDE)
-# rm(mammoth_dataset)
-
 
 # Ensure we dont' have points with missing locations or sampling dates.
 df = df |> 
@@ -391,25 +443,28 @@ watershed = watershed |>
 ```{r bin_calcium_values}
 
 calc_bin_levels = data.frame(
-  levels = c('Minimal (< 8 mg/L)',
-             'Moderate (8 to 20 mg/L)',
-             'High (> 20 mg/L)',
+  levels = c('No Risk (< 8 mg/L)',
+             'Low (8 to <15 mg/L)',
+             'Moderate (15 to <24 mg/L)',
+             'High (24+ mg/L)',
              'No Data'),
-  number = c(1,2,3, 99)
+  number = c(0,1,2,3, 99)
 )
   
 watershed = watershed |> 
   dplyr::mutate(calc_bin = case_when(
-    mean_calcium < 8 ~ 'Minimal (< 8 mg/L)',
-    mean_calcium >= 8 & mean_calcium < 20 ~ 'Moderate (8 to 20 mg/L)',
-    mean_calcium >= 20 ~ 'High (> 20 mg/L)',
+    mean_calcium < 8 ~ 'No Risk (< 8 mg/L)',
+    mean_calcium >= 8 & mean_calcium < 15 ~ 'Low (8 to <15 mg/L)',
+    mean_calcium >= 15 & mean_calcium < 24 ~ 'Moderate (15 to <24 mg/L)',
+    mean_calcium >= 24 ~ 'High (24+ mg/L)',
     is.na(mean_calcium) ~ "No Data"
   )) |> 
   mutate(calc_bin = factor(calc_bin, levels = calc_bin_levels$levels)) |> 
   mutate(calc_bin_n = case_when(
-    calc_bin == 'Minimal (< 8 mg/L)' ~ 1,
-    calc_bin == 'Moderate (8 to 20 mg/L)' ~ 2,
-    calc_bin == 'High (> 20 mg/L)' ~ 3,
+    calc_bin == 'No Risk (< 8 mg/L)' ~ 0,
+    calc_bin == 'Low (8 to <15 mg/L)' ~ 1,
+    calc_bin == 'Moderate (15 to <24 mg/L)' ~ 2,
+    calc_bin == 'High (24+ mg/L)' ~ 3,
     calc_bin == 'No Data' ~ 99 
   ))
 ```
@@ -422,9 +477,10 @@ watershed = watershed |>
 ggplot(watershed) +
   geom_sf(aes(fill = calc_bin), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
-                               "Minimal (< 8 mg/L)" = "green",
-                               "Moderate (8 to 20 mg/L)" = "yellow",
-                               "High (> 20 mg/L)" = "red")) +
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <24 mg/L)" = "orange",
+                               "High (24+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
@@ -446,7 +502,7 @@ non_ideal_pH_subw = pH_within_ideal_ZQ_range |>
 
 watershed = watershed |> 
   mutate(calc_bin_n_pH_adj = case_when(
-    WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 1 & calc_bin_n != 99 ~ calc_bin_n - 1,
+    WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 0 & calc_bin_n != 99 ~ calc_bin_n - 1,
     T ~ calc_bin_n
   ))
 
@@ -460,14 +516,15 @@ watershed = watershed |>
 ggplot(watershed) +
   geom_sf(aes(fill = calc_bin_pH_adj), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
-                               "Minimal (< 8 mg/L)" = "green",
-                               "Moderate (8 to 20 mg/L)" = "yellow",
-                               "High (> 20 mg/L)" = "red")) +
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <24 mg/L)" = "orange",
+                               "High (24+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
        title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
-       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "Minimal")'))
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "No Risk")'))
 
 ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
        width = 8, height = 8)
@@ -484,7 +541,7 @@ low_temp_watersheds = watershed |>
 
 watershed = watershed |> 
     mutate(calc_bin_n_pH_temp_adj = case_when(
-        WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 1 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
+        WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 0 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
         T ~ calc_bin_n_pH_adj
     ))
 
@@ -498,14 +555,15 @@ watershed = watershed |>
 ggplot(watershed) +
   geom_sf(aes(fill = calc_bin_pH_temp_adj), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
-                               "Minimal (< 8 mg/L)" = "green",
-                               "Moderate (8 to 20 mg/L)" = "yellow",
-                               "High (> 20 mg/L)" = "red")) +
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <24 mg/L)" = "orange",
+                               "High (24+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
        title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
-       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "Minimal")'))
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) or Temp (<10C) reduced risk by one level (if not already "No Risk")'))
 
 ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
        width = 8, height = 8)
