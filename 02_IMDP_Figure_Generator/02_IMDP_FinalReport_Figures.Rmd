@@ -31,7 +31,7 @@ plotrix)
 my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv")
 
 #Which year should we focus on?
-my.year = 2023
+my.year = 2024
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
 update.gis = FALSE
@@ -223,6 +223,9 @@ if(my.year == 2023){
   rovers_to_drop = c("Other","Okanagan",
                      "Scheduled Inspection (Other Notification)",
                      "Scheduled Inspection (Cbsa Notification)")
+}
+if(my.year == 2024){
+  rovers_to_drop = c()
 }
 ```
 
@@ -3084,6 +3087,9 @@ if(my.year == 2022){
 if(my.year == 2023){
   lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/BC Veliger Sampling Inventory 2023_11-20_Final Report.xlsx'))
 }
+if(my.year == 2024){
+  lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/Final report/BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx'))
+}
 
 lab_dat =  lab_dat |> 
   dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, " \\(.*")) |> 
@@ -3180,7 +3186,68 @@ map_9_tmap = tm_shape(bc_stations_basemap_white, bbox = bc_station_view) +
 map_9_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
+  tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
+} else {
+  tmap_save(tm = map_9_tmap, filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024.jpg", width = 7.6, height = 6.4, dpi = 300)
+}
+
+if(interactive()){
+library(basemaps)
+
+lab_sf_b = st_buffer(lab_sf,3000)
+
+my_ext = lab_sf |> st_combine() |> st_bbox() |> st_as_sfc() |> 
+  st_buffer(10000)
+
+sat_basemap = basemap_terra(ext = my_ext, 'esri', 'world_ocean_base')
+
+yellow_basemap = basemap_terra(ext = my_ext, 'esri', 'world_street_map')
+
+inset_bc = ggplot() + 
+  geom_sf(data = bc_bound |> 
+            st_transform(3005)) + 
+  geom_sf(data = my_ext, col = 'red', fill = 'transparent') +
+  ggthemes::theme_map()
+
+library(patchwork)
+
+sat_plot = ggplot() + 
+  tidyterra::geom_spatraster_rgb(data = sat_basemap) +
+  geom_sf(data = lab_sf_b, aes(fill = `sampling group/agency`)) +
+  scale_fill_brewer(palette = "Set3") + 
+  ggspatial::annotation_scale() +
+  labs(fill = "Sampling \nGroup/Agency",
+       title = "2024 Invasive Mussel Lake Monitoring") +
+  theme(plot.background = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        panel.background = element_blank())
+
+sat_plot = sat_plot + 
+  inset_element(inset_bc, left = 0.8, top = 0.95, right = 0.95, bottom = 0.8)
+
+ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Satellite_Background.jpg", width = 10, height = 8,
+       plot = sat_plot)
+
+yellow_streets_plot = ggplot() + 
+  tidyterra::geom_spatraster_rgb(data = yellow_basemap) +
+  geom_sf(data = lab_sf_b, aes(fill = `sampling group/agency`)) +
+  scale_fill_brewer(palette = "Set3") + 
+  labs(fill = "Sampling \nGroup/Agency",
+       title = "2024 Invasive Mussel Lake Monitoring") +
+  ggspatial::annotation_scale() +
+  theme(plot.background = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        panel.background = element_blank())
+
+yellow_streets_plot = yellow_streets_plot + 
+  inset_element(inset_bc, left = 0.8, top = 0.95, right = 0.95, bottom = 0.8)
+
+ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Streets_Background.jpg", width = 10, height = 8,
+       plot = yellow_streets_plot)
 }
 ```
 
