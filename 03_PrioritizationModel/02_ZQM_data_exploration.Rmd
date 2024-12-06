@@ -109,12 +109,15 @@ exploration_battery = function(x){
  
   # Give an idea of the spatial coverage we have in the province.
   if(x != "PopPressure") {
+    # browser()
   p3 = ggplot() + 
     geom_sf(data = bc, fill = "antiquewhite", col = "transparent") +
     geom_sf(data = dat, aes(col = .data[[x]], fill = .data[[x]])) + 
     scale_fill_gradient(low = "green", high = "red") +
     scale_color_gradient(low = "green", high = "red") +
     guides(col = "none") +
+    # labs(fill = stringr::str_replace_all(.data[[x]],"_","\n"),
+    #      col = stringr::str_replace_all(.data[[x]],"_","\n")) +
     ggtitle("Data coverage across the province",
             subtitle = paste0("variable: ",x)) + 
     ggthemes::theme_map()
@@ -162,16 +165,16 @@ my.summary = function(x){
 
 # Data Exploration 
 
-### Sum of Days Fished
+### Total Inspections
+```{r}
+my.summary(waterb$TotalInspections)
 
+exploration_big10(x = "TotalInspections")
 
-```{r sum_days_fished}
-my.summary(waterb$Sum.of.days.fished_2010_survey)
-
-exploration_big10(x = "Sum.of.days.fished_2010_survey")
-
-exploration_battery(x = "Sum.of.days.fished_2010_survey")
+exploration_battery(x = "TotalInspections")
 ```
+
+### Sum of Days Fished
 
 ```{r angling_days}
 my.summary(waterb$days_fished_2023_survey)
@@ -180,66 +183,6 @@ exploration_big10(x = "days_fished_2023_survey")
 
 exploration_battery(x = "days_fished_2023_survey")
 ```
-
-```{r average_angler_days}
-# my.summary(waterb$average.angler.days)
-# 
-# exploration_big10(x = "average.angler.days")
-# 
-# exploration_battery(x = "average.angler.days")
-```
-
-
-```{r waterbody_access}
-# waterb %>% 
-#   st_drop_geometry() %>% 
-#   group_by(WB.access) %>% 
-#   summarise(Number = n()) %>% 
-#   pivot_wider(names_from = WB.access, values_from = Number) %>% 
-#   mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
-#   select(-`NA`)
-# 
-# results = exploration_battery_categorical(x = "WB.access")
-# 
-# results[[1]]
-# 
-# results[[2]]
-```
-
-
-### Boat Launches
-
-We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), 2010 angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
-
-```{r boat_launches}
-my.summary(waterb$BoatLaunches)
-
-#Top 20 lakes in terms of size - how do their boat launches look?
-waterb %>% 
-  mutate(Area = as.numeric(st_area(.))) %>% 
-  arrange(desc(Area)) %>% 
-  slice(1:20) %>% 
-  st_drop_geometry() %>% 
-  select(GNIS_NA, WATERBO, BoatLaunches)
-
-# waterb %>% 
-#   st_drop_geometry() %>% 
-#   filter(!is.na(BoatLaunches)) %>% 
-#   select(GNIS_NA) %>% 
-#   distinct() %>% 
-#   arrange(GNIS_NA) %>% 
-#   mutate(row.number = row_number()) %>% 
-#   pivot_wider(names_from = row.number,
-#               values_from = GNIS_NA) %>% 
-#   unite('waterbodies_with_boat_launch_info',1:252,
-#         remove=FALSE, sep = ", ") %>% 
-#   select(waterbodies_with_boat_launch_info)
-
-exploration_big10(x = "BoatLaunches")
-
-exploration_battery(x = "BoatLaunches")
-```
-
 
 ### Campgrounds
 
@@ -253,7 +196,6 @@ exploration_big10(x = "Campgrounds")
 exploration_battery(x = "Campgrounds")
 ```
 
-
 ### Facilities
 
 "Facilities" refers to the number of touristic facilities (public toilets, tourist information, viewpoints, parks, attractions, and picnic sites) within 500 meters of the water body. These data come from the PhD work of Sam Fischer _et al._.
@@ -266,142 +208,16 @@ exploration_big10(x = "Facilities")
 exploration_battery(x = "Facilities")
 ```
 
+### Marinas
 
-### Population Density
+These data are a combination of Sam Fischer _et al._'s data and angler survey data.
 
-Population density is calculated at the subwatershed scale.
+```{r marinas}
+my.summary(waterb$Marinas)
 
-```{r Population_pressure}
-#my.summary(waterb$PopDensity)
+exploration_big10(x = "Marinas")
 
-#exploration_big10(x = "PopPressure")
-
-# ggarrange(
-#   waterb %>%
-#     st_drop_geometry() %>%
-#     ggplot() +
-#     geom_histogram(aes(PopPressure)),
-#   waterb %>%
-#     st_drop_geometry() %>%
-#     ggplot() +
-#     geom_histogram(aes(log(PopPressure))),
-#     ncol = 2)
-
-waterb_high_pressure = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/waterb_high_pressure.shp")) %>%
-  mutate(RowNumber = row_number())
-
-urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>%
-  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
-
-leaflet(data = urb %>% st_transform(crs = 4326)) %>%
-  addTiles() %>%
-  addPolygons(fillColor = "purple", label = ~paste0(CENSUS_S_1,": ",as.character(POP_TOTAL)), color = "red") %>%
-  addPolygons(data = waterb_high_pressure %>% st_transform(crs = 4326), color = "blue", label = ~paste0(GNIS_NA,": #",RowNumber))
-  
-```
-
-```{r subwatershed_pop_pressure}
-subwater = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups.shp"))
-urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>% 
-  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
-
-#Find which subwatershed each censused municipality is in.
-popdensity = urb %>% 
-  st_join(subwater %>% 
-            #Calculate area of subwatersheds
-            mutate(Area_km = as.numeric(st_area(.))/1000) %>% 
-            select(WATERSHED_,Area_km) %>% 
-            rename(WATERSH = WATERSHED_), st_intersects) %>%
-  st_drop_geometry() %>% 
-  #Summarise by subwatershed, as some municipalities were on borders of multiple subwatersheds.
-  group_by(WATERSH) %>% 
-  mutate(POP_TOTAL = sum(POP_TOTAL)) %>%
-  select(WATERSH,POP_TOTAL,Area_km) %>% 
-  distinct() %>% 
-  #Calculate the population density for each subwatershed.
-  summarise(PopDensity = POP_TOTAL/Area_km)
-
-#join to subwatershed shapefile and also to waterb object.
-subwater = subwater %>% 
-  left_join(popdensity %>% 
-              rename(WATERSHED_ = WATERSH))
-
-subwater = subwater %>% 
-  mutate(PopDensBins = as.factor(as.numeric(cut(PopDensity, 
-                           BAMMtools::getJenksBreaks(subwater$PopDensity, k = 4)))))
-
-waterb = waterb %>% 
-  left_join(popdensity)
-
-ggplot() + 
-  geom_sf(data = subwater, aes(fill = PopDensBins)) + 
-  ggtitle("Population Density in BC Border")
-```
-
-### Proportion of Developed Shoreline
-
-```{r developed_perimeter_langford_lake_example}
-#This code block just gives the example of Langford lake.
-
-#waterbody...
-ll = waterb %>% filter(GNIS_NA == "Langford Lake")
-
-#Load the merged cadastral bits for Langford Lake.
-ll_cad = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/LangfordLake_cad_merged.shp"))
-
-#Calculate the perimeter of the lake that is developed.
-ll_string = st_cast(st_buffer(ll, dist = 20), "LINESTRING")
-ll_string_cut = st_crop(ll_string, ll_cad)
-
-#Developed shoreline:
-#Langford lake with privately owned land within 20 meters highlighted in red.
-ggplot() + 
-  geom_sf(data = ll %>% mutate(id = "Langford Lake"), 
-          aes(col = id, fill = id), alpha = 0.5) + 
-  geom_sf(data = st_buffer(ll, dist = 20), alpha=0.1) +
-  geom_sf(data = ll_cad %>% mutate(id = "Land parcels"), 
-          aes(col = id, fill = id)) + 
-  geom_sf(data = ll_string_cut %>% mutate(id = "Developed shoreline"), 
-          aes(col = id, fill = id), size = 2) +
-  geom_sf_text(data = ll, aes(label = GNIS_NA)) +
-  ggtitle("~66% of Langford Lake's shoreline is non-Crown land",
-  subtitle = "(most is privately owned land)") +
-  labs(fill = "Legend", col = "") +
-  scale_fill_manual(values = c("Langford Lake" = "#2ea0c5",
-                               "Land parcels" = "#eab676",
-                               "Developed shoreline" = "#F31424")) +
-  scale_color_manual(values = c("Langford Lake" = "#2ea0c5",
-                                "Land parcels" = "#eab676",
-                                "Developed shoreline" = "#F31424"),
-                     guide = "none") +
-  theme_classic() +
-  theme(
-    axis.text = element_blank(),
-    axis.line = element_blank(),
-    axis.ticks = element_blank(),
-    axis.title = element_blank()
-  )
-
-```
-
-### Watercraft Operation Restrictions
-
-These data come from Transport Canada and indicate lakes in which one may not operate any vessel, may not operate power vessels, or may not operate power/electric vessels.
-
-```{r waterbody_restrictions}
-waterb %>% 
-  st_drop_geometry() %>% 
-  group_by(OperRes) %>% 
-  summarise(Number = n()) %>% 
-  pivot_wider(names_from = OperRes, values_from = Number) %>% 
-  mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
-  select(-`NA`)
-
-results = exploration_battery_categorical(x = "OperRes")
-
-results[[1]]
-
-results[[2]]
+exploration_battery(x = "Marinas")
 ```
 
 ### Dams
@@ -456,6 +272,142 @@ exploration_battery(x = "NumberDams")
 
 ``` 
 
+### Boat Launches
+
+We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), 2010 angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
+
+```{r boat_launches}
+waterb$BoatLaunches = waterb$Boat_Launches_N + waterb$BoatLaunchRecCounter
+
+my.summary(waterb$BoatLaunches)
+
+#Top 20 lakes in terms of size - how do their boat launches look?
+waterb %>% 
+  mutate(Area = as.numeric(st_area(.))) %>% 
+  arrange(desc(Area)) %>% 
+  slice(1:20) %>% 
+  st_drop_geometry() %>% 
+  select(GNIS_NA, WATERBO, Boat_Launches_N)
+
+# waterb %>% 
+#   st_drop_geometry() %>% 
+#   filter(!is.na(BoatLaunches)) %>% 
+#   select(GNIS_NA) %>% 
+#   distinct() %>% 
+#   arrange(GNIS_NA) %>% 
+#   mutate(row.number = row_number()) %>% 
+#   pivot_wider(names_from = row.number,
+#               values_from = GNIS_NA) %>% 
+#   unite('waterbodies_with_boat_launch_info',1:252,
+#         remove=FALSE, sep = ", ") %>% 
+#   select(waterbodies_with_boat_launch_info)
+
+exploration_big10(x = "BoatLaunches")
+
+exploration_battery(x = "BoatLaunches")
+```
+
+### Distance to Highways
+
+Note: we should probably flip this around so that lesser distances to highways represent a higher risk.
+
+```{r}
+# waterb$inv_of_distance_to_nearest_highway = 1/waterb$distance_to_nearest_highway
+
+# waterb = waterb |> 
+  # dplyr::mutate(inv_of_distance_to_nearest_highway = ifelse(inv_of_distance_to_nearest_highway == Inf, 1, inv_of_distance_to_nearest_highway))
+
+my.summary(waterb$distance_to_nearest_highway)
+
+# ggplot(waterb) + geom_histogram(aes(distance_to_nearest_highway))
+
+exploration_big10(x = "distance_to_nearest_highway")
+
+exploration_battery(x = "distance_to_nearest_highway")
+```
+
+### Water Temperature
+
+```{r}
+my.summary(waterb$water_temp_interp)
+
+exploration_big10(x = "water_temp_interp")
+
+exploration_battery(x = "water_temp_interp")
+```
+
+### Water Chlorophyll
+
+```{r}
+my.summary(waterb$water_chlor_interp)
+
+exploration_big10(x = "water_chlor_interp")
+
+exploration_battery(x = "water_chlor_interp")
+```
+
+### Water Dissolved Oxygen
+
+```{r}
+my.summary(waterb$water_dis_ox_interp)
+
+exploration_big10(x = "water_dis_ox_interp")
+
+exploration_battery(x = "water_dis_ox_interp")
+```
+
+### Water Total Phosphorous
+
+```{r}
+my.summary(waterb$water_tot_phos_interp)
+
+exploration_big10(x = "water_tot_phos_interp")
+
+exploration_battery(x = "water_tot_phos_interp")
+```
+
+### Population Density
+
+Population density is calculated at the subwatershed scale.
+
+```{r}
+my.summary(waterb$population_density)
+
+exploration_big10(x = "population_density")
+
+exploration_battery(x = "population_density")
+```
+
+### Number of Downstream Waterbodies
+
+```{r}
+my.summary(waterb$wbs_downstream)
+
+exploration_big10(x = "wbs_downstream")
+
+exploration_battery(x = "wbs_downstream")
+```
+
+### Watercraft Operation Restrictions
+
+These data come from Transport Canada and indicate lakes in which one may not operate any vessel, may not operate power vessels, or may not operate power/electric vessels.
+
+```{r waterbody_restrictions}
+waterb %>% 
+  st_drop_geometry() %>% 
+  group_by(OperRes) %>% 
+  summarise(Number = n()) %>% 
+  pivot_wider(names_from = OperRes, values_from = Number) %>% 
+  mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
+  select(-`NA`)
+
+results = exploration_battery_categorical(x = "OperRes")
+
+results[[1]]
+
+results[[2]]
+```
+
 ### DFO Predicted Suitability for Zebra and Quagga Mussels (Ca2+ model) {.tabset}
 
 These interpolated maps utilized EMS data for BC (2000-2020), filtered away any negative or 0 values for calcium, applied a spatial filter to remove calcium points outside of waterbodies, and removed calcium values of type 'Industrial Effluent.' The predicted value is the establishment potential based on (dissolved) calcium. There are also MaxEnt-derived models that give predictions of Zebra and Quagga mussel establishment potential (based on the following predictor variables: Ca2+, Max Temp in warmest month, min Temp in coldest month, min Temp in wettest quarter, precipitation in wettest month, precip seasonality, precip in coldest quarter, and pH, the last of which was by far the least significant predictor!) but those models' predictions perhaps under-predict the suitability of habitat across North America, so they have not been utilized or visualized here.
@@ -474,7 +426,7 @@ dfo_calc_zm = terra::mask(terra::crop(dfo_calc_zm, bc_vect), bc_vect)
 # Take larger predicted value for any given raster cell.
 dfo_calc = max(dfo_calc_qm, dfo_calc_zm,na.rm=T)
 
-terra::writeRaster(dfo_calc, paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZQM_Calcium_Establishment_Potential.tif'))
+terra::writeRaster(dfo_calc, paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZQM_Calcium_Establishment_Potential.tif'), overwrite = T)
 
 # DFO subwatershed values.
 dfo_qm_subdr = sf::read_sf(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_QM_Shapefiles/QM_Ecological_Risk_Sub-Drainage.shp'))

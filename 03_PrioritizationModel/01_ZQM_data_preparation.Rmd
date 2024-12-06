@@ -32,18 +32,6 @@ lan_root = "//SFP.IDIR.BCGOV/S140/S40203/RSD_ FISH & AQUATIC HABITAT BRANCH/Gene
 recount.features = T
 ```
 
-```{r query_EMS_database_for_calcium}
-
-```
-
-```{r filter_EMS_data_a_la_DFO_methods}
-
-```
-
-```{r interpolate_calcium_across_BC}
-
-```
-
 This R Markdown document explores the datasets we plan to use to inform our assessment of ZQM invasion risk for waterbodies in BC.
   
 ```{r import_waterbody_data_and_filtering}
@@ -91,12 +79,27 @@ dams = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft
 
 # Angler survey data - old excel file that includes sum of days fished, average
 # angler days, WB access, and boat launch, as point data.
-angsurvey_old = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/angler effort by water body.xlsx")) %>%
-  as_tibble()
+# angsurvey_old = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/angler effort by water body.xlsx")) %>%
+  # as_tibble()
 
 # 2022-2023 Freshwater fisheries society questionnaire - days fished by waterbody.
 angsur = sf::read_sf("W:/CMadsen/shared_data_sets/freshwater_fisheries_society_angler_survey_2022_2023.gpkg")
 # Now using the 2022-2023 Freshwater fisheries society questionnaire from Rob Payntor!
+
+# distance to highways from AIS prioritization model work with John Phelan
+dist_to_h = terra::rast(paste0(onedrive_wd,"distance_to_numbered_highway_raster.tif"))
+
+# Interpolated water temperature
+wat_temp = terra::rast(paste0(onedrive_wd,"../raster/Temperature_All_masked_krig.tif"))
+
+# Interpolated water chemistry variables
+wat_chlor = terra::rast(paste0(onedrive_wd,"../raster/Chlorophyll_All_masked_krig.tif"))
+wat_dis_ox = terra::rast(paste0(onedrive_wd,"../raster/Oxygen_Dissolved_All_masked_krig.tif"))
+wat_tot_phos = terra::rast(paste0(onedrive_wd,"../raster/Phosphorus_Total_Dissolved_All_masked_krig.tif"))
+
+# Number of waterbodies downstream of waterbody.
+library(fwa.connect)
+fwa_code_tbl = fwa.connect::stream_conn_tbl()
 
 # BCG waterbodies
 bcg_waterbodies = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/summarized_bc_waterbodies.shp"))
@@ -152,42 +155,42 @@ waterb = waterb %>%
 
 ```{r join_angling_data}
 #Spatialize the old angling survey / wb access dataframe.
-angsurvey_old_sf = angsurvey_old %>% 
-  filter(!is.na(long)) %>% 
-  filter(wb.TYPRE != "Stream") %>% 
-  #Replace anything that is not "Y" for boat launch with NA.
-  mutate(boat.launch = replace(boat.launch, boat.launch != "Y", NA)) %>% 
-  #Convert any negative values for sum of days fished to be positive.
-  mutate(Sum.of.days.fished = replace(Sum.of.days.fished,
-                                      Sum.of.days.fished < 0,
-                                      0)) %>% 
-  st_as_sf(., coords = c("long","lat"), crs = 4326) %>% 
-  rename(GNIS_NA = WB.Name_Corrected) %>% 
-  dplyr::select(
-    Sum.of.days.fished_2010_survey = Sum.of.days.fished,
-    average.angler.days_2010_survey = average.angler.days,
-    WB.access_2010_survey = WB.access,
-    boat.launch_2010_survey = boat.launch) %>% 
-  st_transform(crs = crs(waterb))
+# angsurvey_old_sf = angsurvey_old %>% 
+#   filter(!is.na(long)) %>% 
+#   filter(wb.TYPRE != "Stream") %>% 
+#   #Replace anything that is not "Y" for boat launch with NA.
+#   mutate(boat.launch = replace(boat.launch, boat.launch != "Y", NA)) %>% 
+#   #Convert any negative values for sum of days fished to be positive.
+#   mutate(Sum.of.days.fished = replace(Sum.of.days.fished,
+#                                       Sum.of.days.fished < 0,
+#                                       0)) %>% 
+#   st_as_sf(., coords = c("long","lat"), crs = 4326) %>% 
+#   rename(GNIS_NA = WB.Name_Corrected) %>% 
+#   dplyr::select(
+#     Sum.of.days.fished_2010_survey = Sum.of.days.fished,
+#     average.angler.days_2010_survey = average.angler.days,
+#     WB.access_2010_survey = WB.access,
+#     boat.launch_2010_survey = boat.launch) %>% 
+#   st_transform(crs = crs(waterb))
 
 #Join the waterb layer with this angling data, spatially.
-waterb = st_join(waterb, angsurvey_old_sf, join = st_intersects)
+# waterb = st_join(waterb, angsurvey_old_sf, join = st_intersects)
 
-#There are 3 duplicates generated - get rid of them.
-waterb = waterb %>% 
-  group_by(WATERSH,WATERBO,GNIS_NA) %>% 
-  mutate(Sum.of.days.fished_2010_survey = sum(Sum.of.days.fished_2010_survey),
-         average.angler.days_2010_survey = sum(average.angler.days_2010_survey)) %>% 
-  slice(1) |> 
-  dplyr::ungroup()
+# #There are 3 duplicates generated - get rid of them.
+# waterb = waterb %>% 
+#   group_by(WATERSH,WATERBO,GNIS_NA) %>% 
+#   mutate(Sum.of.days.fished_2010_survey = sum(Sum.of.days.fished_2010_survey),
+#          average.angler.days_2010_survey = sum(average.angler.days_2010_survey)) %>% 
+#   slice(1) |> 
+#   dplyr::ungroup()
 
 # Now join the more recent (2022/2023) Freshwater Fisheries Angler survey data.
-waterb = waterb |> 
+waterb = waterb |>
   dplyr::left_join(
-    angsur |> 
-      sf::st_drop_geometry() |> 
-      dplyr::select(WATERSH = WATERSHED_GROUP_ID, GNIS_NA = Waterbody, days_fished_2023_survey = days_fished) |> 
-      dplyr::group_by(WATERSH, GNIS_NA) |> 
+    angsur |>
+      sf::st_drop_geometry() |>
+      dplyr::select(WATERSH = WATERSHED_GROUP_ID, GNIS_NA = Waterbody, days_fished_2023_survey = days_fished) |>
+      dplyr::group_by(WATERSH, GNIS_NA) |>
       dplyr::reframe(days_fished_2023_survey = sum(days_fished_2023_survey))
   )
 ```
@@ -263,7 +266,7 @@ boatl_rec_sf = boatl_rec %>%
 boatl = boatl_ffsbc %>% 
   filter(!is.na(UTM_Easting),
          !is.na(UTM_Northing)) %>% 
-  select(UTM_Zone, UTM_Easting, UTM_Northing,
+  dplyr::select(UTM_Zone, UTM_Easting, UTM_Northing,
          Boat_Launches, Campsites)
 
 # And here is the recreation layer from the BC Data Catalogue, specifically points labelled 'Boating' or 'Kayaking'
@@ -293,13 +296,13 @@ boatl_sf = boatl %>%
            crs = "+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs
 +ellps=GRS80 +towgs84=0,0,0 ") %>% 
   st_transform(crs = 3005)) %>% 
-  select(-UTM_Zone)
+  dplyr::select(-UTM_Zone)
 
 #Now we need to match these boatl points to waterbodies
 
 #First, the rec layer.
 rec_join = st_join(waterb, boatl_rec_sf %>% 
-                 select(BoatLaunchRec,BoatLaunchID), join = st_intersects)
+                 dplyr::select(BoatLaunchRec,BoatLaunchID), join = st_intersects)
 
 #Some water bodies have multiple boat launches in this rec layer.
 #Count those up and summarise for each water body.
@@ -339,23 +342,75 @@ waterb = waterb %>%
             )
 rm(ang_join)
 
-#Replace "Y" for the field 'boat.launch' (from the angler survey data)
-#with a numeric 1.
-waterb = waterb %>% 
-  mutate(boat.launch_2010_survey = replace(boat.launch_2010_survey, boat.launch_2010_survey == "Y", 1)) %>% 
-  mutate(boat.launch_2010_survey = as.numeric(boat.launch_2010_survey))
-
-# Add the boating_sites data from the BC Data Catalogue. NOTE: Only 4 points overlap with our lakes! What the heck.
-# Don't join for now.
-
 #Add together campgrounds/campsites, and boat launch info from
 #the rec layer and the angler survey.
 waterb = waterb %>% 
-  mutate(Campgrounds = sum(Campgrounds, Campsites_N, na.rm=T),
-         BoatLaunches = sum(boat.launch_2010_survey,BoatLaunchRecCounter,Boat_Launches_N,na.rm=T)) %>% select(-Campsites_N,-BoatLaunchRecCounter,-Boat_Launches_N,-boat.launch_2010_survey) %>% 
-  mutate(Campgrounds = replace(Campgrounds, Campgrounds == 0, NA),
-         BoatLaunches = replace(BoatLaunches, BoatLaunches == 0, NA))
+  mutate(Campgrounds = Campgrounds + Campsites_N) %>% 
+  dplyr::select(-Campsites_N) |> 
+  mutate(Campgrounds = replace(Campgrounds, Campgrounds == 0, NA))
 ```
+
+```{r add_distance_to_highways}
+waterb$distance_to_nearest_highway = terra::extract(dist_to_h, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+
+waterb = waterb |> 
+  dplyr::mutate(distance_to_nearest_highway = tidyr::replace_na(distance_to_nearest_highway, 0))
+
+```
+
+```{r add_population_density}
+popdens = terra::rast(paste0(onedrive_wd,"population_density_raster.tif"))
+
+waterb$population_density = terra::extract(popdens, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+
+waterb = waterb |> 
+  dplyr::mutate(population_density = tidyr::replace_na(population_density, 0))
+```
+
+```{r add_number_of_downstream_waterbodies}
+
+# First of all, simplify the list of waterbodies for which we'll calculate this 
+# to just those waterbodies with boat inspections.
+waterb_needing_blk = waterb |> 
+  dplyr::filter(!is.na(TotalInspections)) |> 
+  sf::st_drop_geometry() |> 
+  dplyr::select(WATERSH, GNIS_NA)
+
+# Read in the summarized BC waterbodies object from Chris' W: drive! Snag FWA_WATERSHED_CODE
+# from that.
+all_wbs = sf::read_sf("W:/CMadsen/shared_data_sets/summarized_bc_waterbodies.shp")
+
+wbs_with_fwa = all_wbs |> 
+  dplyr::select(FWA_WATERSHED_CODE = FWA_WAT,
+                WATERSH = WATERSHED_,
+                GNIS_NA = GNIS_NAME_) |> 
+  dplyr::filter(paste0(GNIS_NA,WATERSH) %in% paste0(waterb_needing_blk$GNIS_NA,waterb_needing_blk$WATERSH)) |> 
+  sf::st_drop_geometry() |> 
+  dplyr::distinct() |> 
+  dplyr::group_by(WATERSH,GNIS_NA) |> 
+  dplyr::slice(1) |> 
+  dplyr::ungroup()
+
+wbs_with_fwa = wbs_with_fwa |> 
+  dplyr::mutate(wbs_downstream = stringr::str_count(stringr::str_remove_all(FWA_WATERSHED_CODE,'-000000-.*'),'-'))
+
+waterb = waterb |> 
+  dplyr::left_join(wbs_with_fwa)
+```
+
+```{r add_interpolated_water_temperature_and_chemistry_vars}
+
+waterb$water_temp_interp = terra::extract(wat_temp, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_chlor_interp = terra::extract(wat_chlor, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_dis_ox_interp = terra::extract(wat_dis_ox, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_tot_phos_interp = terra::extract(wat_tot_phos, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+
+waterb = waterb |> dplyr::mutate(water_temp_interp = tidyr::replace_na(water_temp_interp, 0))
+waterb = waterb |> dplyr::mutate(water_chlor_interp = tidyr::replace_na(water_chlor_interp, 0))
+waterb = waterb |> dplyr::mutate(water_dis_ox_interp = tidyr::replace_na(water_dis_ox_interp, 0))
+waterb = waterb |> dplyr::mutate(water_tot_phos_interp = tidyr::replace_na(water_tot_phos_interp, 0))
+```
+
 
 ```{r add_waterbody_restrictions}
 # wor = read_sf("data/shapefiles/Waterbody_operation_restrictions.shp")
@@ -405,7 +460,7 @@ When cleaning the inspection data, I removed records that were headed to the oce
 #                             overwrite = T)
 ```
 
-And it is important to note the number of waterbodies included in this analysis (`r scales::comma(nrow(waterb))`), as well as the number of waterbodies for which we have watercraft inspection data (`r scales::comma(nrow(waterb[!is.na(waterb$TotalInspections),])))`).
+And it is important to note the number of waterbodies included in this analysis (`r scales::comma(nrow(waterb))`), as well as the number of waterbodies for which we have watercraft inspection data (`r scales::comma(nrow(waterb[!is.na(waterb$TotalInspections),]))`).
 
 ```{r filter_steps}
 filter_steps = filter_steps %>% 
@@ -422,11 +477,14 @@ openxlsx::write.xlsx(filter_steps,
                      overwrite = T)
 ```
 
+```{r}
 ## Calculation of population density
 
-We calculate an estimate of population pressure *P* on a given waterbody with the following formula:
-$$P_i,_j = \sum_{n=1}^{50}m_i/d_i,_j^2$$
-Where *m~i~* is a given city or town's population, and *d~i~,~j~* is the linear distance (*(N)(k)(3)*) in meters between a given city/town and a given waterbody. The fifty cities and towns in British Columbia with the largest populations (census in 2016) were considered in this model.
+# We calculate an estimate of population pressure *P* on a given waterbody with the following formula:
+# $$P_i,_j = \sum_{n=1}^{50}m_i/d_i,_j^2$$
+# Where *m~i~* is a given city or town's population, and *d~i~,~j~* is the linear distance (*(N)(k)(3)*) in meters between a given city/town and a given waterbody. The fifty cities and towns in British Columbia with the largest populations (census in 2016) were considered in this model.
+```
+
 
 ```{r calc_pop_pressure}
 # #We aren't going to use ALL water bodies, because some are small ponds in the middle of these urban areas. We could remove water bodies that are closer than some distance from a population centre, or we could filter out water bodies that are truly tiny. Also, I'm going to rule out rivers.
@@ -500,7 +558,7 @@ wor = wor %>%
 waterb = waterb %>% 
   left_join(wor %>% 
               st_drop_geometry() %>% 
-              select(-Name_Given)) %>% 
+              dplyr::select(-Name_Given)) %>% 
   group_by(GNIS_NA,WATERSH,WATERBO) %>% 
   slice(1)
 ```
@@ -516,4 +574,3 @@ openxlsx::write.xlsx(column.names,
 sf::write_sf(waterb, paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data.gpkg"))
 sf::write_sf(waterb, paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
 ```
-
