@@ -22,6 +22,7 @@ library(ggthemes)
 library(bcdata)
 library(DBI)
 library(RSQLite)
+library(tidyhydat)
 ```
 
 ```{r read_and_set_options}
@@ -61,7 +62,8 @@ if(!dir.exists(paste0(getwd(),"/output/"))) {
 ```{r load_in_shapefiles}
 # BC shapefile
 bc_shp = bcmaps::bc_bound() %>% 
-  st_transform(crs = 4326)
+  st_transform(crs = 4326) |> 
+  dplyr::summarise()
 
 # WorldClim future temperature raster data. 
 if(my_opts$zqm_risk_climate_model == "ssp245"){
@@ -72,6 +74,36 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
   tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
 }
 
+# # Water Temperature Data (Water Survey Canada)
+# bc_stations = hy_stations(prov_terr_state_loc = 'BC')
+# 
+# sed_samples_bc = hy_sed_samples(station_number = bc_stations$STATION_NUMBER) |> 
+#   dplyr::filter(!is.na(TEMPERATURE))
+#   
+# sed_samples_bc |> 
+#   dplyr::count(STATION_NUMBER, TEMPERATURE, sort = T) |> 
+#   dplyr::count(STATION_NUMBER)
+# 
+# dplyr::mutate(SAMPLING_VERTICAL_LOCATION = as.numeric(SAMPLING_VERTICAL_LOCATION),
+#                 TEMPERATURE = as.numeric(TEMPERATURE)) |> 
+#   dplyr::select(STATION_NUMBER, Date, TEMPERATURE, SAMPLING_VERTICAL_LOCATION)
+# 
+# bc_stations_sf = st_as_sf(bc_stations, coords = c('LONGITUDE','LATITUDE'), crs = 4326)
+# 
+# # Add the temperature on to the station sf
+# bc_stations_w_temp = bc_stations_sf |> 
+#   dplyr::left_join(sed_samples_bc |> 
+#                      dplyr::group_by(STATION_NUMBER) |> 
+#                      dplyr::reframe(TEMPERATURE = mean(TEMPERATURE,na.rm=T)))
+# 
+# bc_stations_w_temp |> 
+#   dplyr::filter(!is.na(TEMPERATURE))
+# 
+# ggplot() + 
+#   geom_sf(data = bc_shp) + 
+#   geom_sf(data = bc_stations_w_temp,
+#           aes(col = TEMPERATURE)) 
+  
 #Environmental Monitoring System calcium data (total and dissolved)
 
 # Query from EMS!
@@ -84,6 +116,8 @@ DBI::dbDisconnect(conn)
 #Get rid of columns 29 to 60, which we do not need.
 df = df[,c(1:28)]
 
+# Quick plot of water temperature. Can we interpolate it?
+# terra::plot(terra::rast("C:/Users/CMADSEN/OneDrive - Government of BC/data/raster/Temperature_All_masked_krig.tif"))
 ```
 
 ```{r brief_aside_does_latitude_elevation_and_air_temp_predict_water_temp}
@@ -203,7 +237,7 @@ df_f = df |>
   dplyr::filter(!is.na(RESULT)) |> 
   mutate(retain_point = case_when(
     PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
-    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 60) ~ F,
+    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
     T ~ T
   )) |> 
   dplyr::filter(retain_point)
@@ -445,8 +479,8 @@ watershed = watershed |>
 calc_bin_levels = data.frame(
   levels = c('No Risk (< 8 mg/L)',
              'Low (8 to <15 mg/L)',
-             'Moderate (15 to <24 mg/L)',
-             'High (24+ mg/L)',
+             'Moderate (15 to <30 mg/L)',
+             'High (30+ mg/L)',
              'No Data'),
   number = c(0,1,2,3, 99)
 )
@@ -455,16 +489,16 @@ watershed = watershed |>
   dplyr::mutate(calc_bin = case_when(
     mean_calcium < 8 ~ 'No Risk (< 8 mg/L)',
     mean_calcium >= 8 & mean_calcium < 15 ~ 'Low (8 to <15 mg/L)',
-    mean_calcium >= 15 & mean_calcium < 24 ~ 'Moderate (15 to <24 mg/L)',
-    mean_calcium >= 24 ~ 'High (24+ mg/L)',
+    mean_calcium >= 15 & mean_calcium < 30 ~ 'Moderate (15 to <30 mg/L)',
+    mean_calcium >= 30 ~ 'High (30+ mg/L)',
     is.na(mean_calcium) ~ "No Data"
   )) |> 
   mutate(calc_bin = factor(calc_bin, levels = calc_bin_levels$levels)) |> 
   mutate(calc_bin_n = case_when(
     calc_bin == 'No Risk (< 8 mg/L)' ~ 0,
     calc_bin == 'Low (8 to <15 mg/L)' ~ 1,
-    calc_bin == 'Moderate (15 to <24 mg/L)' ~ 2,
-    calc_bin == 'High (24+ mg/L)' ~ 3,
+    calc_bin == 'Moderate (15 to <30 mg/L)' ~ 2,
+    calc_bin == 'High (30+ mg/L)' ~ 3,
     calc_bin == 'No Data' ~ 99 
   ))
 ```
@@ -479,8 +513,8 @@ ggplot(watershed) +
   scale_fill_manual(values = c("No Data" = "grey",
                                "No Risk (< 8 mg/L)" = "green",
                                "Low (8 to <15 mg/L)" = "yellow",
-                               "Moderate (15 to <24 mg/L)" = "orange",
-                               "High (24+ mg/L)" = "red")) +
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
@@ -518,8 +552,8 @@ ggplot(watershed) +
   scale_fill_manual(values = c("No Data" = "grey",
                                "No Risk (< 8 mg/L)" = "green",
                                "Low (8 to <15 mg/L)" = "yellow",
-                               "Moderate (15 to <24 mg/L)" = "orange",
-                               "High (24+ mg/L)" = "red")) +
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
@@ -557,8 +591,8 @@ ggplot(watershed) +
   scale_fill_manual(values = c("No Data" = "grey",
                                "No Risk (< 8 mg/L)" = "green",
                                "Low (8 to <15 mg/L)" = "yellow",
-                               "Moderate (15 to <24 mg/L)" = "orange",
-                               "High (24+ mg/L)" = "red")) +
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
