@@ -96,6 +96,7 @@ wat_temp = terra::rast(paste0(onedrive_wd,"../raster/Temperature_All_masked_krig
 wat_chlor = terra::rast(paste0(onedrive_wd,"../raster/Chlorophyll_All_masked_krig.tif"))
 wat_dis_ox = terra::rast(paste0(onedrive_wd,"../raster/Oxygen_Dissolved_All_masked_krig.tif"))
 wat_tot_phos = terra::rast(paste0(onedrive_wd,"../raster/Phosphorus_Total_Dissolved_All_masked_krig.tif"))
+wat_pH = terra::rast(paste0(onedrive_wd,"/ph-KR-208784-median_10km_ZN.tif"))
 
 # Number of waterbodies downstream of waterbody.
 library(fwa.connect)
@@ -404,11 +405,13 @@ waterb$water_temp_interp = terra::extract(wat_temp, terra::vect(sf::st_transform
 waterb$water_chlor_interp = terra::extract(wat_chlor, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
 waterb$water_dis_ox_interp = terra::extract(wat_dis_ox, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
 waterb$water_tot_phos_interp = terra::extract(wat_tot_phos, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_pH = terra::extract(wat_pH, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
 
 waterb = waterb |> dplyr::mutate(water_temp_interp = tidyr::replace_na(water_temp_interp, 0))
 waterb = waterb |> dplyr::mutate(water_chlor_interp = tidyr::replace_na(water_chlor_interp, 0))
 waterb = waterb |> dplyr::mutate(water_dis_ox_interp = tidyr::replace_na(water_dis_ox_interp, 0))
 waterb = waterb |> dplyr::mutate(water_tot_phos_interp = tidyr::replace_na(water_tot_phos_interp, 0))
+waterb = waterb |> dplyr::mutate(water_pH = tidyr::replace_na(water_pH, 0))
 ```
 
 
