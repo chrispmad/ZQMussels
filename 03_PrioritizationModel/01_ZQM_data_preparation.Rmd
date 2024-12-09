@@ -383,6 +383,51 @@ waterb = waterb |> dplyr::mutate(water_tot_phos_interp = tidyr::replace_na(water
 waterb = waterb |> dplyr::mutate(water_pH = tidyr::replace_na(water_pH, 0))
 ```
 
+```{r add_correct_binning_to_water_temp_and_chem_vars}
+waterb = waterb |> 
+  # Water pH
+  dplyr::mutate(water_pH = dplyr::case_when(
+    water_pH < 7 | water_pH > 9.5 ~ 'No Risk',
+    water_pH <= 7.5 | (water_pH >= 9.0 & water_pH <= 9.5) ~ "Low Risk",
+    water_pH <= 8.2 | (water_pH >= 8.8 & water_pH < 9.0) ~ "Moderate Risk",
+    water_pH > 8.2 & water_pH <= 8.8 ~ "High Risk",
+    T ~ as.character(water_pH)
+  )) |> 
+  # Water temperature
+  dplyr::mutate(water_temp_interp = dplyr::case_when(
+    water_temp_interp < 2 | water_temp_interp > 30 ~ 'No Risk',
+    water_temp_interp <= 10 | water_temp_interp > 28 ~ "Low Risk",
+    water_temp_interp <= 16 | (water_temp_interp >= 24 & water_temp_interp <= 28) ~ "Moderate Risk",
+    water_temp_interp > 16 & water_temp_interp < 24 ~ "High Risk",
+    T ~ as.character(water_temp_interp)
+  )) |> 
+  # Water Chlorophyll
+   dplyr::mutate(water_chlor_interp = dplyr::case_when(
+    water_chlor_interp < 2 | water_chlor_interp > 25 ~ 'No Risk',
+    water_chlor_interp <= 2.5 | (water_chlor_interp > 20 & water_chlor_interp <= 25) ~ "Low Risk",
+    water_chlor_interp >= 8 & water_chlor_interp <= 20 ~ "Moderate Risk",
+    water_chlor_interp >= 2.5 & water_chlor_interp < 8 ~ "High Risk",
+    T ~ as.character(water_chlor_interp)
+  )) |> 
+  # Water dissolved oxygen
+  dplyr::mutate(water_dis_ox_interp = dplyr::case_when(
+    water_dis_ox_interp < 3 ~ 'No Risk',
+    water_dis_ox_interp <= 7 ~ "Low Risk",
+    water_dis_ox_interp < 8 ~ "Moderate Risk",
+    water_dis_ox_interp >= 8 ~ "High Risk",
+    T ~ as.character(water_dis_ox_interp)
+  )) |> 
+  # Water total phosphorous
+  # Convert from milligrams to micrograms
+  dplyr::mutate(water_tot_phos_interp = 1000 * water_tot_phos_interp) |> 
+  dplyr::mutate(water_tot_phos_interp = dplyr::case_when(
+    water_tot_phos_interp < 5 | water_tot_phos_interp > 50 ~ 'No Risk',
+    water_tot_phos_interp <= 15 | water_tot_phos_interp >= 35 ~ "Low Risk",
+    water_tot_phos_interp > 15 & water_tot_phos_interp <= 25 ~ "Moderate Risk",
+    water_tot_phos_interp > 25 & water_tot_phos_interp < 35 ~ "High Risk",
+    T ~ as.character(water_tot_phos_interp)
+  ))
+```
 
 ```{r add_waterbody_restrictions}
 # wor = read_sf("data/shapefiles/Waterbody_operation_restrictions.shp")
