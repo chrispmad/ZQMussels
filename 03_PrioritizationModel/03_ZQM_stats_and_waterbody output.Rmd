@@ -181,40 +181,18 @@ ggpubr::ggarrange(subw_wb_example_left,
 ### Invasion and Establishment Risk
 
 -   Five categories of variables were defined:
-    -   
-
-        1.  Use (Total Watercraft Inspections, Days fished (2023 survey), and number of marinas)
-
-    -   
-
-        2.  High-risk (High-risk Inspections and Transport Canada Operation Restrictions)
-
-    -   
-
-        3.  Mussel-Fouled (Mussel-fouled Inspections)
-
-    -   
-
-        4.  Subwatershed-scale mean dissolved calcium
-
-    -   
-
-        5.  Water Abiotic Variables (pH, temperature, total phosphorous, chlorophyll, dissolved oxygen; interpolated EMS data at provincial scale)
+    1.  Use (Total Watercraft Inspections, Days fished (2023 survey), and number of marinas)
+    2.  High-risk (High-risk Inspections and Transport Canada Operation Restrictions)
+    3.  Mussel-Fouled (Mussel-fouled Inspections)
+    4.  Subwatershed-scale mean dissolved calcium
+    5.  Water Abiotic Variables (pH, temperature, total phosphorous, chlorophyll, dissolved oxygen; interpolated EMS data at provincial scale)
 
 ### Economic Value Risk
 
 -   Three categories of variables were defined:
-    -   
-
-        1.  Summed Capacity of Hydroelectric Dams by subwatershed (dam points buffered by 100m)
-
-    -   
-
-        2.  Species Richness of Federally SARA-listed Aquatic Species-at-risk by subwatershed
-
-    -   
-
-        3.  Species Richness of Provincial Conservation Data Center listed Aquatic Species-at-risk by subwatershed
+    1.  Summed Capacity of Hydroelectric Dams by subwatershed (dam points buffered by 100m)
+    2.  Species Richness of Federally SARA-listed Aquatic Species-at-risk by subwatershed
+    3.  Species Richness of Provincial Conservation Data Center listed Aquatic Species-at-risk by subwatershed
 
 Prior to running the model, each variable was binned separately into three bins as defined by that variable's natural breaks. Because of a small number of outliers with exceptionally high values for many variables, the top 5% of each variable's distribution was temporarily excluded to find these natural breaks. Bin 1 represents the lowest risk estimate and 3 represents the highest risk of invasion.
 
@@ -419,7 +397,7 @@ naturalbreaksfig
 
 ### Water Chemistry Variables (pre-binned)
 
-```{r}
+```{r fig.height = 6, fig.width = 8}
 # # Process calcium data
 # calc = read_sf(paste0(my_opts$base_dir,'01_DataCleaning/output/ZQM_RiskAssessment_ssp370_10C_threshold_Subwatershed.gpkg'))
 # 
