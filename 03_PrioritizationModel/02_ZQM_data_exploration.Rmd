@@ -320,9 +320,6 @@ ggplot() +
   labs(fill = 'Binned Calcium',
        title = 'Binned Calcium at the Subwatershed scale',
        subtitle = paste0(nrow(calc[calc$calc_bin != 'No Data',]), ' of 246 subwatersheds with data'))
-
-
-  
 ```
 
 ### Water Temperature
@@ -352,8 +349,7 @@ ggplot() +
   theme_map() + 
   labs(fill = 'Binned Water Temperature',
        color = 'Binned Water Temperature',
-       title = 'Binned Water Temperature at the Subwatershed scale',
-       subtitle = paste0(nrow(waterb_for_plot[waterb_for_plot$water_temp_interp != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Water Temperature at the Subwatershed scale')
 ```
 
 ### Water Chlorophyll
@@ -383,8 +379,7 @@ ggplot() +
   theme_map() + 
   labs(fill = 'Binned Water \nChlorophyll',
        color = 'Binned Water \nChlorophyll',
-       title = 'Binned Water Chlorophyll at the Subwatershed scale',
-       subtitle = paste0(nrow(waterb_for_plot[waterb_for_plot$water_chlor_interp != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Water Chlorophyll at the Subwatershed scale')
 ```
 
 ### Water Dissolved Oxygen
@@ -414,8 +409,7 @@ ggplot() +
   theme_map() + 
   labs(fill = 'Binned Water \nDissolved Oxygen',
        color = 'Binned Water \nDissolved Oxygen',
-       title = 'Binned Water Dissolved Oxygen at the Subwatershed scale',
-       subtitle = paste0(nrow(waterb_for_plot[waterb_for_plot$water_dis_ox_interp != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Water Dissolved Oxygen at the Subwatershed scale')
 ```
 
 ### Water Total Phosphorous
@@ -445,8 +439,7 @@ ggplot() +
   theme_map() + 
   labs(fill = 'Binned Water \nPhosphorous',
        color = 'Binned Water \nPhosphorous',
-       title = 'Binned Water Phosphorous at the Subwatershed scale',
-       subtitle = paste0(nrow(waterb_for_plot[waterb_for_plot$water_tot_phos_interp != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Water Phosphorous at the Subwatershed scale')
 ```
 
 ### Water pH
@@ -476,8 +469,7 @@ ggplot() +
   theme_map() + 
   labs(fill = 'Binned Water pH',
        color = 'Binned Water pH',
-       title = 'Binned Water pH at the Subwatershed scale',
-       subtitle = paste0(nrow(waterb_for_plot[waterb_for_plot$water_pH != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Water pH at the Subwatershed scale')
 ```
 
 ### Population Density
@@ -602,24 +594,8 @@ var_table = waterb %>%
   summarise(Subwatersheds_with_data = n()) %>% 
   rename(Variable = name)
 
-# var_table = var_table %>% 
-#   ungroup() %>% 
-#   add_row(Variable = "PopPressure at subwatershed",
-#           Waterbodies_with_data = "424898 (100%)",
-#           Subwatersheds_with_data = 246)
-
 var_table = var_table %>% 
   arrange(desc(as.numeric(str_extract(Waterbodies_with_data,"[0-9]*(?= \\()"))))
-
-# var_table$Focus = c("Value","Geography","Access/Use",
-#                    "Access/Use","Access/Use",
-#                    "Access/Use","Access/Use","Access/Use",
-#                    "Access/Use","Access/Use",
-#                    "Access/Use","Access/Use",
-#                    "Access/Use","Access/Use",
-#                    "Value","Value")
-
-var_table
 
 openxlsx::write.xlsx(waterb %>% 
            st_drop_geometry(), "waterb_with_data_explored.xlsx",

@@ -11,7 +11,7 @@ df_print: kable
 
 ```{r setup, include=FALSE}
 library(readxl)
-library(raster)
+library(terra)
 library(tidyverse)
 library(dplyr)
 library(stringr)
@@ -362,7 +362,7 @@ lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lak
 
 # 2024 
 #2023 Lake monitoring lab results.
-lakes_monitored_2024 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Lab results/Final report/Copy of BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx")) |> 
+lakes_monitored_2024 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Lab results/Final report/BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx")) |> 
   dplyr::mutate(`Lat (Decimal degrees)` = as.numeric(`Lat (Decimal degrees)`),
                 `Long (Decimal degrees)` = as.numeric(`Long (Decimal degrees)`)) |> 
   dplyr::mutate(`Water temperature (°C)*` = as.character(`Water temperature (°C)*`),
