@@ -371,92 +371,91 @@ write_sf(watershed,
                 temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 ```
 
-```{r}
-# ## Mean Calcium Bins, pH Adjusted
-# 
-# ```{r mean_calcium_binned_and_reduced_by_pH_by_subwatershed}
-# 
-# # Identify watersheds with non-ideal pH
-# non_ideal_pH_subw = pH_within_ideal_ZQ_range |> 
-#   dplyr::filter(!ideal_conditions) |> 
-#   pull(WATERSHED_)
-# 
-# watershed = watershed |> 
-#   mutate(calc_bin_n_pH_adj = case_when(
-#     WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 0 & calc_bin_n != 99 ~ calc_bin_n - 1,
-#     T ~ calc_bin_n
-#   ))
-# 
-# watershed = watershed |> 
-#   left_join(calc_bin_levels |> 
-#               rename(calc_bin_n_pH_adj = number)) |> 
-#   mutate(calc_bin_pH_adj = levels) |> 
-#   dplyr::select(-levels) |> 
-#   mutate(calc_bin_pH_adj = factor(calc_bin_pH_adj, levels = calc_bin_levels$levels))
-# 
-# ggplot(watershed) +
-#   geom_sf(aes(fill = calc_bin_pH_adj), col = "black") +
-#   scale_fill_manual(values = c("No Data" = "grey",
-#                                "No Risk (< 8 mg/L)" = "green",
-#                                "Low (8 to <15 mg/L)" = "yellow",
-#                                "Moderate (15 to <30 mg/L)" = "orange",
-#                                "High (30+ mg/L)" = "red")) +
-#   annotation_scale(location = "br", width_hint = 0.5) +
-#   theme_map() + 
-#   labs(fill = 'Binned Calcium',
-#        title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
-#        subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "No Risk")'))
-# 
-# ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
-#        width = 8, height = 8)
-#```
+## Mean Calcium Bins, pH Adjusted
+
+```{r mean_calcium_binned_and_reduced_by_pH_by_subwatershed}
+
+# Identify watersheds with non-ideal pH
+non_ideal_pH_subw = pH_within_ideal_ZQ_range |>
+  dplyr::filter(!ideal_conditions) |>
+  pull(WATERSHED_)
+
+watershed = watershed |>
+  mutate(calc_bin_n_pH_adj = case_when(
+    WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 0 & calc_bin_n != 99 ~ calc_bin_n - 1,
+    T ~ calc_bin_n
+  ))
+
+watershed = watershed |>
+  left_join(calc_bin_levels |>
+              rename(calc_bin_n_pH_adj = number)) |>
+  mutate(calc_bin_pH_adj = levels) |>
+  dplyr::select(-levels) |>
+  mutate(calc_bin_pH_adj = factor(calc_bin_pH_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "No Risk")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
+```
 
 ## Mean Calcium Bins, pH and Temperature Adjusted
 
-#```{r mean_calcium_binned_and_reduced_by_pH_reduced_by_low_temps_by_subwatershed}
+```{r mean_calcium_binned_and_reduced_by_pH_reduced_by_low_temps_by_subwatershed}
 
-# # Identify watersheds with non-ideal pH
-# low_temp_watersheds = watershed |> 
-#   dplyr::filter(temp_group == '< 10') |> 
-#   pull(WATERSHED_)
-# 
-# watershed = watershed |> 
-#     mutate(calc_bin_n_pH_temp_adj = case_when(
-#         WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 0 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
-#         T ~ calc_bin_n_pH_adj
-#     ))
-# 
-# watershed = watershed |> 
-#   left_join(calc_bin_levels |> 
-#               rename(calc_bin_n_pH_temp_adj = number)) |> 
-#   mutate(calc_bin_pH_temp_adj = levels) |> 
-#   dplyr::select(-levels) |> 
-#   mutate(calc_bin_pH_temp_adj = factor(calc_bin_pH_temp_adj, levels = calc_bin_levels$levels))
-# 
-# ggplot(watershed) +
-#   geom_sf(aes(fill = calc_bin_pH_temp_adj), col = "black") +
-#   scale_fill_manual(values = c("No Data" = "grey",
-#                                "No Risk (< 8 mg/L)" = "green",
-#                                "Low (8 to <15 mg/L)" = "yellow",
-#                                "Moderate (15 to <30 mg/L)" = "orange",
-#                                "High (30+ mg/L)" = "red")) +
-#   annotation_scale(location = "br", width_hint = 0.5) +
-#   theme_map() + 
-#   labs(fill = 'Binned Calcium',
-#        title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
-#        subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) or Temp (<10C) reduced risk by one level (if not already "No Risk")'))
-# 
-# ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
-#        width = 8, height = 8)
-#```
+# Identify watersheds with non-ideal pH
+low_temp_watersheds = watershed |>
+  dplyr::filter(temp_group == '< 10') |>
+  pull(WATERSHED_)
 
-#```{r write_sf_to_disk}
-# write_sf(watershed,
-#          paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
-#                 temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
+watershed = watershed |>
+    mutate(calc_bin_n_pH_temp_adj = case_when(
+        WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 0 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
+        T ~ calc_bin_n_pH_adj
+    ))
+
+watershed = watershed |>
+  left_join(calc_bin_levels |>
+              rename(calc_bin_n_pH_temp_adj = number)) |>
+  mutate(calc_bin_pH_temp_adj = levels) |>
+  dplyr::select(-levels) |>
+  mutate(calc_bin_pH_temp_adj = factor(calc_bin_pH_temp_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_temp_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) or Temp (<10C) reduced risk by one level (if not already "No Risk")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
+```
+
+```{r write_sf_to_disk}
+write_sf(watershed,
+         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 
 # ### Produce excel files and shapefiles
-# watdat = watdat %>% 
+# watdat = watdat %>%
 #   mutate(Quagga_Risk = "NA") %>%
 #   mutate(Quagga_Risk = replace(Quagga_Risk, bin == 1, "Minimal (less than 8 mg/L)"),
 #          Quagga_Risk = replace(Quagga_Risk, bin == 2, "Moderate (between 8 and 20 mg/L)"),
@@ -466,7 +465,7 @@ write_sf(watershed,
 #          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 2, "Moderate (between 8 and 20 mg/L)"),
 #          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 3, "High (greater than 20 mg/L)"))
 # 
-# write_sf(watdat, 
+# write_sf(watdat,
 #          paste0(mywd,"/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
 #                 temp_limit,"C_threshold_Subwatershed.gpkg"))
 ```
