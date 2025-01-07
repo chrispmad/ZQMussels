@@ -309,7 +309,7 @@ sample_protocol = sample_protocol |>
   dplyr::select(Region, Waterbody, sampling_year) |> 
   dplyr::mutate(to_sample = TRUE) |> 
   dplyr::mutate(sampling_year = paste0('on_',sampling_year,'_protocol_list')) |> 
-  pivot_wider(names_from = sampling_year, values_from = to_sample) |> 
+  pivot_wider(names_from = sampling_year, values_from = to_sample, values_fill = FALSE) |> 
   ungroup() |> 
   dplyr::rename(GNIS_NA = Waterbody,
                 REGION_NAME = Region)
@@ -323,9 +323,7 @@ waterb_risk = waterb_risk |>
   dplyr::rename(REGION_NAME = REGION_N) |>
  #Name join
   left_join(sample_protocol, by = join_by(GNIS_NA, REGION_NAME)) |> 
-  mutate(on_2021_protocol_list = replace_na(on_2021_protocol_list, F)) |>
-  mutate(on_2022_protocol_list = replace_na(on_2022_protocol_list, F)) |>
-  mutate(on_2023_protocol_list = replace_na(on_2023_protocol_list, F)) |>
+  dplyr::mutate(dplyr::across(dplyr::contains("_protocol_list"),\(x) tidyr::replace_na(x, F))) |> 
   ungroup()
 rm(sample_protocol); rm(sample_protocol_2021); rm(sample_protocol_2022); rm(sample_protocol_2023); rm(sample_protocol_2024)
 ```
@@ -361,7 +359,6 @@ lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lak
   dplyr::mutate(Year = 2023)
 
 # 2024 
-#2023 Lake monitoring lab results.
 lakes_monitored_2024 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Lab results/Final report/BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx")) |> 
   dplyr::mutate(`Lat (Decimal degrees)` = as.numeric(`Lat (Decimal degrees)`),
                 `Long (Decimal degrees)` = as.numeric(`Long (Decimal degrees)`)) |> 
@@ -423,9 +420,7 @@ lakes_monitored = lakes_monitored_2022 |>
 
 waterb_risk = waterb_risk |>
   dplyr::left_join(lakes_monitored, by = join_by(GNIS_NA, REGION_NAME)) |> 
-  dplyr::mutate(Sampled_in_2022 = replace_na(Sampled_in_2022, FALSE),
-                Sampled_in_2023 = replace_na(Sampled_in_2023, FALSE))
-
+  dplyr::mutate(dplyr::across(dplyr::starts_with("Sampled_in_"),\(x) tidyr::replace_na(x, FALSE)))
 rm(lakes_monitored); rm(lakes_monitored_2022); rm(lakes_monitored_2023)
 ```
 
@@ -463,6 +458,18 @@ rm(lakes_monitored); rm(lakes_monitored_2022); rm(lakes_monitored_2023)
 Prior to filtering out any waterbodies, there are `r nrow(waterb_risk)` waterbodies for which we have at least one risk variable. Note that at all filtering steps, all waterbodies with at least one record of a mussel-fouled boat were retained.
 
 Filtering Steps:
+
+```{r full_wb_table_for_exploring_wb_values}
+waterb_full_tbl = waterb_risk |> 
+  sf::st_drop_geometry() |> 
+  dplyr::left_join(sf::st_drop_geometry(waterb_og_values_and_bins))
+
+if(interactive()){
+  waterb_full_tbl |> 
+    dplyr::filter(str_detect(GNIS_NA,"Rosebud")) |> 
+    View()
+}
+```
 
 ```{r filter_out_risk_bin_1_or_lvl_2_and_low_calcium}
 #Filtering steps outlined by Cass and Martina. First batch!
@@ -636,7 +643,6 @@ waterbody_risk_table = waterbody_risk_table |>
 #         MusselFouled,SummedDamCapacity,distinct_SAR:Long)
 ```
 
-
 ```{r write_excel_files_to_disk}
 # ---------------- #
 #      NOTE        #
@@ -726,13 +732,14 @@ saveWorkbook(my.wb,
 
 final_waterbody_list = waterbody_risk_table |>
  ungroup() |>
-  reframe(Region = REGION_NAME,
-          Waterbody = GNIS_NA,
-          `Veliger Sampling Frequency` = "Undecided",
-          Lat = round(Lat, 4),
-          Long = round(Long, 4),
-          InvasionRisk_bin = InvasionRisk,
-          EVRisk_bin = EVRisk
+  rename(Region = REGION_NAME,
+         Waterbody = GNIS_NA,
+         InvasionRisk_bin = InvasionRisk,
+    EVRisk_bin = EVRisk) |> 
+  dplyr::mutate(
+    `Veliger Sampling Frequency` = "Undecided",
+    Lat = round(Lat, 4),
+    Long = round(Long, 4)
   ) |> 
   dplyr::mutate(Region = stringr::str_remove_all(Region, ' Natural Resource Region'))
 
@@ -826,6 +833,18 @@ for(row in 1:nrow(final_waterbody_list)){
 
 waterbodies_dropped_from_last_year = last_year[last_year$carried_over == F,]
 waterbodies_added_this_year = final_waterbody_list[final_waterbody_list$new_entry == T,]
+
+# Figure out which subwatershed each of these new waterbodies is in.
+for(i in 1:nrow(waterbodies_added_this_year)){
+  the_region = waterbodies_added_this_year$Region[i]
+  the_wb_name = waterbodies_added_this_year$Waterbody[i]
+  
+  bcdc_query_geodata('freshwater-atlas-lakes') |> 
+    filter(GNIS_NAME_1 == the_wb_name) |> 
+    collect()
+  
+  bcmaps::nr_regions()
+}
 
 # Save results.
 my.wb = createWorkbook("annual_sampling_lists_comparison")

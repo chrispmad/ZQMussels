@@ -207,9 +207,11 @@ Note that a third category of Operational restrictions is present in the Transpo
 
 The following risk models were constructed with *a priori* knowledge of key variable inputs:
 
-$$I_w = (\frac{T_w+A_w+M_w}{n}) + (\frac{H_w-O_w}{n}) + (\frac{MF_w}{n}) + {C_w}$$
+$$I_w = (\frac{T_w+A_w+M_w-O_w}{n}) + (\frac{H_w}{n}) + (\frac{MF_w}{n}) + {C_w}$$
 
-Where *Iw* represents the invasion / establishment risk estimate of a waterbody *w*. *T* refers to the total number of watercraft inspections of watercraft headed to waterbody *w*, *A* to angling effort (sum of days fished), *M* to the number of marinas in waterbody *w*, *H* to high-risk inspections and *O* refers to operational restrictions. *MF* to mussel-fouled inspections, and *C* stands for the subwatershed-level calcium level (calculated using Environment Monitoring System data). *O* represents a risk reduction, and so it is subtracted from the overall risk estimate.
+Where *Iw* represents the invasion / establishment risk estimate of a waterbody *w*. *T* refers to the total number of watercraft inspections of watercraft headed to waterbody *w*, *A* to angling effort (sum of days fished), *M* to the number of marinas in waterbody *w*, *O* *O* refers to operational restrictions, and *H* to high-risk inspections. *MF* to mussel-fouled inspections, and *C* stands for the subwatershed-level calcium level (calculated using Environment Monitoring System data). *O* represents a risk reduction, and so it is subtracted from the Use category estimate.
+
+Note that angling effort was found to inflate the number of waterbodies categorized as risk level 2 and 3; therefore, this variable's weighting was reduced relative to total inspections and marinas by condensing its value range from 1-3 to 1-2 (a value of 1 remained 1, a value of 2 became 1.5, and a value of 3 became 2).
 
 $$EV_w = (D_w) + (FSARA_w) + (PSAR_w)$$ Where *EV_w* represents the economic value risk estimate of a waterbody. *D* refers to the summed dam capacity at the waterbody scale, *FSARA* refers to the number of distinct species of aquatic, federally SARA-listed species-at-risk, and *PSAR* refers to the number of distinct species of aquatic, provincially listed by the Conservation Data Centre as species-at-risk, all at the waterbody scale.
 
@@ -239,9 +241,10 @@ MusselFouledvar = "NumberMusselFouled"
 
 Usevars = c("TotalInspections",
             "days_fished_2023_survey",
-            "Marinas")
+            "Marinas",
+            "OperRes")
 
-Highriskvars = c("HR_mot","HR_nonmot","OperRes")
+Highriskvars = c("HR_mot","HR_nonmot")
 
 # WaterSuitabilityVars = c(
 #   "water_temp_interp",
@@ -559,6 +562,22 @@ risk_data = risk_data |>
 my.colours = c("lightgreen","gold","#eb9e4e","#F00320","darkgrey")
 ```
 
+```{r find_number_of_wbs_in_each_bin_level_for_all_variables}
+if(interactive()){
+  risk_data |> 
+    sf::st_drop_geometry() |> 
+    tidyr::pivot_longer(cols = -c(WATERSH,WATERBO,GNIS_NA)) |> 
+    dplyr::filter(!is.na(value)) |> 
+    dplyr::count(name,value) |> 
+    mutate(value = paste0("level_",value)) |> 
+    group_by(name) |> 
+    mutate(n = paste0(n," (",round(100*n/sum(n),1),"%)")) |> 
+    ungroup() |> 
+    pivot_wider(names_from = value, values_from = n) |> 
+    knitr::kable()
+}
+```
+
 ## Risk of Introduction and Establishment
 
 ### Waterbody Risk Estimation - Use Variables
@@ -583,11 +602,13 @@ risk_data_use = risk_data %>%
   #Get rid of empty rows and 0s.
   filter(!is.na(value),
          value > 0) %>% 
-  # Make any value for Marinas that is not 0 into a 3.
-  # dplyr::mutate(value = ifelse(name == 'Marinas', 3, value)) |> 
-  #Find out which waterbodies ONLY have data for population density - remove those.
-  #filter(!paste0(WATERSH,WATERBO,GNIS_NA) %in% just_popdens_records$uniqID) %>% 
-  #Add a column that groups rows by their variable of focus.
+  dplyr::mutate(value = dplyr::case_when(
+    # The below inflates the number of waterbodies that are making it into the final list...
+    # name %in% c("TotalInspections","Marinas") ~ value*2,
+    name %in% c("days_fished_2023_survey") & value == 2 ~ 1.5,
+    name %in% c("days_fished_2023_survey") & value == 3 ~ 2,
+    T ~ value
+  )) |> 
   mutate(Grouper = case_when(
     name %in% Usevars ~ "Use")) %>% 
   group_by(WATERSH,WATERBO,GNIS_NA,Grouper) %>% 
@@ -624,8 +645,9 @@ waterb_risk = waterb %>%
 
 #Mean, median
 # knitr::kable(
-  waterb %>% 
+waterb %>% 
   dplyr::select(all_of(Usevars)) %>% 
+  dplyr::select(-OperRes) |> 
   st_drop_geometry() %>% 
   pivot_longer(cols = everything()) %>% 
   rename(Variable = name) %>% 
@@ -671,7 +693,7 @@ just_nonmot = waterb %>%
          LowRisk_Complex_Counter == 0,
          LowRisk_Very_Complex_Counter == 0,
          LowRisk_Simple_Counter == 0) %>%
-  filter(is.na(OperRes) | OperRes == "All Vessels Prohibited") %>% 
+  # filter(is.na(OperRes) | OperRes == "All Vessels Prohibited") %>% 
   mutate(uniqID = paste0(WATERSH,WATERBO,GNIS_NA))
 
 # knitr::kable(
@@ -685,7 +707,7 @@ openxlsx::write.xlsx(just_nonmot %>% st_drop_geometry(),
                      overwrite = T)
 
 # Updating / changing 'Highriskvars' to be c("total_HR","OperRes")
-Highriskvars = c("total_HR","OperRes")
+Highriskvars = c("total_HR")
 
 risk_data_highrisk = risk_data %>% 
   # TEMPORARY
