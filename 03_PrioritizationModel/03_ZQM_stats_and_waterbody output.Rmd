@@ -394,6 +394,19 @@ naturalbreaksfig = ggplot() +
 naturalbreaksfig
 ```
 
+```{r show_the_natural_breaks}
+breaks_tbl = data_bin |> 
+  dplyr::select(varname, starts_with("naturalb")) |> 
+  dplyr::distinct() |> 
+  dplyr::mutate(naturalbreakpoints.4 = ifelse(naturalbreakpoints.3 == naturalbreakpoints.4 | is.na(naturalbreakpoints.3),NA,naturalbreakpoints.4)) |> 
+  dplyr::rename(Variable = varname, Natural_Break_1 = naturalbreakpoints.1, Natural_Break_2 = naturalbreakpoints.2,
+                Natural_Break_3 = naturalbreakpoints.3,Natural_Break_4 = naturalbreakpoints.4)
+
+breaks_tbl |> 
+  knitr::kable()
+  # tidyr::pivot_longer(-varname)
+```
+
 ### Water Chemistry Variables (pre-binned)
 
 ```{r fig.height = 6, fig.width = 8}
@@ -1254,7 +1267,8 @@ saveRDS(
     waterb,
     waterb_risk,
     waterb_og_values,
-    subw_w_dat
+    subw_w_dat,
+    breaks_tbl
   ), 
   file = 'data/data_for_making_shortlist.rds'
 )
