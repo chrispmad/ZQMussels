@@ -418,12 +418,21 @@ waterb_full_tbl = waterb_risk |>
   dplyr::left_join(sf::st_drop_geometry(waterb_og_values_and_bins))
 ```
 
+```{r highlight_certain_waterbodies_to_keep}
+waterb_risk = waterb_risk |> 
+  dplyr::mutate(keep_me_always = dplyr::case_when(
+    GNIS_NA %in% c('Kootenay River') ~ T,
+    T ~ F
+  ))
+```
+
 ```{r filter_out_risk_bin_1_or_lvl_2_and_low_calcium}
 #Filtering steps outlined by Cass and Martina. First batch!
 waterb_risk_complete = waterb_risk
 
 waterb_risk = waterb_risk |> 
   mutate(keep.me = case_when(
+    keep_me_always ~ 'keep',
     paste0(GNIS_NA,WATERSH) %in% paste0(waterb_with_any_mf$GNIS_NA,waterb_with_any_mf$WATERSH) ~ 'keep',
     InvasionRisk >= 2 ~ "keep",
     # GNIS_NA == 'Jewel Lake' ~ 'keep',
@@ -440,7 +449,7 @@ waterb_risk = waterb_risk |>
 ```{r remove_use_below_1.5}
 #And now the actual second filtering step!
 waterb_risk = waterb_risk |>
- filter(Use > 1.5 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH))
+ filter(Use > 1.5 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH) | keep_me_always)
 ```
 
 2. Remove waterbodies with a binned value of the 'Use' category up to 1.5 (`r nrow(waterb_risk)` waterbodies retained)
@@ -479,7 +488,7 @@ waterb_risk = waterb_risk |>
 
 ```{r filter_away_calcium_level_no_risk}
 waterb_risk = waterb_risk |> 
-  dplyr::filter(calcium_bin > 0)
+  dplyr::filter(calcium_bin > 0 | keep_me_always)
 ```
 
 4. Remove waterbodies with a calcium risk bin of 0 (which equates to "No Risk"); (`r nrow(waterb_risk)` waterbodies retained)
@@ -680,14 +689,32 @@ final_waterbody_list = fwl_lakes |>
 
 # Add in the sampling frequency!
 final_waterbody_list = final_waterbody_list |> 
-  dplyr::mutate(`Veliger Sampling Frequency` = ifelse(InvasionRisk_bin == 3 | Highrisk == 3, "Bi-weekly", "Monthly"))
+  dplyr::mutate(Sampling_Frequency = dplyr::case_when(
+    InvasionRisk_bin == 3 | Highrisk == 3 ~ "Plankton Bi-weekly", 
+    Use < 2 ~ "Substrate Only",
+    T ~ "Plankton Monthly"))
 
 final_waterbody_list = final_waterbody_list |> 
-  dplyr::arrange(`Veliger Sampling Frequency`, InvasionRisk_bin, Use)
+  dplyr::arrange(Sampling_Frequency, InvasionRisk_bin, Use)
 
 openxlsx::write.xlsx(final_waterbody_list,
                     paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,".xlsx"),
                     overwrite = T)
+
+# Add a sheet to this doc that has only the variables needed for the table in word.
+final_wb_wb = openxlsx::loadWorkbook(file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,".xlsx"))
+
+openxlsx::addWorksheet(final_wb_wb, sheetName = "table_for_word")
+
+openxlsx::writeDataTable(final_wb_wb,
+                         "table_for_word", 
+                         x = final_waterbody_list |>
+                           dplyr::select(Region,Waterbody,Sampling_Frequency,Lat,Long)
+)
+
+openxlsx::saveWorkbook(final_wb_wb, 
+                       file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,".xlsx"),
+                       overwrite = T)
 ```
 
 ```{r little_exploration_bit}
@@ -727,28 +754,71 @@ final_waterbody_list = final_waterbody_list |>
 last_year = get_wb_list_from_protocol_doc(
   officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx')
 ) |> 
-  mutate(region_wb = paste0(Region,'-',Waterbody)) |> 
-  rowwise() |> 
-  mutate(only_on_last_years_list = !region_wb %in% unique(final_waterbody_list$region_wb))
+  mutate(Waterbody = stringr::str_replace(Waterbody,"’","'")) |> 
+  mutate(region_wb = paste0(Region,'-',Waterbody))
   
-final_waterbody_list = final_waterbody_list |> 
-  rowwise() |> 
-  dplyr::mutate(new_on_this_years_list = !region_wb %in% last_year$region_wb) |> 
-  ungroup()
+last_year$only_on_last_years_list = FALSE
+
+for(i in 1:nrow(last_year)){
+  relevant_wbs = final_waterbody_list[final_waterbody_list$Waterbody == last_year[i,]$Waterbody,]
+  
+  if(nrow(relevant_wbs) == 0) {
+    last_year[i,]$only_on_last_years_list = TRUE
+  } else {
+    if(str_detect(paste0(relevant_wbs$Region,collapse=''),last_year[i,]$Region)){
+      last_year[i,]$only_on_last_years_list = FALSE
+    }
+  }
+}
+
+final_waterbody_list$new_on_this_years_list = FALSE
+
+for(i in 1:nrow(final_waterbody_list)){
+  
+  relevant_wbs = last_year[last_year$Waterbody == final_waterbody_list[i,]$Waterbody,]
+  
+  if(nrow(relevant_wbs) == 0) {
+    final_waterbody_list[i,]$new_on_this_years_list = TRUE
+  } else {
+    if(str_detect(paste0(relevant_wbs$Region,collapse=''),final_waterbody_list[i,]$Region)){
+      final_waterbody_list[i,]$new_on_this_years_list = FALSE
+    }
+  }
+}
 
 waterbodies_dropped_from_last_year = last_year[last_year$only_on_last_years_list == T,]
 waterbodies_added_this_year = final_waterbody_list[final_waterbody_list$new_on_this_years_list == T,]
 
-# # Figure out which subwatershed each of these new waterbodies is in.
-# for(i in 1:nrow(waterbodies_added_this_year)){
-#   the_region = waterbodies_added_this_year$Region[i]
-#   the_wb_name = waterbodies_added_this_year$Waterbody[i]
-#   
-#   bcdc_query_geodata('freshwater-atlas-lakes') |> 
-#     filter(GNIS_NAME_1 == the_wb_name) |> 
-#     collect()
-#   
-# }
+# Add a piece describing which of the lakes ONLY in last year's protocol (and dropped from this year's protocol)
+# were actually sampled.
+waterbodies_dropped_from_last_year$Sampled_in_2024 = "FALSE"
+for(i in 1:nrow(waterbodies_dropped_from_last_year)){
+  relevant_wbs = waterb_full_tbl[waterb_full_tbl$GNIS_NA == waterbodies_dropped_from_last_year[i,]$Waterbody,]
+  if(nrow(relevant_wbs) != 0) {
+    if(nrow(relevant_wbs) == 1){
+      waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = as.character(relevant_wbs$Sampled_in_2024)
+    } else {
+
+      point_for_search = waterbodies_dropped_from_last_year[i,] |> 
+        sf::st_as_sf(coords = c("Long","Lat"), crs = 4326)
+      
+      watershed_groups = bcdc_query_geodata('freshwater-atlas-watershed-groups') |> 
+        filter(WATERSHED_GROUP_ID %in% relevant_wbs$WATERSH) |> 
+        collect() |> 
+        sf::st_transform(4326)
+      
+      watershed_group_id_filter = watershed_groups |> 
+        sf::st_filter(point_for_search) |> 
+        pull(WATERSHED_GROUP_ID)
+      
+      if(length(watershed_group_id_filter) == 0){
+        waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = "Unknown"
+      } else {
+      waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = as.character(relevant_wbs[relevant_wbs$WATERSH ==  watershed_group_id_filter,]$Sampled_in_2024)
+      }
+    }
+  }
+}
 
 # Save results.
 my.wb = createWorkbook("annual_sampling_lists_comparison")
