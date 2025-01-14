@@ -1,5 +1,6 @@
 # %%
 # # import requests
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.alert import Alert
@@ -45,7 +46,8 @@ def wait_for_download(directory, file_pattern, timeout=60, check_interval=5):
 # %%
 ## Read in options file that has log-in info for metabase
 my_opts_filename = (
-    "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv"
+    #"C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv"
+    sys.argv[1]
 )
 my_opts = pd.read_csv(my_opts_filename)
 
