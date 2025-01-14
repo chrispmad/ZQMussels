@@ -6,6 +6,9 @@
 /output/**
 Options.csv
 Options.json
+MakingOptionsFile.R
+update_imdp_automatically.txt
+update_imdp_automatically.bat
 ZQMussels.Rproj
 /01_DataCleaning/data/**
 /01_DataCleaning/output/**
