@@ -5,8 +5,8 @@ set "PATH=C:\Program Files\R\R-4.4.1\bin\x64;%PATH%"
 cd C:\Users\CMADSEN\Downloads\LocalR\long_term_projects\ZQMussels
 
 REM Run Python Script
-python download_annual_metabase_csv.py
+python download_annual_metabase_csv.py C:\Users\CMADSEN\Downloads\LocalR\long_term_projects\ZQMussels\Options.csv
 
-REM Run the P
-Rscript update_imdp_data_automatically.R
+REM Run the R Script
+Rscript update_imdp_data_automatically.R C:\Users\CMADSEN\Downloads\LocalR\long_term_projects\ZQMussels\Options.csv
 pause
