@@ -34,17 +34,17 @@ temp_limit_zqm = my_opts$zqm_risk_temp_limit
 temp_limit_golden = 15
 climate_model = my_opts$zqm_risk_climate_model
 
-setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+# setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
 mywd = getwd()
+# Make path to 01_DataCleaning/data
+
+data.path = paste0(stringr::str_remove(mywd, "04_.*"),"/01_DataCleaning/data/")
 
 #Create organizational folders in your working directory, if they don't exist.
 #data...
-if(!dir.exists(paste0(getwd(),"/data/"))) {
-  dir.create(paste0(getwd(),"/data/"))
-}
-
-#shapefiles...
-data.path = paste0(getwd(),"/data/")
+# if(!dir.exists(paste0(getwd(),"/data/"))) {
+#   dir.create(paste0(getwd(),"/data/"))
+# }
 
 #output...
 if(!dir.exists(paste0(getwd(),"/output/"))) {
@@ -110,7 +110,7 @@ df_f = df |>
 
 ```{r read_in_wb_and_subw_shapefiles}
 #Read in the water body shapefiles
-waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+waterbodies = read_sf(paste0(data.path,"summarized_bc_waterbodies_same_gnis_joined.gpkg"))
 # Read in subwatershed (N = 246) shapefile
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
 ```
