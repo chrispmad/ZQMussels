@@ -1,0 +1,480 @@
+---
+title: "ZQ Mussel and Golden Mussel Calcium Tolerance Comparison"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Sections {.tabset}
+
+## Cleaning 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+# Load libraries
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(ggspatial)
+library(ggthemes)
+library(bcdata)
+library(DBI)
+library(RSQLite)
+library(tidyhydat)
+library(patchwork)
+```
+
+```{r read_and_set_options}
+my_opts = read_csv(paste0(here::here(),"/Options.csv")) %>% 
+  as.data.frame()
+
+my.year = my_opts$year
+
+temp_limit_zqm = my_opts$zqm_risk_temp_limit
+temp_limit_golden = 15
+climate_model = my_opts$zqm_risk_climate_model
+
+setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+mywd = getwd()
+
+#Create organizational folders in your working directory, if they don't exist.
+#data...
+if(!dir.exists(paste0(getwd(),"/data/"))) {
+  dir.create(paste0(getwd(),"/data/"))
+}
+
+#shapefiles...
+data.path = paste0(getwd(),"/data/")
+
+#output...
+if(!dir.exists(paste0(getwd(),"/output/"))) {
+  dir.create(paste0(getwd(),"/output/"))
+}
+```
+
+```{r load_in_shapefiles}
+# BC shapefile
+bc_shp = bcmaps::bc_bound() %>% 
+  st_transform(crs = 4326) |> 
+  dplyr::summarise()
+
+# WorldClim future temperature raster data. 
+if(my_opts$zqm_risk_climate_model == "ssp245"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+} else if(my_opts$zqm_risk_climate_model == "ssp370"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+}
+
+# Query from EMS!
+ems_path = paste0(stringr::str_extract(my_opts$base_dir,".*long_term_projects"),"/EMS/output/EMS.sqlite")
+conn = dbConnect(SQLite(), ems_path)
+df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
+# ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
+DBI::dbDisconnect(conn)
+
+#Get rid of columns 29 to 60, which we do not need.
+df = df[,c(1:28)]
+
+```
+
+```{r combine_data}
+df = df |> 
+  dplyr::select(EMS_ID, MONITORING_LOCATION,LOCATION_TYPE,COLLECTION_START,COLLECTION_END,SAMPLING_AGENCY,COLLECTION_METHOD,PARAMETER,ANALYTICAL_METHOD,RESULT,UNIT,LONGITUDE,LATITUDE)
+
+# Ensure we don't have points with missing locations or sampling dates.
+df = df |> 
+  dplyr::filter(!is.na(LATITUDE),
+                !is.na(LONGITUDE)) |> 
+  dplyr::filter(!(is.na(COLLECTION_START) & is.na(COLLECTION_END)))
+
+# Clean up date columns!
+df = df |> 
+  dplyr::mutate(COLLECTION_START = lubridate::ymd_hms(COLLECTION_START),
+                COLLECTION_END = lubridate::ymd_hms(COLLECTION_END))
+
+hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
+```
+
+```{r filter_outliers_from_calcium_and_pH}
+df_f = df |> 
+  dplyr::filter(!is.na(RESULT)) |> 
+  mutate(retain_point = case_when(
+    PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
+    T ~ T
+  )) |> 
+  dplyr::filter(retain_point)
+```
+
+```{r read_in_wb_and_subw_shapefiles}
+#Read in the water body shapefiles
+waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+# Read in subwatershed (N = 246) shapefile
+watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
+```
+
+```{r match_EMS_records_to_wb}
+# ---------------
+# We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
+
+# Calculate number of data points for pH and calcium
+total_pH = nrow(df_f |> dplyr::filter(PARAMETER == 'pH'))
+
+total_calc = nrow(df_f |> dplyr::filter(PARAMETER != 'pH'))
+
+# Simple spatial match to waterbodies
+
+df_f_match_to_wbs = df_f |>
+  dplyr::filter(!is.na(LATITUDE)) |> 
+  st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+           crs = 4326) |> 
+  sf::st_transform(crs = 3005) |> 
+  st_join(waterbodies)
+
+df_f_match_to_wbs = df_f_match_to_wbs |>
+  dplyr::filter(!is.na(WATERSH))
+
+pH = df_f_match_to_wbs |> filter(PARAMETER == 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+
+calc = df_f_match_to_wbs |> filter(PARAMETER != 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+
+# # Summarized number of data points for pH and calcium by subwatershed.
+pH_by_subw = pH |>
+  sf::st_drop_geometry() |>
+  dplyr::count(WATERSHED_)
+
+calc_by_subw = calc |>
+  sf::st_drop_geometry() |>
+  dplyr::count(WATERSHED_)
+
+```
+
+## Number of Data Points
+
+```{r visualize_number_pH_data_points_per_subw}
+# Add summaries to subwatershed; plot.
+watershed |> 
+  dplyr::left_join(
+    pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'pH readings matched spatially to waterbody and then to subwatershed'
+       )
+```
+
+```{r visualize_number_calcium_data_points_per_subw}
+watershed |> 
+  dplyr::left_join(
+    calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'Calcium readings matched spatially to waterbody and then to subwatershed'
+       )
+```
+
+## Mean Values 
+
+```{r mean_pH_value_by_subw}
+mean_pH_by_subw = pH |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_pH = mean(RESULT, na.rm=T),
+                   standard_deviation_pH = sd(RESULT, na.rm=T),
+                   number_pH_data_points = n())
+
+watershed |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_pH)) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched some watershed'),
+       fill = 'Mean pH Value',
+       caption = 'pH readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       )
+```
+
+```{r mean_calcium_value_by_subw}
+mean_calc_by_subw = calc |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_calcium = mean(RESULT, na.rm=T),
+                   standard_deviation_calcium = sd(RESULT, na.rm=T),
+                   number_calcium_data_points = n())
+
+watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_calcium)) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched some watershed'),
+       fill = 'Mean Calcium Value',
+       caption = 'calcium readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       ) + 
+  scale_fill_fermenter(palette = 'RdYlGn')
+```
+
+```{r pH_in_ideal_ZQ_conditions}
+pH_within_ideal_range = mean_pH_by_subw |>
+  dplyr::mutate(
+    ideal_conditions_ZQ = mean_pH >= 7 & mean_pH <= 9.6,
+    ideal_conditions_Golden = mean_pH >= 6 & mean_pH <= 9
+  )
+```
+
+```{r get_temperatures_per_subw}
+#Grab the temperature data from the worldclim predicted temperature raster we read in at the top of the script.
+watershed = watershed %>% 
+  mutate(temp_mean = terra::extract(tempr, vect(watershed %>% st_transform(crs = 4326)), fun = mean, na.rm=T)[,2]) |> 
+  mutate(temp_max = terra::extract(tempr, vect(watershed %>% st_transform(crs = 4326)), fun = max, na.rm=T)[,2])
+  
+watershed = watershed %>%  
+  mutate(temp_group_zqm = case_when(
+    temp_mean < temp_limit_zqm ~ paste0("< ", temp_limit_zqm),
+    temp_mean >=  temp_limit_zqm ~ paste0(">= ", temp_limit_zqm),
+    T ~ "NA"
+  )) |> 
+  mutate(temp_group_golden = case_when(
+    temp_max < temp_limit_golden ~ paste0("< ", temp_limit_golden),
+    temp_max >=  temp_limit_golden ~ paste0(">= ", temp_limit_golden),
+    T ~ "NA"
+  ))
+```
+
+## Temperature Correction Maps {.tabset}
+
+### Zebra-Quagga
+
+```{r temp_correction_map_ZQM}
+ggplot() +
+  geom_sf(data = watershed, col = "black", aes(fill = temp_group_zqm)) +
+  scale_fill_manual(values = c("< 10" = "red",
+                               "> 10" = "transparent")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Average Air Temperature (C)")
+```
+
+### Golden 
+```{r temp_correction_map_Golden}
+ggplot() +
+  geom_sf(data = watershed, col = "black", aes(fill = temp_group_golden)) +
+  scale_fill_manual(values = c("< 15" = "red",
+                               "> 15" = "transparent")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Maximum Air Temperature (C)")
+```
+
+```{r join_calc_and_pH_to_watershed}
+watershed = watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  )
+```
+
+```{r bin_calcium_values}
+
+calc_bin_levels_zqm = data.frame(
+  levels = c('No Risk (< 8 mg/L)',
+             'Low (8 to <15 mg/L)',
+             'Moderate (15 to <30 mg/L)',
+             'High (30+ mg/L)',
+             'No Data'),
+  number = c(0,1,2,3, 99)
+)
+
+calc_bin_levels_golden = data.frame(
+  levels = c('Low (0 to 1 mg/L)',
+             'Moderate (1 to 3 mg/L)',
+             'High (3+ mg/L)',
+             'No Data'),
+  number = c(1,2,3,99)
+)
+  
+watershed = watershed |> 
+  dplyr::mutate(calc_bin_zqm = case_when(
+    mean_calcium < 8 ~ 'No Risk (< 8 mg/L)',
+    mean_calcium >= 8 & mean_calcium < 15 ~ 'Low (8 to <15 mg/L)',
+    mean_calcium >= 15 & mean_calcium < 30 ~ 'Moderate (15 to <30 mg/L)',
+    mean_calcium >= 30 ~ 'High (30+ mg/L)',
+    is.na(mean_calcium) ~ "No Data"
+  )) |> 
+  mutate(calc_bin_zqm = factor(calc_bin_zqm, levels = calc_bin_levels_zqm$levels)) |>
+  mutate(calc_bin_n_zqm = case_when(
+    calc_bin_zqm == 'No Risk (< 8 mg/L)' ~ 0,
+    calc_bin_zqm == 'Low (8 to <15 mg/L)' ~ 1,
+    calc_bin_zqm == 'Moderate (15 to <30 mg/L)' ~ 2,
+    calc_bin_zqm == 'High (30+ mg/L)' ~ 3,
+    calc_bin_zqm == 'No Data' ~ 99 
+  )) |> 
+  dplyr::mutate(calc_bin_golden = case_when(
+    mean_calcium < 1 & mean_calcium < 15 ~ 'Low (0 to 1 mg/L)',
+    mean_calcium >= 1 & mean_calcium < 3 ~ 'Moderate (1 to 3 mg/L)',
+    mean_calcium >= 3 ~ 'High (3+ mg/L)',
+    is.na(mean_calcium) ~ "No Data"
+  )) |> 
+  mutate(calc_bin_golden = factor(calc_bin_golden, levels = calc_bin_levels_golden$levels)) |> 
+  mutate(calc_bin_n_golden = case_when(
+    calc_bin_golden == 'Low (0 to 1 mg/L)' ~ 1,
+    calc_bin_golden == 'Moderate (1 to 3 mg/L)' ~ 2,
+    calc_bin_golden == 'High (3+ mg/L)' ~ 3,
+    calc_bin_golden == 'No Data' ~ 99 
+  ))
+```
+
+# Results {.tabset}
+
+## Mean Calcium Bins
+
+```{r mean_calcium_binned_by_subwatershed, fig.width = 10}
+zqm_plot = ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_zqm), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() + 
+  labs(fill = 'Binned Calcium',
+       title = 'Zebra Quagga Mussel Risk Estimates',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin_zqm != 'No Data',]), ' of 246 subwatersheds with data'))
+
+golden_plot = ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_golden), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "Low (0 to 1 mg/L)" = "yellow",
+                               "Moderate (1 to 3 mg/L)" = "orange",
+                               "High (3+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() + 
+  labs(fill = 'Binned Calcium',
+       title = 'Golden Mussel Risk Estimates',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin_zqm != 'No Data',]), ' of 246 subwatersheds with data'))
+
+zqm_plot + golden_plot
+```
+
+```{r apply_pH_ranges_to_mean_calcium_risk_levels}
+watershed = watershed |> 
+  dplyr::left_join(
+    pH_within_ideal_range
+  ) |> 
+  # Note: some watersheds did not receive qualifications of pH suitability for ZQM and Golden Mussel
+  dplyr::mutate(
+    calc_bin_n_zqm_pH_adj = ifelse(
+      !ideal_conditions_ZQ & !is.na(ideal_conditions_ZQ) & calc_bin_n_zqm != 0 & calc_bin_n_zqm != 99, 
+      calc_bin_n_zqm - 1, 
+      calc_bin_n_zqm)
+  ) |> 
+  dplyr::mutate(
+    calc_bin_n_golden_pH_adj = ifelse(
+      !ideal_conditions_Golden & !is.na(ideal_conditions_Golden) & calc_bin_n_golden != 1 & calc_bin_n_golden != 99, 
+      calc_bin_n_golden - 1, 
+      calc_bin_n_golden)
+  )
+```
+
+## Mean Calcium Bins, pH and Temperature Adjusted
+
+Estimated Risk Levels based on available dissolved calcium data were reduced by 1 risk level in watersheds found to have non-suitable average pH and/or temperature. 
+For Zebra / Quagga Mussels, unsuitable pH was < 7 or > 9.6, and temperatures were deemed unsuitable in any watersheds with annual mean temperatures under 10 degrees C. For Golden Mussel, unsuitable pH was < 6 or > 9, and temperatures were deemed unsuitable in any watersheds where the maximum annual temperature never goes above 15 degrees C.
+
+```{r fig.width = 10}
+# Apply temperature correction factor to risk estimates.
+watershed = watershed |>
+  mutate(calc_bin_n_zqm_pH_temp_adj = ifelse(
+    temp_group_zqm == "< 10" & calc_bin_n_zqm_pH_adj != 0 & calc_bin_n_zqm_pH_adj != 99,
+    calc_bin_n_zqm_pH_adj - 1,
+    calc_bin_n_zqm_pH_adj
+  )) |> 
+  mutate(calc_bin_n_golden_pH_temp_adj = ifelse(
+    temp_group_golden == "< 15" & calc_bin_n_golden_pH_adj != 1 & calc_bin_n_zqm_pH_temp_adj != 99,
+    calc_bin_n_golden_pH_adj - 1,
+    calc_bin_n_golden_pH_adj
+  )) 
+
+# Add labels for map.
+watershed = watershed |> 
+  dplyr::left_join(
+    calc_bin_levels_zqm |> 
+      dplyr::rename(calc_bin_n_zqm_pH_temp_adj = number,
+                    calc_bin_zqm_pH_temp_adj = levels)
+  ) |> 
+  dplyr::left_join(
+    calc_bin_levels_golden |> 
+      dplyr::rename(calc_bin_n_golden_pH_temp_adj = number,
+                    calc_bin_golden_pH_temp_adj = levels)
+  ) |> 
+  dplyr::mutate(calc_bin_zqm_pH_temp_adj = factor(
+    calc_bin_zqm_pH_temp_adj,
+    levels = c("No Data",
+               "No Risk (< 8 mg/L)",
+               "Low (8 to <15 mg/L)",
+               "Moderate (15 to <30 mg/L)",
+               "High (30+ mg/L)"))
+    ) |> 
+  dplyr::mutate(calc_bin_golden_pH_temp_adj = factor(
+    calc_bin_golden_pH_temp_adj,
+    levels = c("No Data",
+               "Low (0 to 1 mg/L)",
+               "Moderate (1 to 3 mg/L)",
+               "High (3+ mg/L)"))
+    )
+
+zqm_plot = ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_zqm_pH_temp_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Zebra / Quagga Mussel Risk Estimates',
+       subtitle = 'pH and temperature adjusted') + 
+  theme(legend.background = element_blank())
+
+golden_plot = ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_golden_pH_temp_adj), col = "black") +
+  scale_fill_manual(values = c("No Data" = "grey",
+                               "Low (0 to 1 mg/L)" = "yellow",
+                               "Moderate (1 to 3 mg/L)" = "orange",
+                               "High (3+ mg/L)" = "red")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Golden Mussel Risk Estimates',
+       subtitle = 'pH and temperature adjusted')
+
+my_patch = zqm_plot + golden_plot
+
+my_patch
+
+ggsave(filename = "output/ZQ_and_Golden_Mussels_calcium_suitability_comparisons.jpg", 
+       my_patch,
+       width = 10, height = 6, dpi = 300)
+
+ggsave(filename = "J:/2 SCIENCE - Invasives/SPECIES/Golden mussel/ZQ_and_Golden_Mussels_calcium_suitability_comparisons.jpg", 
+       my_patch,
+       width = 10, height = 6, dpi = 300)
+```
+
