@@ -103,6 +103,8 @@ df_f = df |>
   mutate(retain_point = case_when(
     PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
     PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
+    stringr::str_detect(PARAMETER,"Calcium") & UNIT != "mg/L" ~ F,
+    stringr::str_detect(PARAMETER,"Calcium") & RESULT >= 100 ~ F,
     T ~ T
   )) |> 
   dplyr::filter(retain_point)

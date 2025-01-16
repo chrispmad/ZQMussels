@@ -37,6 +37,12 @@ knitr::opts_chunk$set(
 	warning = FALSE,
 	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
 )
+# 
+# if(interactive()){
+#   if(stringr::str_extract(getwd(),"[0-9]{2}_.*") != "03_PrioritizationModel"){
+#     setwd(paste0(stringr::str_remove(getwd(),"[0-9]{2}_.*")))
+#   }
+# }
 
 update_remote_output_files = T
 

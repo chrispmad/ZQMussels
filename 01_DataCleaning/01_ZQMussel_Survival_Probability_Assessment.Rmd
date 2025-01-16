@@ -104,17 +104,6 @@ df = df |>
 hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
 ```
 
-```{r filter_outliers_from_calcium_and_pH}
-df_f = df |> 
-  dplyr::filter(!is.na(RESULT)) |> 
-  mutate(retain_point = case_when(
-    PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
-    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
-    T ~ T
-  )) |> 
-  dplyr::filter(retain_point)
-```
-
 ```{r read_in_wb_and_subw_shapefiles}
 #Read in the water body shapefiles
 waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
@@ -122,48 +111,99 @@ waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gp
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
 ```
 
-```{r match_EMS_records_to_wb}
-# ---------------
-# We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
-
-# Calculate number of data points for pH and calcium
-total_pH = nrow(df_f |> dplyr::filter(PARAMETER == 'pH'))
-
-total_calc = nrow(df_f |> dplyr::filter(PARAMETER != 'pH'))
-
-# Simple spatial match to waterbodies
-
-df_f_match_to_wbs = df_f |>
+```{r save_snapshot_of_calcium_averaged_at_the_waterbody_scale}
+# We use these waterbody-level mean calcium values to inform 
+# decisions of which waterbodies to include or not include on the final
+# waterbody list for substrate / plankton tow sampling
+calcium_match_to_wbs = df |>
+  dplyr::filter(PARAMETER != 'pH') |>
+  dplyr::filter(RESULT < 300) |> 
   dplyr::filter(!is.na(LATITUDE)) |> 
   st_as_sf(coords = c('LONGITUDE','LATITUDE'),
            crs = 4326) |> 
   sf::st_transform(crs = 3005) |> 
-  st_join(waterbodies)
+  st_join(waterbodies) |> 
+  dplyr::filter(!is.na(WATERSH)) |> 
+  dplyr::rename(WATERSHED_ = WATERSH)
 
-df_f_match_to_wbs = df_f_match_to_wbs |>
-  dplyr::filter(!is.na(WATERSH))
+calcium_match_to_wbs = calcium_match_to_wbs |> 
+  sf::st_drop_geometry() |> 
+  dplyr::mutate(RESULT_100_f = ifelse(RESULT >= 100, NA, RESULT)) |> 
+  dplyr::mutate(RESULT_100_f_include = !is.na(RESULT_100_f)) |> 
+  dplyr::group_by(WATERSHED_,GNIS_NA) |> 
+  dplyr::summarise(mean_calcium_wb = mean(RESULT, na.rm=T),
+                   min_calcium_wb = min(RESULT, na.rm=T),
+                   max_calcium_wb = max(RESULT,na.rm=T),
+                   standard_deviation_calcium_wb = sd(RESULT, na.rm=T),
+                   number_calcium_data_points_wb = n(),
+                   mean_calcium_100_f_wb = mean(RESULT_100_f, na.rm=T),
+                   min_calcium_100_f_wb = min(RESULT_100_f, na.rm=T),
+                   max_calcium_100_f_wb = max(RESULT_100_f,na.rm=T),
+                   standard_deviation_calcium_100_f_wb = sd(RESULT_100_f, na.rm=T),
+                   number_calcium_data_points_100_f_wb = sum(RESULT_100_f_include)) |> 
+  dplyr::ungroup()
 
-pH = df_f_match_to_wbs |> filter(PARAMETER == 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+write.csv(calcium_match_to_wbs, "output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_waterbody_scale.csv", row.names = F)
+```
 
-calc = df_f_match_to_wbs |> filter(PARAMETER != 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+```{r filter_outliers_from_calcium_and_pH}
 
-# pH_match = pH |> 
-#   st_join(watershed) |> 
-#   dplyr::filter(!is.na(watershed_name))
-# 
-# calc_match = calc |> 
-#   st_join(watershed) |> 
-#   dplyr::filter(!is.na(watershed_name))
+df_f = df |> 
+  dplyr::filter(!is.na(RESULT)) |> 
+  mutate(retain_point = case_when(
+    PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
+    stringr::str_detect(PARAMETER,"Calcium") & UNIT != "mg/L" ~ F,
+    T ~ T
+  )) |> 
+  dplyr::filter(retain_point)
 
-# # Summarized number of data points for pH and calcium by subwatershed.
-pH_by_subw = pH |>
-  sf::st_drop_geometry() |>
-  dplyr::count(WATERSHED_)
+# # Temporary addition - calcium filtered at 100 mg/L; stricter than 300 mg/L.
+# df_100 = df |> 
+#   dplyr::filter(!is.na(RESULT)) |> 
+#   mutate(retain_point = case_when(
+#     PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+#     PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 100) ~ F,
+#     stringr::str_detect(PARAMETER,"Calcium") & UNIT != "mg/L" ~ F,
+#     stringr::str_detect(PARAMETER,"Calcium") & RESULT >= 100 ~ F,
+#     T ~ T
+#   )) |> 
+#   dplyr::filter(retain_point)
 
-calc_by_subw = calc |>
-  sf::st_drop_geometry() |>
-  dplyr::count(WATERSHED_)
+```
 
+Note: pH values below 0 and above 16.5 were removed. Calcium values equal to or above 100 mg/L were removed. Calcium values reported in units other than mg/L (a small fraction of the total records, in any case) were removed.
+
+```{r match_EMS_records_to_wb}
+# ---------------
+# We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
+
+# This code has been modified to allow for testing of calcium filtering cut-off: 300 or 100 mg/L.
+
+  # Calculate number of data points for pH and calcium
+  total_pH = nrow(df_f |> dplyr::filter(PARAMETER == 'pH'))
+  total_calc = nrow(df_f |> dplyr::filter(PARAMETER != 'pH'))
+  
+  # Simple spatial match to waterbodies
+  df_f_match_to_wbs = df_f |>
+    dplyr::filter(!is.na(LATITUDE)) |> 
+    st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+             crs = 4326) |> 
+    sf::st_transform(crs = 3005) |> 
+    st_join(waterbodies) |>
+    dplyr::filter(!is.na(WATERSH))
+  
+  pH = df_f_match_to_wbs |> filter(PARAMETER == 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+  calc = df_f_match_to_wbs |> filter(PARAMETER != 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+  
+  # Summarized number of data points for pH and calcium by subwatershed.
+  pH_by_subw = pH |>
+    sf::st_drop_geometry() |>
+    dplyr::count(WATERSHED_)
+
+  calc_by_subw = calc |>
+    sf::st_drop_geometry() |>
+    dplyr::count(WATERSHED_)
 ```
 
 ## Number of Data Points
@@ -233,12 +273,31 @@ ggsave(filename = 'output/mean_pH_by_subwatershed_group.png',
 ```
 
 ```{r mean_calcium_value_by_subw}
+
+# Brief aside! If we filter calcium for <300 and < 100 mg/L, separately, then match to 
+# watershed, write that out as csv.
+calc_values_various_filters_by_subw = calcium_match_to_wbs |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(dplyr::across(mean_calcium_wb:max_calcium_wb, \(x) mean(x,na.rm=T)),
+                   dplyr::across(mean_calcium_100_f_wb:max_calcium_100_f_wb, \(x) mean(x,na.rm=T))) |> 
+  dplyr::left_join(
+    watershed |> sf::st_drop_geometry() |> dplyr::select(WATERSHED_, WATERSHE_1)
+  )
+names(calc_values_various_filters_by_subw) = str_replace_all(names(calc_values_various_filters_by_subw),"_wb","_ws")
+
+
+write.csv(calc_values_various_filters_by_subw, paste0(here::here(),"/01_DataCleaning/output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_watershed_scale.csv"),row.names = F)
+
+# Back to our regularly scheduled programming!
 mean_calc_by_subw = calc |> 
   sf::st_drop_geometry() |> 
   dplyr::group_by(WATERSHED_) |> 
   dplyr::summarise(mean_calcium = mean(RESULT, na.rm=T),
                    standard_deviation_calcium = sd(RESULT, na.rm=T),
                    number_calcium_data_points = n())
+
+
 
 watershed |> 
   dplyr::left_join(
