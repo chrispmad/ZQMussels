@@ -59,129 +59,118 @@ the_year = int(my_opts["year"].iloc[0])
 driver = webdriver.Chrome()
 
 url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/366"
+url2 = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/467-get-blowby-table"
 
-driver.get(url)
-
-WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "username")))
-
-username_slot = driver.find_element(By.NAME, "username")
-password_slot = driver.find_element(By.NAME, "password")
-
-username_slot.send_keys(my_opts["metabase_login"])
-password_slot.send_keys(my_opts["metabase_password"])
-
-# Find 'submit' button.
-buttons = driver.find_elements(By.TAG_NAME, "button")
-buttons[0].click()
-
-time.sleep(30)
-# %%
-# Navigate to collection of queries.
-# collection_url = (
-#    "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/366"
-# )
-#
-# driver.get(collection_url)
-
-# Find the download button.
-WebDriverWait(driver, 20).until(
-    EC.presence_of_element_located((By.CLASS_NAME, "Icon-download"))
-)
-download_button = driver.find_element(By.CLASS_NAME, "Icon-download")
-
-download_button.click()
-
-# %%
-# New popup
-WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.CLASS_NAME, "PopoverContainer"))
-)
-new_popup = driver.find_element(By.CLASS_NAME, "PopoverContainer")
-
-# Find the CSV download button (it's the first of these 'forms')
-WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "form")))
-csv_download_button = driver.find_element(By.TAG_NAME, "form")
-
-csv_download_button.click()
-
-# %%
-# Wait for 3 minutes for download, just in case it takes that long.
-time.sleep(180)
-# We need to wait for this download to complete.
-
-# %%
-
-# Define the path to the Downloads folder
-downloads_folder = os.path.expanduser("~/Downloads")
-
-now = datetime.now()
-
-# Extract the day of the month
-#current_day = str(now.day)
-#if len(current_day) == 1:
-#    current_day = "0" + current_day
-#
-## Extract the month as a number
-#current_month = str(now.month)
-#if len(current_month) == 1:
-#    current_month = "0" + current_month
-#
-## Extract year
-#current_year = str(now.year)
-#if len(current_year) == 1:
-#    current_year = "0" + current_year
-
-if now.month < 4 or now.month > 11:
-    the_year = now.year - 1
-else:
-    the_year = now.year
-# Define the pattern to find the file (modify according to your file's pattern)
-file_pattern = f"{the_year}_mussel_summary_csv_export*csv"
-
-# Wait until the download of this file is complete.
-
-# %%
-
-downloaded_file = wait_for_download(downloads_folder, file_pattern)
-
-# %%
-
-# Test that the download worked.
-files = glob.glob(os.path.join(downloads_folder, file_pattern))
-
-if files:
-    downloaded_file = files[0]
-
-    # Define the path to the network drive folder
-    network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"  # Example path
-
-    # Define the new file name
-    new_file_name = f"metabase_{str(now.year)}.csv"
-    new_file_path = os.path.join(downloads_folder, new_file_name)
+for the_url in [url, url2]:
     
-    # Rename the file
-    os.rename(downloaded_file, new_file_path)
-    print(f"Renamed file to {new_file_path}")
+    driver.get(the_url)
+    if the_url == url:
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "username")))
 
-    # LAN folder path plus file name
-    lan_file_path = os.path.join(network_drive_folder, new_file_name)
+        username_slot = driver.find_element(By.NAME, "username")
+        password_slot = driver.find_element(By.NAME, "password")
 
-    # Remove the old version of this file that's on the J: drive, if it exists.
-    old_file_on_lan = glob.glob(lan_file_path)
+        username_slot.send_keys(my_opts["metabase_login"])
+        password_slot.send_keys(my_opts["metabase_password"])
 
-    if old_file_on_lan != []:
-        # Pull out the full path to the old metabase summary file.
-        old_file_on_lan = old_file_on_lan[0]
-        # Delete the old file currently in the LAN folder
-        os.remove(old_file_on_lan)
-        # Copy over the minty-fresh metabase summary file, from C:/.../Downloads to the LAN folder (J: for me)
-        shutil.copyfile(new_file_path, old_file_on_lan)
-        # Remove the metabase summary from the local Downloads folder
-        os.remove(new_file_path)
-else:
-    shutil.copyfile(src=new_file_path, dst=lan_file_path)
+        # Find 'submit' button.
+        buttons = driver.find_elements(By.TAG_NAME, "button")
+        buttons[0].click()
 
-print("Finished downloading metabase file from the website! Transferring to R now.")
+        time.sleep(30)
+
+    # Find the download button.
+    WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "Icon-download"))
+    )
+    download_button = driver.find_element(By.CLASS_NAME, "Icon-download")
+
+    download_button.click()
+
+    # %%
+    # New popup
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "PopoverContainer"))
+    )
+    new_popup = driver.find_element(By.CLASS_NAME, "PopoverContainer")
+
+    # Find the CSV download button (it's the first of these 'forms')
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "form")))
+    csv_download_button = driver.find_element(By.TAG_NAME, "form")
+
+    csv_download_button.click()
+
+    # %%
+    # Wait for 3 minutes for download, just in case it takes that long.
+    if the_url == url:
+        time.sleep(180)
+    else:
+        time.sleep(20)
+
+    # Define the path to the Downloads folder
+    downloads_folder = os.path.expanduser("~/Downloads")
+
+    now = datetime.now()
+
+    if now.month < 4 or now.month > 11:
+        the_year = now.year - 1
+    else:
+        the_year = now.year
+
+    if the_url == url:
+    # Define the pattern to find the file (modify according to your file's pattern)
+        file_pattern = f"{the_year}_mussel_summary_csv_export*csv"
+    if the_url == url2:
+        file_pattern = f"get_blowby_table*csv"
+
+    # Wait until the download of this file is complete.
+
+    # %%
+
+    downloaded_file = wait_for_download(downloads_folder, file_pattern)
+
+    # %%
+
+    # Test that the download worked.
+    files = glob.glob(os.path.join(downloads_folder, file_pattern))
+
+    if files:
+        downloaded_file = files[0]
+
+        # Define the path to the network drive folder
+        network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"  # Example path
+
+        # Define the new file name
+        if the_url == url:
+            new_file_name = f"metabase_{str(now.year)}.csv"
+        else:
+            new_file_name = f"metabase_blowby_table_2024_onwards.csv"
+
+        new_file_path = os.path.join(downloads_folder, new_file_name)
+        
+        # Rename the file
+        os.rename(downloaded_file, new_file_path)
+        print(f"Renamed file to {new_file_path}")
+
+        # LAN folder path plus file name
+        lan_file_path = os.path.join(network_drive_folder, new_file_name)
+
+        # Remove the old version of this file that's on the J: drive, if it exists.
+        old_file_on_lan = glob.glob(lan_file_path)
+
+        if old_file_on_lan != []:
+            # Pull out the full path to the old metabase summary file.
+            old_file_on_lan = old_file_on_lan[0]
+            # Delete the old file currently in the LAN folder
+            os.remove(old_file_on_lan)
+            # Copy over the minty-fresh metabase summary file, from C:/.../Downloads to the LAN folder (J: for me)
+            shutil.copyfile(new_file_path, old_file_on_lan)
+            # Remove the metabase summary from the local Downloads folder
+            os.remove(new_file_path)
+    else:
+        shutil.copyfile(src=new_file_path, dst=lan_file_path)
+
+print("Finished downloading metabase file and blowbys tracker (2024 onwards) from the website! Transferring to R now.")
 driver.quit()
 
 # %%
