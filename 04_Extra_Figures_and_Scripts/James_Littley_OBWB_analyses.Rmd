@@ -1,0 +1,161 @@
+---
+title: "James Littley OBWB Analyses"
+author: "Chris Madsen"
+date: "2025-02-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(data.table)
+library(readxl)
+library(DT)
+library(plotly)
+
+musselfolder = stringr::str_remove(getwd(),"04_.*")
+my_opts = read.csv(paste0(musselfolder,"/Options.csv"))
+
+# Load in data
+dat = vroom::vroom(paste0(musselfolder,"/02_IMDP_Figure_Generator/data/figure_dat_all.csv"))
+
+bb = vroom::vroom("C:/Users/CMADSEN/Downloads/metabase_2024_blowbys.csv")
+```
+
+```{r, include=FALSE}
+# Init Step to make sure that the dependencies are loaded
+htmltools::tagList(plot_ly(x = rnorm(10), type = "histogram"))
+```
+
+```{r}
+# Apply corrections to some of the Lower Mainland or Penticton Roving station names, using information that was places in the shift start comment field.
+dat = dat |> 
+  mutate(Station = case_when(
+    str_detect(Shift_Start_Comment,"[s,S]cheduled") ~ 'Scheduled Inspection (Other Notification)',
+    str_detect(Station, "Roving$") & str_detect(Shift_Start_Comment,'97') ~ 'Hwy 97c',
+    T ~ Station
+  ))
+```
+
+```{r convert_shift_start_and_end_times_to_date_format}
+dat = dat |> 
+  mutate(shift_start_time = lubridate::ymd_hms(Start_Time),
+         shift_end_time = lubridate::ymd_hms(End_Time)) |> 
+  dplyr::filter(!is.na(shift_start_time))
+```
+
+```{r calculate_hours_and_inspections_by_station_year}
+
+# Grab blowbys for years 2024+
+bb_s = bb |> 
+  dplyr::rename(Workflow_ID = `Observer Work Flow ID`, complexity = `Watercraft Complexity`) |> 
+  dplyr::mutate(Year = lubridate::year(`Blow By Time`)) |> 
+  dplyr::count(Year, Workflow_ID, complexity, sort = T) |> 
+  tidyr::pivot_wider(names_from = complexity, values_from = n, values_fill = 0) |> 
+  dplyr::mutate(Motorized = Simple + Complex + `Very Complex`) |> 
+  dplyr::rename(Nonmotorized = `Non-motorized`) |> 
+  dplyr::select(Year, Workflow_ID, Nonmotorized, Motorized)
+
+# Add onto dat!
+dat = dat |> 
+  dplyr::left_join(bb_s) |> 
+  dplyr::mutate(Motorized_Blow_Bys_Counter = ifelse(!is.na(Motorized), Motorized, Motorized_Blow_Bys_Counter),
+                Non_Motorized_Blow_Bys_Counter = ifelse(!is.na(Nonmotorized), Nonmotorized, Non_Motorized_Blow_Bys_Counter)) |> 
+  dplyr::select(-Motorized, -Nonmotorized)
+
+dat_dt = as.data.table(dat |> dplyr::select(Station, Shift_ID, shift_start_time, shift_end_time, Year, Motorized_Blow_Bys_Counter, Non_Motorized_Blow_Bys_Counter))
+
+# Find the number of inspections and shift hours by station, shift ID and year.
+# Just keep non-duplicate rows at the end of this process.
+insp_and_hours_by_st_y = dat_dt[,.(Station, Shift_ID, NumberInsp = .N, shift_hours = round((shift_end_time - shift_start_time)/3600,0), Motorized_Blow_Bys_Counter, Non_Motorized_Blow_Bys_Counter), by = .(Station, Shift_ID, Year)][,.(Year, Station, Shift_ID, NumberInsp, Motorized_Blow_Bys_Counter, Non_Motorized_Blow_Bys_Counter, shift_hours =  ifelse(shift_hours < 0, 0, shift_hours))][!duplicated(paste0(Shift_ID,Station))]
+
+# Sum up the total shift hours and inspections and blowbys by Year and Station
+insp_and_hours_by_st_y = insp_and_hours_by_st_y[,.(total_shift_hours = sum(shift_hours,na.rm=T), total_inspections = sum(NumberInsp,na.rm=T), mot_blowbys = sum(Motorized_Blow_Bys_Counter,na.rm=T), nonmot_blowbys = sum(Non_Motorized_Blow_Bys_Counter,na.rm=T)),by = .(Year,Station)]
+
+# Add a blowby-to-inspection ratio
+insp_and_hours_by_st_y$blowby_to_insp_ratio = round((insp_and_hours_by_st_y$mot_blowbys + insp_and_hours_by_st_y$nonmot_blowbys) / insp_and_hours_by_st_y$total_inspections,2)
+
+# Add compliance rate
+insp_and_hours_by_st_y$compliance_rate_percent = round(insp_and_hours_by_st_y$total_inspections / (insp_and_hours_by_st_y$total_inspections + insp_and_hours_by_st_y$mot_blowbys + insp_and_hours_by_st_y$nonmot_blowbys),4) * 100
+
+# Filter out certain stations (e.g. roving stations, scheduled inspections) 
+# and any station with fewer than 100 hours of inspection shift time.
+insp_and_hours_by_st_y = insp_and_hours_by_st_y[!str_detect(Station,"(Scheduled|Outreach)") & total_shift_hours >= 100]
+
+if(!interactive()){
+  openxlsx::write.xlsx(insp_and_hours_by_st_y, "output/IMDP_annual_station_summary_data.xlsx")
+}
+```
+
+## Annual Statistics {.tabset}
+
+### Interactive Table 
+
+This table shows the total number of (estimated) shift hours, inspections, motorized and nonmotorized blow-bys, as well as a ratio of blowbys (either type) to inspections and a compliance rate percentage.
+
+```{r}
+DT::datatable(
+  insp_and_hours_by_st_y
+)
+```
+
+I should have attached these data as an excel file and emailed that to you, too.
+
+### Traffic by Time per Station / Year {.tabset}
+
+Note: in order to constrain the number of plots to something manageable, I have removed stations with low inspection counts. Specifically, I have only included data for those station-year combinations where the station has 200+ inspections in that year; this reduces total inspection count across 2015-2024 from 293,538 to 288,948 (1.56% drop)
+
+```{r}
+insp_by_day = dat |> 
+  dplyr::mutate(day_of_year = lubridate::yday(TimeOfInspection)) |> 
+  dplyr::count(Year,Station,day_of_year) |> 
+  dplyr::arrange(Year,Station,day_of_year) |> 
+  dplyr::add_count(Year,Station,wt = n, name = 'total_inspections')
+  
+# sum(insp_by_day$n)
+
+insp_by_day_200_plus = insp_by_day |> 
+  dplyr::filter(total_inspections >= 200) |> 
+  dplyr::arrange(Station)
+
+station_list = unique(insp_by_day_200_plus$Station)
+station_list = station_list[order(station_list)]
+
+insp_split_by_st = insp_by_day_200_plus |> 
+  dplyr::mutate(Year = factor(Year, levels = c(2015:2024))) |> 
+  dplyr::group_by(Station) |> 
+  dplyr::group_split()
+
+plotly_figure_list = insp_split_by_st |> 
+  lapply(\(x) {
+    # if(unique(x$Station) == "Cutts (Hwy 93)") browser()
+    plot_ly(data = x) |> 
+      group_by(Year) |> 
+      add_bars(x = ~day_of_year, y = ~n, color = ~Year) |> 
+      layout(title = unique(x$Station),
+             yaxis = list(title = 'Inspections'),
+             xaxis = list(title = 'Day of Year'))
+  })
+
+names(plotly_figure_list) = station_list
+
+```
+
+```{r print_out_plot, results='asis'}
+for (the_station in unique(insp_by_day_200_plus$Station)) {
+  cat(paste0('\n\n#### ',the_station,'\n'))
+  
+  # cat("\n\n")
+  
+  cat("Printing tagList...\n\n")
+
+  l <- htmltools::tagList()
+  l[[1]] = plotly_figure_list[the_station]
+  print(l)
+  
+  # cat("\n\n")
+}
+```
+
