@@ -46,7 +46,7 @@ def wait_for_download(directory, file_pattern, timeout=60, check_interval=5):
 # %%
 ## Read in options file that has log-in info for metabase
 my_opts_filename = (
-    # "C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv"
+    #"C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv"
     sys.argv[1]
 )
 
@@ -74,6 +74,7 @@ password_slot.send_keys(my_opts["metabase_password"])
 buttons = driver.find_elements(By.TAG_NAME, "button")
 buttons[0].click()
 
+time.sleep(30)
 # %%
 # Navigate to collection of queries.
 # collection_url = (
@@ -116,22 +117,26 @@ downloads_folder = os.path.expanduser("~/Downloads")
 now = datetime.now()
 
 # Extract the day of the month
-current_day = str(now.day)
-if len(current_day) == 1:
-    current_day = "0" + current_day
+#current_day = str(now.day)
+#if len(current_day) == 1:
+#    current_day = "0" + current_day
+#
+## Extract the month as a number
+#current_month = str(now.month)
+#if len(current_month) == 1:
+#    current_month = "0" + current_month
+#
+## Extract year
+#current_year = str(now.year)
+#if len(current_year) == 1:
+#    current_year = "0" + current_year
 
-# Extract the month as a number
-current_month = str(now.month)
-if len(current_month) == 1:
-    current_month = "0" + current_month
-
-# Extract year
-current_year = str(now.year)
-if len(current_year) == 1:
-    current_year = "0" + current_year
-
+if now.month < 4 or now.month > 11:
+    the_year = now.year - 1
+else:
+    the_year = now.year
 # Define the pattern to find the file (modify according to your file's pattern)
-file_pattern = f"query_result_{current_year}-{current_month}-{current_day}*csv"
+file_pattern = f"{the_year}_mussel_summary_csv_export*csv"
 
 # Wait until the download of this file is complete.
 
@@ -151,9 +156,9 @@ if files:
     network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"  # Example path
 
     # Define the new file name
-    new_file_name = f"metabase_{str(the_year)}.csv"
+    new_file_name = f"metabase_{str(now.year)}.csv"
     new_file_path = os.path.join(downloads_folder, new_file_name)
-
+    
     # Rename the file
     os.rename(downloaded_file, new_file_path)
     print(f"Renamed file to {new_file_path}")
