@@ -18,15 +18,7 @@ from datetime import datetime
 
 # %%
 def wait_for_download(directory, file_pattern, timeout=60, check_interval=5):
-    """
-    Wait for a file matching the file_pattern to appear in the directory and finish downloading.
-
-    :param directory: Directory to watch
-    :param file_pattern: File pattern to match
-    :param timeout: Maximum time to wait (in seconds)
-    :param check_interval: Time interval between checks (in seconds)
-    :return: Path to the downloaded file if found and stable, None if timeout occurs
-    """
+    
     start_time = time.time()
 
     while time.time() - start_time < timeout:
@@ -58,87 +50,98 @@ the_year = int(my_opts["year"].iloc[0])
 # Create the WebDriver instance outside the loop
 driver = webdriver.Chrome()
 
-url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/366"
+#url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/466-2025-mussel-summary-csv-export"
+url = sys.argv[2]
 url2 = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/467-get-blowby-table"
 
+# Define the path to the Downloads folder
+downloads_folder = os.path.expanduser("~/Downloads")
+
+now = datetime.now()
+
+if now.month < 3 or now.month > 11:
+    the_year = now.year - 1
+else:
+    the_year = now.year
+
+#%% 
 for the_url in [url, url2]:
     
-    driver.get(the_url)
+    # Define the file name
     if the_url == url:
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "username")))
-
-        username_slot = driver.find_element(By.NAME, "username")
-        password_slot = driver.find_element(By.NAME, "password")
-
-        username_slot.send_keys(my_opts["metabase_login"])
-        password_slot.send_keys(my_opts["metabase_password"])
-
-        # Find 'submit' button.
-        buttons = driver.find_elements(By.TAG_NAME, "button")
-        buttons[0].click()
-
-        time.sleep(30)
-
-    # Find the download button.
-    WebDriverWait(driver, 20).until(
-        EC.presence_of_element_located((By.CLASS_NAME, "Icon-download"))
-    )
-    download_button = driver.find_element(By.CLASS_NAME, "Icon-download")
-
-    download_button.click()
-
-    # %%
-    # New popup
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CLASS_NAME, "PopoverContainer"))
-    )
-    new_popup = driver.find_element(By.CLASS_NAME, "PopoverContainer")
-
-    # Find the CSV download button (it's the first of these 'forms')
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "form")))
-    csv_download_button = driver.find_element(By.TAG_NAME, "form")
-
-    csv_download_button.click()
-
-    # %%
-    # Wait for 3 minutes for download, just in case it takes that long.
-    if the_url == url:
-        time.sleep(180)
-    else:
-        time.sleep(20)
-
-    # Define the path to the Downloads folder
-    downloads_folder = os.path.expanduser("~/Downloads")
-
-    now = datetime.now()
-
-    if now.month < 4 or now.month > 11:
-        the_year = now.year - 1
-    else:
-        the_year = now.year
-
-    if the_url == url:
-    # Define the pattern to find the file (modify according to your file's pattern)
-        file_pattern = f"{the_year}_mussel_summary_csv_export*csv"
+        file_pattern = re.escape(str(the_year)) + r'_mussel_summary_csv_export.*\.csv$'
     if the_url == url2:
-        file_pattern = f"get_blowby_table*csv"
+        file_pattern = r'get_blowby_table.*\.csv$'
+
+    # Does the file already exist in downloads folder? If so, skip download section. If not, download it.
+    if the_url == url:
+        file_downloaded_already = [f for f in os.listdir(downloads_folder) if re.search(r'_mussel_summary_csv_export.*\.csv$', f)]
+    elif the_url == url2:
+        file_downloaded_already = [f for f in os.listdir(downloads_folder) if re.search(r'get_blowby_table_.*\.csv$', f)]
+
+    if file_downloaded_already:
+        print("File was found - no need to download!")
+
+    if file_downloaded_already == []:
+        # File not yet downloaded. Do it now!
+        if(driver.current_url != the_url):
+            driver.get(the_url)
+
+        # If we're dealing with the first download URL, we'll need to sign in.
+        if the_url == url:
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.NAME, "username")))
+
+            username_slot = driver.find_element(By.NAME, "username")
+            password_slot = driver.find_element(By.NAME, "password")
+
+            username_slot.send_keys(my_opts["metabase_login"])
+            password_slot.send_keys(my_opts["metabase_password"])
+
+            # Find 'submit' button.
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            buttons[0].click()
+
+            time.sleep(30)
+
+        # Find the download button.
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "Icon-download"))
+        )
+        download_button = driver.find_element(By.CLASS_NAME, "Icon-download")
+
+        download_button.click()
+
+        # New popup
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "PopoverContainer"))
+        )
+        new_popup = driver.find_element(By.CLASS_NAME, "PopoverContainer")
+
+        # Find the CSV download button (it's the first of these 'forms')
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "form")))
+        csv_download_button = driver.find_element(By.TAG_NAME, "form")
+
+        csv_download_button.click()
+
+        # Wait for 3 minutes for download, just in case it takes that long.
+        if the_url == url:
+            time.sleep(120)
+        else:
+            time.sleep(20)
 
     # Wait until the download of this file is complete.
 
-    # %%
+    if the_url == url:
+        file_downloaded = [f for f in os.listdir(downloads_folder) if re.search(r'_mussel_summary_csv_export.*\.csv$', f)]
+    elif the_url == url2:
+        file_downloaded = [f for f in os.listdir(downloads_folder) if re.search(r'get_blowby_table_.*\.csv$', f)]
 
-    downloaded_file = wait_for_download(downloads_folder, file_pattern)
+    if file_downloaded:
 
-    # %%
-
-    # Test that the download worked.
-    files = glob.glob(os.path.join(downloads_folder, file_pattern))
-
-    if files:
-        downloaded_file = files[0]
+        downloaded_file = file_downloaded[0]
 
         # Define the path to the network drive folder
-        network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"  # Example path
+        network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"
 
         # Define the new file name
         if the_url == url:
@@ -146,10 +149,13 @@ for the_url in [url, url2]:
         else:
             new_file_name = f"metabase_blowby_table_2024_onwards.csv"
 
+        old_file_path = os.path.join(downloads_folder, downloaded_file)
         new_file_path = os.path.join(downloads_folder, new_file_name)
         
         # Rename the file
-        os.rename(downloaded_file, new_file_path)
+        if glob.glob(new_file_path):
+            os.remove(new_file_path)
+        os.rename(old_file_path, new_file_path)
         print(f"Renamed file to {new_file_path}")
 
         # LAN folder path plus file name
@@ -167,8 +173,10 @@ for the_url in [url, url2]:
             shutil.copyfile(new_file_path, old_file_on_lan)
             # Remove the metabase summary from the local Downloads folder
             os.remove(new_file_path)
-    else:
-        shutil.copyfile(src=new_file_path, dst=lan_file_path)
+        else:
+            shutil.copyfile(src=new_file_path, dst=lan_file_path)
+            os.remove(new_file_path)
+
 
 print("Finished downloading metabase file and blowbys tracker (2024 onwards) from the website! Transferring to R now.")
 driver.quit()

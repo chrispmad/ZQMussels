@@ -7,6 +7,8 @@ output:
   self_contained: true
 highlight: tango
 df_print: kable
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -46,23 +48,21 @@ knitr::opts_chunk$set(
 
 update_remote_output_files = T
 
-if(interactive()){
-  source('03_PrioritizationModel/utility_functions.R')
-} else {
-  source('utility_functions.R')
-}
+my_path = ifelse(interactive(), "03_PrioritizationModel/","")
 
+source(paste0(my_path,'utility_functions.R'))
 ```
 
 This R Markdown script takes the output of the script '03_ZQM_stats_and_waterbody output.Rmd' (namely, waterbodies with raw and binned risk estimates for choice variables) to produce a short-list of priority waterbodies vis-a-vis Zebra and Quagga Mussel risk.
 
 ```{r read_in_data}
 # Read RDS.
-if(interactive()){
-  dat = read_rds('03_PrioritizationModel/data/data_for_making_shortlist.rds')
-} else {
-dat = read_rds('data/data_for_making_shortlist.rds')
-}
+dat = read_rds(paste0(my_path,"data/data_for_making_shortlist.rds"))
+# if(interactive()){
+#   dat = read_rds('03_PrioritizationModel/data/data_for_making_shortlist.rds')
+# } else {
+# dat = read_rds('data/data_for_making_shortlist.rds')
+# }
 
 waterb = dat[[1]]
 waterb_risk = dat[[2]]
