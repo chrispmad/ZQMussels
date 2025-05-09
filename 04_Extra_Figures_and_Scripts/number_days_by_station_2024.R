@@ -2,7 +2,7 @@
 # in the script "02_IMDP_FinalReport_Figures.Rmd"
 
 perm_stations = c("Golden","Yahk","Osoyoos","Pacific",
-                  "Olsen","Dawson Creek","Mt. Robson")
+                  "Olsen","Dawson Creek","Mt. Robson","Radium")
 
 s = dat |> 
   # Roll up all roving stations into one 'Roving'
