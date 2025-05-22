@@ -7,10 +7,17 @@ fig_width: 8
 ---
 
 ```{r setup, include=FALSE}
+
+# NOTE: this script uses tmap version 3.3. That is no longer the version available by default when you use install.packages(). The new version completely alters the plots produced.
+# You may need to manually install tmap version 3.3.
+# install.packages("C:/Users/CMADSEN/Downloads/tmap_3.3.tar.gz", repos = NULL, type = "source")
+# This may require that you also install: {widgetframe}.
+
 pacman::p_load(
 readxl,
 ggpubr,
 ggrepel,
+plotly,
 ggExtra,
 ggtext,
 tidyverse,
@@ -18,8 +25,8 @@ leaflet,
 sf,
 RColorBrewer,
 openxlsx,
-scales,
 tmap,
+scales,
 lubridate,
 plotrix)
 
@@ -60,20 +67,29 @@ stations.to.include = c("Golden","Radium","Olsen","Yahk",
                         "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
                         "Keremeos","Dawson Creek","Lower Mainland Roving",
                         "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
-
 stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
                           "Okanagan",
                           "Penticton Roving - Hwy 33", 
                           "Penticton Roving - Inspection Event")
 }
-
-permanent.stations = c("Golden","Radium","Olsen","Yahk",
+if(my.year == 2024){
+stations.to.include = c("Golden","Radium","Olsen","Yahk",
+                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+                        "Keremeos","Dawson Creek","Lower Mainland Roving",
+                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
+stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                          "Okanagan",
+                          "Penticton Roving - Hwy 33", 
+                          "Penticton Roving - Inspection Event")
+}
+permanent.stations = c("Golden","Olsen","Yahk",
                         "Osoyoos","Mt. Robson",
                         "Dawson Creek")
 
-roving.stations = c("Pacific","Penticton Roving","Lower Mainland Roving",
-                    "Keremeos (Hwy 3)","Sumas Border","Cutts (Hwy 93)")
+roving.stations = c("Penticton Roving","Lower Mainland Roving",
+                    "Keremeos (Hwy 3)","Sumas Border")
 
+part.time.stations = c("Sumas","Pacific","Cutts (Hwy 93)","Radium")
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
 if(my.year == 2022){
@@ -86,9 +102,12 @@ if(my.year == 2023){
                                   "Yahk")
 }
 if(my.year == 2024){
-  leaflet.stations.to.include = c("Golden","Olsen","Dawson Creek","Mt. Robson",
-                                  "Penticton Roving","Osoyoos","Lower Mainland Roving",
-                                  "Yahk")
+  leaflet.stations.to.include = c(
+    "Golden","Olsen","Dawson Creek","Mt. Robson",
+    "Radium",
+    "Penticton Roving","Osoyoos","Lower Mainland Roving",
+    "Yahk","Pacific","Penticton Roving",
+    "Keremeos (Hwy 3)","Hwy 97c","Cutts (Hwy 93)","Douglas Crossing")
 }
 
 #Data folders
@@ -108,8 +127,16 @@ MusselFouledTracker = paste0(my_opts$zqm_operations_data_folder,"Watercraft Insp
 if(my.year == 2023){
   MusselFouledTracker = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/", my.year," data/2023_mussel_fouled_details.xlsx")
 }
+if(my.year == 2024){
+  MusselFouledTracker = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/", my.year," data/mussel_fouled_summary.xlsx")
+}
 #What is the sheet name of the destination regions for the mussel fouled tracking sheet?
-MF_tracker_sheet = "DestRegions"
+if(my.year != 2024){
+  MF_tracker_sheet = "DestRegions"
+}
+if(my.year == 2024){
+  MF_tracker_sheet = "Final List"
+}
 
 #Where can we find the CBSA notifications excel sheet for this year?
 if(file.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/",my.year," COS inbox notifications.xlsx"))){
@@ -179,7 +206,45 @@ ais_know = read_excel(paste0(my.external.data.folder,"Previous_Knowledge_of_AIS_
 bc_bound = bcmaps::bc_bound() |> st_transform(crs = 4326)
 ```
 
-```{r}
+```{r optional_pulling_out_boat_launches_from_comments}
+# Pull out different boat launches, scheduled inspections, etc. from,
+# mostly, Penticton Roving and Fraser Valley Roving.
+dat_all = dat_all |> 
+  dplyr::mutate(Station = dplyr::case_when(
+    # Pull out boat launches.
+    # 1. Scheduled Inspections / Decons
+    Station %in% c("Fraser Valley Roving","Penticton Roving") & str_detect(Shift_Start_Comment, '([iI]nspection|[dD]econ|[dD]eacon|Deco|[sS]cheduled)') ~ 'Scheduled Inspection/Decontamination',
+    Station == 'Scheduled Inspection' & str_detect(Shift_Start_Comment,"([r,R]ichmond|[d,D]ockside)") ~ 'Lower Mainland Scheduled Inspection',
+    Station == 'Scheduled Inspection' & str_detect(Shift_Start_Comment,"([l,L]ake [c,C]ountry|[l,L]akehouse|Martin|martin|MARTIN|[p,P]enticton|[k,K]elowna)") ~ 'Penticton Scheduled Inspection',
+    # 2. Multiple boat launches visited...
+    str_detect(Shift_Start_Comment,"([kK]ekuli|[kK]akuli).*([gG]elatley|[gG]ellatley)") ~ 'Multiple',
+    str_detect(Shift_Start_Comment,"([gG]elatley|[gG]ellatley).*([kK]ekuli|[kK]akuli)") ~ 'Multiple',
+    str_detect(Shift_Start_Comment,"Skaha") & str_detect(Shift_Start_Comment,"summerland")~ "Boat Launch - Multiple",
+    # 3. Single boat launch visited.
+    # Okanagan Boat Launch mentions Kelowna and then kabuki bay, Eldorado boat launch, etc.
+    str_detect(Shift_Start_Comment,".*kabuki bay.*Eldorado") ~ 'Boat Launch - Okanagan Lake',
+    str_detect(Shift_Start_Comment,"([kK]ekuli|[kK]akuli)") ~ 'Boat Launch - Kekuli Bay',
+    str_detect(Shift_Start_Comment,"([gG]ellatly|[gG]ellatley)") ~ 'Boat Launch - Gellatly Bay',
+    str_detect(Shift_Start_Comment,"([cC]ultus)") ~ 'Boat Launch - Cultus Lake',
+    str_detect(Shift_Start_Comment,"([aA]l(l)?ouette)") ~ 'Boat Launch - Alouette Lake',
+    str_detect(Shift_Start_Comment,"([sS]tave)") ~ 'Boat Launch - Stave Lake',
+    str_detect(Shift_Start_Comment,"([kK]awkawa)") ~ 'Boat Launch - Kawkawa Lake',
+    str_detect(Shift_Start_Comment,"[cC]hristina") ~ "Boat Launch - Christina Lake",
+    Station == 'Christina Lake' ~ 'Boat Launch - Christina Lake',
+    str_detect(Shift_Start_Comment,"[sS]kaha") ~ "Boat Launch - North Skaha",
+    str_detect(Shift_Start_Comment,"[pP]each") ~ "Boat Launch - Peachland Yacht Club",
+    str_detect(Shift_Start_Comment,"(Summerland|summer( )?land|Summer( )?[lL]and)") ~ "Boat Launch - Summerland",
+    # No specific boat launch mentioned, but the words "boat launch" mentioned.
+    stringr::str_detect(Shift_Start_Comment,"[bB]oat( )?[lL]aunch") ~ 'Boat Launch',
+    # Pull out specific stations
+    str_detect(Shift_Start_Comment, '(hwy|Hwy)?( )?97( )?[cC]') ~ 'Penticton 97C',
+    str_detect(Shift_Start_Comment, '(hwy|Hwy)( )?3') ~ 'Hwy 3',
+    str_detect(Shift_Start_Comment, '[kK]eremeos') ~ 'Keremeos (Hwy 3)',
+    T ~ Station
+  ))
+```
+
+```{r change_station_names_and_establish_list_of_rovers}
 # Apply station name correction(s)
 dat = dat |> 
   dplyr::left_join(stations.to.change) |> 
@@ -203,6 +268,13 @@ if(my.year == 2023){
                                 "Penticton Roving","Cutts (Hwy 93)"),
                     StationType = "Roving")
 }
+if(my.year == 2024){
+  rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
+                                "Lower Mainland Roving","Pacific",
+                                "Sumas Border",
+                                "Penticton Roving","Cutts (Hwy 93)"),
+                    StationType = "Roving")
+}
 
 station_types = bind_rows(rovers,
           data.frame(Station = dat |> 
@@ -214,7 +286,7 @@ station_types = bind_rows(rovers,
 rm(rovers)
 ```
 
-```{r}
+```{r establish_rovers_to_drop}
 #Make one more vector of stations that we want to drop in the figures. These are roving stations.
 if(my.year == 2022){
   rovers_to_drop = c("Scheduled Inspection","Other","Okanagan","Sumas Border")
@@ -225,13 +297,15 @@ if(my.year == 2023){
                      "Scheduled Inspection (Cbsa Notification)")
 }
 if(my.year == 2024){
-  rovers_to_drop = c()
+  rovers_to_drop = c("Other","Okanagan",
+                     "Scheduled Inspection (Other Notification)",
+                     "Scheduled Inspection (Cbsa Notification)")
 }
 ```
 
-```{r}
+```{r not_sure_if_we_should_do_this_block}
 # Apply corrections to some of the Lower Mainland or Penticton Roving station names, using information that was places in the shift start comment field.
-dat = dat |> 
+dat = dat |>
   mutate(Station = case_when(
     str_detect(Shift_Start_Comment,"[s,S]cheduled") ~ 'Scheduled Inspection (Other Notification)',
     str_detect(Station, "Roving$") & str_detect(Shift_Start_Comment,'97') ~ 'Hwy 97c',
@@ -343,15 +417,38 @@ data.frame(
 ### Map 1. Inspection Stations by Type
 
 ```{r map1_inspection_stations_by_type, fig.width=800}
+
+# See which stations we have data for in this year.
+stations_active = dat |> 
+    dplyr::mutate(Station = dplyr::case_when(
+      str_detect(Station,"Lower Mainland") ~ "Lower Mainland Roving",
+      T ~ Station
+    )) |> 
+    dplyr::count(Station) |> 
+    dplyr::filter(n >= 2) |> 
+    dplyr::pull(Station)
+
 # Grab inspection stations shapefile.
-stations = read_sf(paste0(my_opts$remote_spatial_data,
-                          'Projects/ZQMussels/data/inspection_stations.gpkg')) |> 
-  dplyr::mutate(map_label = ifelse(map_label == 'Fraser Valley Roving', 
-                                     'Lower Mainland Roving',
-                                     map_label),
-                  station_name = ifelse(station_name == 'Fraser Valley Roving',
-                                        'Lower Mainland Roving',
-                                        station_name))
+stations = read_sf(paste0(
+  my_opts$remote_spatial_data,
+  'Projects/ZQMussels/data/inspection_stations.gpkg')
+) |> 
+  dplyr::mutate(
+    map_label = ifelse(
+      map_label == 'Fraser Valley Roving', 
+      'Lower Mainland Roving',
+      map_label),
+    station_name = ifelse(
+      station_name == 'Fraser Valley Roving',
+      'Lower Mainland Roving',
+      station_name)
+  ) |> 
+  dplyr::mutate(station_type = dplyr::case_when(
+    station_name %in% permanent.stations ~ station_type,
+    station_name %in% roving.stations ~ "Roving Inspection Crew",
+    station_name %in% part.time.stations ~ "Part-time Inspection Station"
+  )) |> 
+  dplyr::mutate(station_type = factor(station_type, levels = c("Permanent Inspection Station","Part-time Inspection Station","Roving Inspection Crew")))
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations = stations |> 
@@ -360,7 +457,8 @@ stations = stations |>
 
 stations_for_maps = stations |> 
   mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) |> 
-  mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+  mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium')) |> 
+  dplyr::filter(station_name %in% stations_active)
 
 # Ugh. Time to make some hand-drawn locations for the labels...
 station_labels = stations_for_maps |> 
@@ -407,6 +505,76 @@ map_1_tmap
 
 if(!interactive()) {
   tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+}
+```
+
+```{r optional_map_of_inspection_stations_for_current_year_of_operations}
+# Usually, we are drafting the IMDP report for the previous year's season while the current year's season is active. We might need a map of the current year's stations.
+if((my_opts$year+1) %in% unique(dat_all$Year)){
+  
+  # Find which stations have inspections in this year's data.
+  stations_active_this_year = dat_all |> 
+    dplyr::mutate(Station = dplyr::case_when(
+      str_detect(Station,"Lower Mainland") ~ "Lower Mainland Roving",
+      T ~ Station
+    )) |> 
+    dplyr::filter(Year == 2025) |> 
+    dplyr::count(Station) |> 
+    dplyr::filter(n > 5) |> 
+    dplyr::pull(Station)
+  
+  # Drop stations from leaflet maps that we did not want to keep.
+  stations_this_year = stations |> 
+    # filter(station_name %in% leaflet.stations.to.include) |> 
+    # dplyr::filter(!station_name %in% rovers_to_drop) |> 
+    dplyr::filter(station_name %in% stations_active_this_year)
+  
+  stations_for_maps_this_year = stations_this_year |> 
+    # mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) |> 
+    mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+  
+  # Ugh. Time to make some hand-drawn locations for the labels...
+  station_labels_this_year = stations_for_maps_this_year |> 
+    sf::st_drop_geometry() |> 
+    dplyr::mutate(lat = lat + 0.25) |> 
+    dplyr::mutate(lat = case_when(
+      map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
+      map_label == 'Penticton Roving' ~ lat - 0.1,
+      T ~ lat)) |> 
+    dplyr::mutate(lon = case_when(
+      map_label == 'Lower Mainland Roving' ~ lon - 1,
+      map_label == 'Penticton Roving' ~ lon + 1.5,
+      T ~ lon)) |> 
+    sf::st_as_sf(coords = c("lon","lat"),crs=4326)
+  
+  # Set plotting mode for tmap.
+  tmap_mode('plot')
+  
+  station_map_this_year_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+    tm_rgb() + 
+    tm_add_legend(title = paste0(my.year+1,' Watercraft \nInspection Stations')) + 
+    tm_shape(bc_bound) + 
+    tm_borders(col = 'grey', lwd = 2) + 
+    tm_shape(stations_for_maps_this_year) + 
+    tm_symbols(col = "station_type", title.col = '') +
+    tm_shape(station_labels_this_year) +
+    tm_text("map_label", auto.placement = F, 
+            size = 0.75) +
+    tm_scale_bar() + 
+    tm_layout(legend.frame = 'black', 
+              legend.position = c('right','top'),
+              scale = 1.25)
+  
+  station_map_this_year_tmap
+  
+  next.years.external.output.folder = str_remove(my.external.output.folder,"[0-9]+$")
+  
+  if(!dir.exists(paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/'))){
+    dir.create(paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/'), recursive = T)
+  }
+    
+  tmap_save(tm = station_map_this_year_tmap, filename = paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  
 }
 ```
 
@@ -700,6 +868,7 @@ dat |>
 
 ```{r fig3_total_boats_by_station}
 fig3_data = dat |> 
+  dplyr::filter(Station %in% stations.to.include) |> 
   filter(!Station %in% rovers_to_drop) |> 
   mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
          shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
@@ -842,6 +1011,7 @@ ggsave("Fig3b_EncounterFrequency_HR_PermanentStations.jpg",p3_b)
 
 ```{r fig3_total_boats_by_roving_station}
 fig3c_data = dat |> 
+  dplyr::filter(Station %in% stations.to.include) |> 
   dplyr::filter(!Station %in% permanent.stations) |> 
   dplyr::filter(!Station %in% rovers_to_drop) |> 
   mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
@@ -1014,6 +1184,7 @@ ggsave(paste0("Fig3x_c_TotalInspections_",my.year-2,"_to_",my.year,"_Roving_Stat
 
 ```{r fig4_total_number_jurisdictions}
 p4 = dat |>
+  dplyr::filter(Station %in% stations.to.include) |> 
   filter(!Station %in% rovers_to_drop) |> 
   group_by(Station,Previous_Waterbody_1_Province_Or_State) |> 
   summarise(Different_Sources = n()) |> 
@@ -1042,30 +1213,33 @@ ggsave("Fig4_Total_Jurisdictions_by_Station.jpg",p4)
 ### Figure 5 Number of Inspections and Total Effort by month
 
 ```{r fig5_total_inspections_and_total_effort_by_month}
-p5 = ggarrange(dat |> 
-  mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
+p5 = ggarrange(
+  dat |> 
+    mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
+    dplyr::filter(!(the.month %in% c("March","November") & Year == 2024)) |> 
   #Calculate the number of inspections for each month
   group_by(the.month) |> 
-  summarise(Number_Insp = n()) |> 
-  ggplot() + 
-  geom_col(aes(x=the.month,y=Number_Insp),fill = my.grey,width = 0.40) +
-  geom_text(aes(x=the.month,y=Number_Insp+max(Number_Insp)*0.05,
-                label=round(Number_Insp,0))) +
-  theme_classic() +
+    summarise(Number_Insp = n()) |> 
+    ggplot() + 
+    geom_col(aes(x=the.month,y=Number_Insp),fill = my.grey,width = 0.40) +
+    geom_text(aes(x=the.month,y=Number_Insp+max(Number_Insp)*0.05,
+                  label=round(Number_Insp,0))) +
+    theme_classic() +
   labs(x = "", y = "Watercraft Encounters (# of inspections)") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
   
   dat |> 
     filter(!Station %in% rovers_to_drop) |> 
-  mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
-  group_by(the.month) |> 
-  select(the.month,Shift_ID,Shift_hours) |> 
-  distinct() |> 
-  #Some shifts report negative # of hours... remove those.
-  filter(Shift_hours > 0) |> 
-  summarise(TotalEffort = sum(Shift_hours)) |> 
-  ggplot() + 
-  geom_col(aes(x=the.month,y=TotalEffort),fill = my.grey,width = 0.40) +
+    mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
+    dplyr::filter(!(the.month %in% c("March","November") & Year == 2024)) |> 
+    group_by(the.month) |> 
+    select(the.month,Shift_ID,Shift_hours) |> 
+    distinct() |> 
+    #Some shifts report negative # of hours... remove those.
+    filter(Shift_hours > 0) |> 
+    summarise(TotalEffort = sum(Shift_hours)) |> 
+    ggplot() + 
+    geom_col(aes(x=the.month,y=TotalEffort),fill = my.grey,width = 0.40) +
   geom_text(aes(x=the.month,y=TotalEffort+max(TotalEffort)*0.05,
                 label=round(TotalEffort,0))) +
   theme_classic() +
@@ -1090,6 +1264,9 @@ p6 = dat |>
   #Calculate the number of inspections for each month
   group_by(the.month,the.day) |> 
   summarise(Number_Insp = n()) |> 
+  dplyr::mutate(total_per_month = sum(Number_Insp)) |> 
+  dplyr::filter(total_per_month > 10) |> 
+  dplyr::select(-total_per_month) |> 
   left_join(
   dat |> 
   mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
@@ -1192,16 +1369,14 @@ p8 = dat |>
   #Calculate the number of inspections for each month
   group_by(the.day,
            Shift_ID) |> 
-  summarise(Number_Insp = n(),
+  reframe(Number_Insp = n(),
             Shift_hours
   ) |> 
-  dplyr::ungroup() |> 
   dplyr::distinct() |> 
   mutate(enc_freq = Number_Insp/Shift_hours) |> 
   group_by(the.day) |> 
-  summarise(EncounterFreq = mean(enc_freq),
+  reframe(EncounterFreq = mean(enc_freq),
             StandardError = plotrix::std.error(enc_freq)) |> 
-  dplyr::ungroup() |> 
   ggplot() + 
   geom_col(aes(x=the.day,y=EncounterFreq),fill = my.grey,width = 0.40) +
   geom_errorbar(aes(x=the.day,
@@ -1522,27 +1697,46 @@ dat |>
 ### Figure 12 Percent Compliance by station
 
 ```{r fig12_percent_compliance_by_station}
-p12 = dat |> 
+# Read in blowbys
+blowb = vroom::vroom(paste0(zqm.operations.folder,"Watercraft Inspection Data/Raw inspection data for sharing (all years)/Clean files all years/metabase_blowby_table_2024_onwards.csv")) |> 
+  purrr::set_names(snakecase::to_snake_case) |> 
+  dplyr::rename(Workflow_ID = observer_workflow_id) |> 
+  dplyr::mutate(Workflow_ID = as.character(Workflow_ID))
+
+blowb = blowb |> 
+  left_join(
+    dat |> 
+      dplyr::select(Workflow_ID,
+                   Station) |> 
+      dplyr::distinct()
+  ) |> 
+  dplyr::filter(!is.na(Station))
+
+dat_w_blowbys = dat |> 
   filter(!Station %in% rovers_to_drop) |> 
   filter(!Station %in% c("Lower Mainland Roving","Penticton Roving")) |> 
-  group_by(Station,Shift_ID) |> 
+  dplyr::filter(Station %in% stations.to.include) |> 
+  group_by(Station,Shift_ID,Workflow_ID) |> 
   summarise(NumberInsp = n()) |> 
   #Add number of non-motorized blow-bys per unique station / shift combo.
-  left_join(dat |> 
-              group_by(Station,Shift_ID) |> 
-              mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
-              select(Station,Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
-  #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(dat |> 
-              group_by(Station,Shift_ID) |> 
-              mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
-              select(Station,Shift_ID,Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
+  left_join(
+    blowb |> 
+      dplyr::filter(watercraft_complexity == 'Non-motorized') |> 
+      dplyr::count(Workflow_ID,sort = T, name = "Non_Motorized_Blow_Bys_Counter")
+  ) |> 
+    #Add number of motorized blow-bys per unique station / shift combo.
+  left_join(
+    blowb |> 
+      dplyr::filter(watercraft_complexity != 'Non-motorized') |> 
+      dplyr::count(Workflow_ID,sort = T, name = "Motorized_Blow_Bys_Counter")
+  ) |> 
+  dplyr::mutate(dplyr::across(c(Non_Motorized_Blow_Bys_Counter,Motorized_Blow_Bys_Counter), \(x) tidyr::replace_na(x,0))) |> 
   group_by(Station) |> 
   summarise(NumberInsp = sum(NumberInsp),
             Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
-            Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
+            Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) 
+
+p12 = dat_w_blowbys |> 
   group_by(Station) |> 
   summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
   arrange(desc(PercentCompliance)) |> 
@@ -1570,130 +1764,115 @@ ggsave("Fig12_PercentCompliance_Station.jpg",p12)
 ```
 
 ```{r total_compliance_not_by_station}
-dat |> 
+if(my_opts$year < 2024){
+  dat |> 
+    filter(!Station %in% rovers_to_drop) |> 
+    group_by(Shift_ID) |> 
+    summarise(NumberInsp = n()) |> 
+    #Add number of non-motorized blow-bys per unique station / shift combo.
+    left_join(dat |> 
+                group_by(Shift_ID) |> 
+                mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
+                select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
+                distinct()) |> 
+    #Add number of motorized blow-bys per unique station / shift combo.
+    left_join(dat |> 
+                group_by(Shift_ID) |> 
+                mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
+                select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
+                distinct()) |> 
+    # group_by(Station) |> 
+    summarise(NumberInsp = sum(NumberInsp),
+              Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
+              Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
+    # group_by(Station) |> 
+    summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
+    arrange(desc(PercentCompliance)) |> 
+    knitr::kable()
+  
+  print(paste0((my.year-1),"'s Compliance for comparison..."))
+  
+  dat_all |>
+    filter(Year == my.year-1) |> 
+    filter(!Station %in% rovers_to_drop) |> 
+    group_by(Shift_ID) |> 
+    summarise(NumberInsp = n()) |> 
+    #Add number of non-motorized blow-bys per unique station / shift combo.
+    left_join(dat_all |>
+                filter(Year ==  my.year-1) |> 
+                group_by(Shift_ID) |> 
+                mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
+                select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
+                distinct()) |> 
+    #Add number of motorized blow-bys per unique station / shift combo.
+    left_join(dat_all |>
+                filter(Year ==  my.year-1) |> 
+                group_by(Shift_ID) |> 
+                mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
+                select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
+                distinct()) |> 
+    # group_by(Station) |> 
+    summarise(NumberInsp = sum(NumberInsp),
+              Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
+              Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
+    # group_by(Station) |> 
+    summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
+    arrange(desc(PercentCompliance)) |> 
+    knitr::kable()
+  
+  print('Of the non-compliant boats, the following percentage were non-motorized:')
+  
+  non_motorized_number = dat |> 
+    group_by(Shift_ID) |> 
+    mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
+    dplyr::ungroup() |> 
+    select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
+    distinct() |> 
+    dplyr::summarise(total = sum(Non_Motorized_Blow_Bys_Counter))
+  
+  number_motorized = dat |> 
+    group_by(Shift_ID) |> 
+    mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
+    dplyr::ungroup() |> 
+    select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
+    distinct() |> 
+    dplyr::summarise(total = sum(Motorized_Blow_Bys_Counter))
+  
+  paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized),4), "%")
+} else {
+  # From 2024 onwards, blowbys are now recorded in a table that is separate from the inspections.
+  dat |> 
   filter(!Station %in% rovers_to_drop) |> 
-  group_by(Shift_ID) |> 
+  filter(!Station %in% c("Lower Mainland Roving","Penticton Roving")) |> 
+  dplyr::filter(Station %in% stations.to.include) |> 
+  group_by(Station,Shift_ID,Workflow_ID) |> 
   summarise(NumberInsp = n()) |> 
   #Add number of non-motorized blow-bys per unique station / shift combo.
-  left_join(dat |> 
-              group_by(Shift_ID) |> 
-              mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
-              select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
-  #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(dat |> 
-              group_by(Shift_ID) |> 
-              mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
-              select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
-  # group_by(Station) |> 
-  summarise(NumberInsp = sum(NumberInsp),
-            Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
-            Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
-  # group_by(Station) |> 
-  summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
-  arrange(desc(PercentCompliance)) |> 
-  knitr::kable()
-
-print(paste0((my.year-1),"'s Compliance for comparison..."))
-
-dat_all |>
-  filter(Year == my.year-1) |> 
-  filter(!Station %in% rovers_to_drop) |> 
-  group_by(Shift_ID) |> 
-  summarise(NumberInsp = n()) |> 
-  #Add number of non-motorized blow-bys per unique station / shift combo.
-  left_join(dat_all |>
-              filter(Year ==  my.year-1) |> 
-              group_by(Shift_ID) |> 
-              mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
-              select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
-  #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(dat_all |>
-              filter(Year ==  my.year-1) |> 
-              group_by(Shift_ID) |> 
-              mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
-              select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
-              distinct()) |> 
-  # group_by(Station) |> 
-  summarise(NumberInsp = sum(NumberInsp),
-            Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
-            Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
-  # group_by(Station) |> 
-  summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
-  arrange(desc(PercentCompliance)) |> 
-  knitr::kable()
-
-print('Of the non-compliant boats, the following percentage were non-motorized:')
-
-non_motorized_number = dat |> 
-  group_by(Shift_ID) |> 
-  mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
-  dplyr::ungroup() |> 
-  select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
-  distinct() |> 
-  dplyr::summarise(total = sum(Non_Motorized_Blow_Bys_Counter))
-
-number_motorized = dat |> 
-  group_by(Shift_ID) |> 
-  mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
-  dplyr::ungroup() |> 
-  select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
-  distinct() |> 
-  dplyr::summarise(total = sum(Motorized_Blow_Bys_Counter))
-
-paste0(100*round(non_motorized_number / (non_motorized_number + number_motorized),4), "%")
+  left_join(
+    blowb |> 
+      dplyr::filter(watercraft_complexity == 'Non-motorized') |> 
+      dplyr::count(Workflow_ID,sort = T, name = "Non_Motorized_Blow_Bys_Counter")
+  ) |> 
+    #Add number of motorized blow-bys per unique station / shift combo.
+  left_join(
+    blowb |> 
+      dplyr::filter(watercraft_complexity != 'Non-motorized') |> 
+      dplyr::count(Workflow_ID,sort = T, name = "Motorized_Blow_Bys_Counter")
+  ) |> 
+  dplyr::mutate(dplyr::across(c(Non_Motorized_Blow_Bys_Counter,Motorized_Blow_Bys_Counter), \(x) tidyr::replace_na(x,0))) |> 
+    dplyr::mutate()
+}
 ```
 
-### Roving Station but not Boat Launch nor
 ### Figure 13 Noncompliant Watercraft Breakdown
 ```{r fig13_noncompliant_breakdown}
-# Make a version of our dataset that adopts temporary changes to 
-# station names based on shift start comments; if they mention 
-# a boat launch / lake name, change the station to 'Boat Launch'
-dat_bl = dat |> 
-  mutate(Station = ifelse(str_detect(Shift_Start_Comment,'(lake|Lake|boat l|Boat L)'),'Boat Launch',Station))
 
-
-
-dat_bl |> 
-  filter(str_detect(Station, "Scheduled") | Station %in% c("Lower Mainland Roving","Penticton Roving","Boat Launch")) |>
-  select(Shift_ID,
-         Station,
-         Motorized_Blow_Bys_Counter,
-         Non_Motorized_Blow_Bys_Counter) |> 
-  distinct() |> 
-  group_by(Station) |> 
-  dplyr::summarise(
-    nonmotorized_blowbys = sum(as.numeric(Non_Motorized_Blow_Bys_Counter)),
-    motorized_blowbys = sum(as.numeric(Motorized_Blow_Bys_Counter)),
-    number_rows = n()) |> 
-  ungroup() |> 
-  mutate(Station = paste0(Station, " (N = ",number_rows,")")) |> 
-  knitr::kable()
-
-p13 = dat_bl |> 
-  filter(!Station %in% c(rovers_to_drop)) |> 
-  filter(!str_detect(Station, "Roving$")) |>
-  group_by(Station,Shift_ID) |> 
-  mutate(nonm = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
-  select(Station,Shift_ID,nonm) |> 
-  distinct() |> 
-  #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(dat_bl |> 
-              group_by(Station,Shift_ID) |> 
-              mutate(m = as.numeric(Motorized_Blow_Bys_Counter)) |> 
-              select(Station,Shift_ID,m) |> 
-              distinct() |> 
-              ungroup()) |> 
+p13 = dat_w_blowbys |> 
+  dplyr::rename(m = Motorized_Blow_Bys_Counter,
+                nonm = Non_Motorized_Blow_Bys_Counter) |> 
   mutate(Total_Blowbys = nonm + m) |> 
   group_by(Station) |> 
-  summarise(Total_Blowbys = sum(Total_Blowbys),
-            nonm = sum(nonm),
-            m = sum(m)) |> 
-  group_by(Station) |> 
-  summarise(`Non-Motorized` = 100*nonm/Total_Blowbys,
+  reframe(`Non-Motorized` = 100*nonm/Total_Blowbys,
             Motorized = 100*m/Total_Blowbys) |> 
   arrange(desc(`Non-Motorized`)) |> 
   dplyr::filter(!is.nan(Motorized)) |> 
@@ -1743,6 +1922,8 @@ p14_dat = dat |>
               group_by(Station) |> 
               summarise(PrevInspected = n())
             ) |> 
+  # Drop rows where we have fewer than 5 inspections
+  dplyr::filter(Station != "Lower Mainland Roving") |> 
   mutate(PercPrevInsp = 100*PrevInspected/TotalInsp) |> 
   arrange(desc(PercPrevInsp)) |> 
   left_join(station_types) |> 
@@ -1789,6 +1970,7 @@ ggsave("Fig14_Percent_Intercepted_with_Prev_Insp.jpg",p14)
 #Remove Penticton Roving
 figure_15 = dat |> 
   filter(!Station %in% rovers_to_drop) |> 
+  dplyr::filter(Station %in% stations.to.include) |> 
   filter(Previous_Inspection_Ind == T) |> 
   filter(!is.na(Previous_Inspection_Days_Count)) |> 
   mutate(previnsp = case_when(
@@ -1815,18 +1997,19 @@ figure_15 = dat |>
   mutate(StationLabel = ifelse(StationType == "Roving",paste0(Station,"*"),Station)) |> 
   mutate(StationLabel = fct_inorder(StationLabel))
 
-station_order = figure_15 |> 
-  filter(previnsp == '< 30 Days') |> 
-  bind_rows(tibble(
-    Station = 'Keremeos',
-    StationLabel = 'Keremeos*', 
-    previnsp = '< 30 Days', PercInsp = 0)
-    )|> 
-  arrange(desc(PercInsp)) |> 
-  dplyr::pull(StationLabel)
+# station_order = figure_15 |> 
+#   # filter(previnsp == '< 30 Days') |> 
+#   # bind_rows(tibble(
+#   #   Station = 'Keremeos',
+#   #   StationLabel = 'Keremeos*', 
+#   #   previnsp = '< 30 Days', PercInsp = 0)
+#   #   )|> 
+#   arrange(desc(PercInsp)) |> 
+#   dplyr::filter()
+#   dplyr::pull(StationLabel)
 
 p15 = figure_15 |>
-    mutate(StationLabel = factor(StationLabel, levels = c(station_order))) |> 
+    # mutate(StationLabel = factor(StationLabel, levels = c(station_order))) |> 
   ggplot() +
   geom_col(aes(x=StationLabel,
                y=PercInsp,
@@ -2663,6 +2846,7 @@ write.xlsx(mf_time_table, paste0(my.external.output.folder,"/GIS Maps and Excel 
 p24 = mf_time_table |> 
   pivot_longer(-Year) |> 
   filter(name != "Total") |> 
+  dplyr::filter(name != "November") |> 
   filter(Year > my.year-5) |> 
   rename(Month = name) |> 
   mutate(NumberBoats = as.numeric(value),
@@ -2712,6 +2896,10 @@ if(my.year == 2022){
 if(my.year == 2023){
   p25_dat = tibble(Province_or_State = factor(c("Ontario","Nevada","Michigan","Manitoba","South Carolina")),
        NumberBoats = c(10,1,1,1,1))
+}
+if(my.year == 2024){
+  p25_dat = tibble(Province_or_State = factor(c("Ontario","Utah","Arizona","Michigan","Manitoba","Quebec")),
+       NumberBoats = c(4,1,2,2,2,1))
 }
 p25 = p25_dat |>
   arrange(desc(Province_or_State)) |> 
@@ -2790,7 +2978,24 @@ if(my.year == 2023){
     labs(fill = "Destination Region") +
     theme(legend.position = "none")
 }
-
+if(my.year == 2024){
+    p26 = tibble(Region = factor(c("Thompson-Okanagan",
+                                   "Lower Mainland",
+                                   "Omineca",
+                                   'Kootenay-Boundary')),
+               Number = c(4,6,1,1)) |>
+    arrange(desc(Region)) |> 
+    mutate(lab.ypos = cumsum(Number) - 0.5*Number) |> 
+    ggplot(aes(x = "", y = Number, 
+               fill = Region)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0)+
+    geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Region,"\n",Number)), color = "black",nudge_x=0.4)+
+    theme_void() + 
+    scale_fill_brewer(palette = "Dark2") + 
+    labs(fill = "Destination Region") +
+    theme(legend.position = "none")
+}
 p26
 
 if(!interactive()) {
@@ -2856,8 +3061,8 @@ map_7_tmap = tm_shape(northamerica_basemap,
     tm_rgb() + 
   tm_add_legend(title = paste0(my.year,' Source of \nMussel Fouled Inspections'),
                 type = 'symbol',
-                labels = c('1','11'),
-                # labels = unique(centr_with_dat$bin_label),
+                # labels = c('1','11'),
+                labels = unique(centr_with_dat$bin_label),
                 col = unique(centr_with_dat$my_colors),
                 size = log(unique(centr_with_dat$MFInsp_b)+1)) + 
   tm_shape(centr_with_dat) + 
@@ -3117,25 +3322,29 @@ paste0(length(lab_dat |>
 # And how many samples were taken?
 print(paste0(nrow(lab_dat), " samples were taken."))
 
-hctf = read_excel(paste0(my_opts$base_dir,'04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx'))
+# hctf = read_excel(paste0(my_opts$base_dir,'04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx'))
+# 
+# hctf = hctf |> 
+#   filter(!duplicated(Waterbody))
 
-hctf = hctf |> 
-  filter(!duplicated(Waterbody))
+# # How many lakes were substrate sampled?
+# paste0(length(hctf |> 
+#                 filter(`# Substrate samplers` > 0,
+#                        Waterbody != 'Total Samples') |> 
+#                 dplyr::select(Waterbody) |> 
+#                 mutate(Waterbody = str_squish(Waterbody)) |> 
+#                 distinct() |> 
+#                 pull(Waterbody)), " lakes substrate sampled across the province.")
+# 
+# hctf |> 
+#   filter(`# Substrate samplers` > 0,
+#          Waterbody != 'Total Samples') |> 
+#   summarise(number_substrate_samplers = sum(`# Substrate samplers`))
 
-# How many lakes were substrate sampled?
-paste0(length(hctf |> 
-                filter(`# Substrate samplers` > 0,
-                       Waterbody != 'Total Samples') |> 
-                dplyr::select(Waterbody) |> 
-                mutate(Waterbody = str_squish(Waterbody)) |> 
-                distinct() |> 
-                pull(Waterbody)), " lakes substrate sampled across the province.")
-
-hctf |> 
-  filter(`# Substrate samplers` > 0,
-         Waterbody != 'Total Samples') |> 
-  summarise(number_substrate_samplers = sum(`# Substrate samplers`))
-
+if(my.year == 2024){
+  lab_sf = lab_sf |> 
+    dplyr::rename(`Type of plankton tow (Vertical or Horizontal)` = `Type of plankton tow (vertical or horizontal)`)
+}
 # Make excel sheet for updating final report appendix!
 lab_sf |> 
   # Join the Natural Resource regions (n = 8) to the lakes.

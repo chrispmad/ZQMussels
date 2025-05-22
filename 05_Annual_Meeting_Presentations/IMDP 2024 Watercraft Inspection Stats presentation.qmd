@@ -55,7 +55,7 @@ unique_years = unique(all_dat$Year)
 most_rec_year = max(as.numeric(all_dat$Year),na.rm=T)
 
 # Station filter selection - only applied to certain figures!
-permanent_stations = c("Golden","Yahk","Olsen (Hwy 3)","Radium","Mt. Robson","Osoyoos*","Pacific Border","Sumas Border","Dawson Creek","Cutts (Hwy 93)")
+permanent_stations = c("Golden","Yahk","Olsen (Hwy 3)","Mt. Robson","Osoyoos*","Pacific Border","Sumas Border","Dawson Creek","Cutts (Hwy 93)")
 
 roving_stations = c("Penticton Roving","Fraser Valley Roving",
                     "Penticton 97C","Keremeos (Hwy 3)",
