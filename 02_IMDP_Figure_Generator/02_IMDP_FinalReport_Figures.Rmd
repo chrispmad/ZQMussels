@@ -39,6 +39,7 @@ my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMusse
 
 #Which year should we focus on?
 my.year = 2024
+# my.year = 2025
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
 update.gis = FALSE
@@ -275,6 +276,13 @@ if(my.year == 2024){
                                 "Penticton Roving","Cutts (Hwy 93)"),
                     StationType = "Roving")
 }
+if(my.year == 2025){
+  rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
+                                "Lower Mainland Roving","Pacific",
+                                "Sumas Border",
+                                "Penticton Roving","Cutts (Hwy 93)"),
+                    StationType = "Roving")
+}
 
 station_types = bind_rows(rovers,
           data.frame(Station = dat |> 
@@ -297,6 +305,11 @@ if(my.year == 2023){
                      "Scheduled Inspection (Cbsa Notification)")
 }
 if(my.year == 2024){
+  rovers_to_drop = c("Other","Okanagan",
+                     "Scheduled Inspection (Other Notification)",
+                     "Scheduled Inspection (Cbsa Notification)")
+}
+if(my.year == 2025){
   rovers_to_drop = c("Other","Okanagan",
                      "Scheduled Inspection (Other Notification)",
                      "Scheduled Inspection (Cbsa Notification)")
@@ -598,7 +611,8 @@ if((my_opts$year+1) %in% unique(dat_all$Year)){
 
 # Join number of inspections to stations.
 st = stations_for_maps |> 
-  dplyr::filter(!station_name %in% rovers_to_drop) |> 
+  dplyr::filter(!station_name %in% rovers_to_drop) |>
+  # dplyr::filter(station_name %in% permanent.stations) |> 
   left_join(dat |> 
               count(Station, name = 'num_insp') |> 
               dplyr::rename(station_name = Station)) |> 
@@ -679,6 +693,7 @@ tmap_save(tm = map_2_tmap, filename = paste0(my.external.output.folder,'/GIS Map
 # Join number of inspections to stations.
 st_ps = st |> 
   dplyr::filter(station_type != 'Roving Inspection Station') |> 
+  dplyr::filter(station_name %in% permanent.stations) |> 
   dplyr::select(!contains('jenks'))
   
 # Get 5 levels of natural breaks ('jenks'); station circle size on map varies with this variable.
@@ -1808,28 +1823,33 @@ if(my_opts$year < 2024){
     filter(!Station %in% rovers_to_drop) |> 
     group_by(Shift_ID) |> 
     summarise(NumberInsp = n()) |> 
+    dplyr::ungroup() |> 
+    dplyr::filter(!duplicated(Shift_ID)) |> 
     #Add number of non-motorized blow-bys per unique station / shift combo.
     left_join(dat_all |>
                 filter(Year ==  my.year-1) |> 
                 group_by(Shift_ID) |> 
                 mutate(Non_Motorized_Blow_Bys_Counter = as.numeric(Non_Motorized_Blow_Bys_Counter)) |> 
+                dplyr::ungroup() |> 
                 select(Shift_ID,Non_Motorized_Blow_Bys_Counter) |> 
-                distinct()) |> 
+                distinct() |> 
+                dplyr::filter(!duplicated(Shift_ID))
+                ) |> 
     #Add number of motorized blow-bys per unique station / shift combo.
     left_join(dat_all |>
                 filter(Year ==  my.year-1) |> 
                 group_by(Shift_ID) |> 
                 mutate(Motorized_Blow_Bys_Counter = as.numeric(Motorized_Blow_Bys_Counter)) |> 
+                dplyr::ungroup() |> 
                 select(Shift_ID,Motorized_Blow_Bys_Counter) |> 
-                distinct()) |> 
+                distinct() |> 
+                dplyr::filter(!duplicated(Shift_ID))) |> 
     # group_by(Station) |> 
     summarise(NumberInsp = sum(NumberInsp),
               Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
               Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
     # group_by(Station) |> 
-    summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter)) |> 
-    arrange(desc(PercentCompliance)) |> 
-    knitr::kable()
+    summarise(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter))
   
   print('Of the non-compliant boats, the following percentage were non-motorized:')
   
@@ -1853,25 +1873,40 @@ if(my_opts$year < 2024){
 } else {
   # From 2024 onwards, blowbys are now recorded in a table that is separate from the inspections.
   dat |> 
-  filter(!Station %in% rovers_to_drop) |> 
-  filter(!Station %in% c("Lower Mainland Roving","Penticton Roving")) |> 
-  dplyr::filter(Station %in% stations.to.include) |> 
-  group_by(Station,Shift_ID,Workflow_ID) |> 
-  summarise(NumberInsp = n()) |> 
-  #Add number of non-motorized blow-bys per unique station / shift combo.
-  left_join(
-    blowb |> 
-      dplyr::filter(watercraft_complexity == 'Non-motorized') |> 
-      dplyr::count(Workflow_ID,sort = T, name = "Non_Motorized_Blow_Bys_Counter")
-  ) |> 
+    filter(!Station %in% rovers_to_drop) |> 
+    # filter(!Station %in% c("Lower Mainland Roving","Penticton Roving")) |> 
+    dplyr::filter(Station %in% stations.to.include) |> 
+    group_by(Station,Shift_ID,Workflow_ID) |> 
+    summarise(NumberInsp = n()) |> 
+    dplyr::ungroup() |> 
+    #Add number of non-motorized blow-bys per unique station / shift combo.
+    left_join(
+      blowb |> 
+        dplyr::filter(watercraft_complexity == 'Non-motorized') |> 
+        dplyr::count(Workflow_ID,sort = T, name = "Non_Motorized_Blow_Bys_Counter")
+    ) |> 
     #Add number of motorized blow-bys per unique station / shift combo.
-  left_join(
-    blowb |> 
-      dplyr::filter(watercraft_complexity != 'Non-motorized') |> 
-      dplyr::count(Workflow_ID,sort = T, name = "Motorized_Blow_Bys_Counter")
-  ) |> 
+    left_join(
+      blowb |> 
+        dplyr::filter(watercraft_complexity != 'Non-motorized') |> 
+        dplyr::count(Workflow_ID,sort = T, name = "Motorized_Blow_Bys_Counter")
+    ) |> 
   dplyr::mutate(dplyr::across(c(Non_Motorized_Blow_Bys_Counter,Motorized_Blow_Bys_Counter), \(x) tidyr::replace_na(x,0))) |> 
-    dplyr::mutate()
+    dplyr::reframe(NumberInsp = sum(NumberInsp),
+                   Non_Motorized_Blow_Bys_Counter = sum(Non_Motorized_Blow_Bys_Counter),
+                   Motorized_Blow_Bys_Counter = sum(Motorized_Blow_Bys_Counter)) |> 
+    dplyr::reframe(PercentCompliance = 100*NumberInsp/(NumberInsp + Non_Motorized_Blow_Bys_Counter + Motorized_Blow_Bys_Counter))
+  
+  # What percentage were non-motorized?
+  number_blowb_nonmot = blowb |> 
+    dplyr::filter(watercraft_complexity == 'Non-motorized') |> 
+    dplyr::reframe(number_non_mot = n()) 
+  
+  number_blowb_total = blowb |> 
+    dplyr::count(watercraft_complexity) |> 
+    dplyr::reframe(total_blowbys = sum(n))
+        
+  print(paste0(round(100*number_blowb_nonmot / number_blowb_total,1), "% of blowbys were non-motorized"))
 }
 ```
 
@@ -2556,7 +2591,7 @@ sources_centroid = sources_centroid |>
     HRInsp <= jenks_6 ~ 5,
   )) |>
   mutate(bin_label = case_when(
-    HRInsp_b == 1 ~ paste0(jenks_2),
+    HRInsp_b == 1 ~ paste0('1 - ',jenks_2),
     HRInsp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
     HRInsp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
     HRInsp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
@@ -2619,7 +2654,7 @@ map_5_tmap = tm_shape(northamerica_basemap,
 map_5_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_5_tmap, filename = 'Map5_Home_Residence_Frequency_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
+tmap_save(tm = map_5_tmap, filename = paste0(my.external.output.folder, '/GIS Maps and Excel Figures/ExcelFigures/Map5_Home_Residence_Frequency_HighRisk.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -2655,7 +2690,8 @@ dest_wb_hr = dest_wb_hr |>
     HighRisk_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
     HighRisk_b == 5 ~ paste0(jenks_5+1, ' - ', jenks_6)
   )) |> 
-  arrange(HighRisk_b)
+  arrange(HighRisk_b) |> 
+  dplyr::mutate(bin_label = str_replace(bin_label,"1 - 1","1"))
 
 my_pal = leaflet::colorFactor(
   palette = 'RdYlGn',
@@ -2744,7 +2780,7 @@ map_6_tmap = tm_shape(bc_stations_basemap_white,
 map_6_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
+tmap_save(tm = map_6_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map6_Destination_locations_HighRisk.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 
 tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
@@ -3177,7 +3213,7 @@ print("Total count of commercially hauled boats:")
  p29 = dat |> 
   filter(Commercially_Hauled_Ind == T,
          Station != "Hwy 97c") |> 
-  filter(Station %in% stations.to.include) |> 
+  # filter(Station %in% stations.to.include) |> 
   group_by(Station) |> 
   summarise(NumberBoats = n()) |> 
   arrange(desc(NumberBoats)) |> 
@@ -3309,7 +3345,8 @@ if(my.year == 2024){
 
 lab_dat =  lab_dat |> 
   dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, " \\(.*")) |> 
-  dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, "\\,.*"))
+  dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, "\\,.*")) |> 
+  dplyr::mutate(Waterbody = stringr::str_remove_all(Waterbody, "\\'"))
 
 lab_sf = lab_dat |> 
   dplyr::rename(
@@ -3542,8 +3579,14 @@ fig32_dat = dat |>
   mutate(prop = 100*Number/TotalPerStation) |> 
   mutate(StationType_T = paste0(StationType, Previous_AIS_Knowledge_Ind))
   
+fig32_dat |> 
+  dplyr::reframe(TotalPerStation = sum(TotalPerStation),
+                 Number = sum(Number)) |> 
+  dplyr::mutate(perc_with_prev_AIS_knowledge = 100*Number / TotalPerStation) |> 
+  knitr::kable()
 #Add in dummys for FALSE of Previous_AIS_Knowledge_Ind to make backdrop of plot.
 fig32_dat = fig32_dat |> 
+  filter(Station %in% stations.to.include) |> 
   mutate(prop_queda = 100-prop) |> 
   pivot_longer(cols = c(prop, prop_queda), names_to = "Prop_type",values_to = "prop") |> 
   mutate(Previous_AIS_Knowledge_Ind = replace(Previous_AIS_Knowledge_Ind, Prop_type == "prop_queda", "FALSE")) |> arrange(desc(Previous_AIS_Knowledge_Ind), Station)
@@ -3569,13 +3612,27 @@ p32 = ggplot() +
 p32
 
 if(!interactive()) {
-ggsave("Fig32_Percent_Previous_Knowledge.jpg",p32)
+ggsave(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig32_Percent_Previous_Knowledge.jpg"),p32,
+       width = 8, height = 4, dpi = 300)
 }
 ```
 
 ### Figure 33 Primary Sources of Previous Knowledge
 
 ```{r fig33_primary_sources_previous_knowledge}
+
+# To see the proportions of each type:
+dat |> 
+    rename(ais_know_id = Previous_AIS_Knowledge_Source_Code_ID) |> 
+    #Join the lookup table for previous AIS knowledge
+    left_join(ais_know |> 
+                  rename(ais_know_id = `Previous Ais Knowledge Source Code ID`) |> 
+                  mutate(ais_know_id = as.character(ais_know_id)) |> 
+                  select(Description, ais_know_id)) |> 
+    #Only keep records that have some kind of previous AIS knowledge.
+    filter(!is.na(Description)) |> dplyr::count(Description) |> dplyr::mutate(prop = 100*n / sum(n)) |> 
+  knitr::kable()
+
 p33 = dat |> 
   rename(ais_know_id = Previous_AIS_Knowledge_Source_Code_ID) |> 
   #Join the lookup table for previous AIS knowledge
