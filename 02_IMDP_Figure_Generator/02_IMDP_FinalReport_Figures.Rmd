@@ -88,7 +88,8 @@ permanent.stations = c("Golden","Olsen","Yahk",
                         "Dawson Creek")
 
 roving.stations = c("Penticton Roving","Lower Mainland Roving",
-                    "Keremeos (Hwy 3)","Sumas Border")
+                    "Keremeos (Hwy 3)","Sumas Border","Pacific",
+                    "Cutts (Hwy 93)")
 
 part.time.stations = c("Sumas","Pacific","Cutts (Hwy 93)","Radium")
 # Just in case it's different, which stations do we want to show in the 
@@ -480,6 +481,8 @@ station_labels = stations_for_maps |>
   dplyr::mutate(lat = case_when(
     map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
     map_label == 'Penticton Roving' ~ lat - 0.1,
+    map_label == "Sumas Border" ~ lat - 0.5,
+    map_label == "Yahk" ~ lat - 0.5,
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
     map_label == 'Lower Mainland Roving' ~ lon - 1,
@@ -672,7 +675,8 @@ map_2_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
                scale = 1.5,
                title.col = '') +
   tm_shape(station_labels[station_labels$station_name %in% stations_sf$station_name,]) +
-    tm_text("map_label", auto.placement = F, 
+    tm_text("map_label",
+            auto.placement = F, 
             size = 0.75) +
   tm_scale_bar() + 
   tm_layout(legend.frame = 'black', 
@@ -716,6 +720,16 @@ st_ps = st_ps |>
   )) |> 
   arrange(num_insp_b) |> 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+first_level = as.character(st_ps$jenks_1[1])
+second_level = as.character(st_ps$jenks_1[2])
+
+if(first_level == second_level){
+  st_ps = st_ps |> 
+    mutate(bin_label = str_replace_all(bin_label,
+                                       paste0(first_level, ' - ',second_level),
+                                       first_level))
+}
 
 stations_ps_sf = st_as_sf(st_ps, coords = c("lon","lat"), crs = 4326)
 
@@ -829,6 +843,16 @@ st_rs = st_rs |>
   )) |> 
   arrange(num_insp_b) |> 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium'))
+
+first_level = as.character(st_rs$jenks_1[1])
+second_level = as.character(st_rs$jenks_1[2])
+
+if(first_level == second_level){
+  st_rs = st_rs |> 
+    mutate(bin_label = str_replace_all(bin_label,
+                                       paste0(first_level, ' - ',second_level),
+                                       first_level))
+}
 
 stations_rs_sf = st_as_sf(st_rs, coords = c("lon","lat"), crs = 4326)
 
@@ -1202,7 +1226,7 @@ if(interactive()){
 }
 
 if(!interactive()) {
-ggsave(paste0("Fig3x_c_TotalInspections_",my.year-2,"_to_",my.year,"_Roving_Stations.jpg"),p3.x_c)
+ggsave(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig3x_c_TotalInspections_",my.year-2,"_to_",my.year,"_Roving_Stations.jpg"),p3.x_c)
 }
 ```
 
@@ -2166,7 +2190,7 @@ st = st |>
     num_insp <= jenks_6 ~ 5,
   )) |>
   mutate(bin_label = case_when(
-    num_insp_b == 1 ~ paste0(jenks_2),
+    num_insp_b == 1 ~ paste0(jenks_1, ' - ', jenks_2),
     num_insp_b == 2 ~ paste0(jenks_2+1, ' - ', jenks_3),
     num_insp_b == 3 ~ paste0(jenks_3+1, ' - ', jenks_4),
     num_insp_b == 4 ~ paste0(jenks_4+1, ' - ', jenks_5),
@@ -2200,6 +2224,21 @@ station_labels = st |>
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
 
+# Try to bump Sumas Border and Yahk name further south.
+if('Sumas Border' %in% unique(station_labels$station_name) & 'Yahk' %in% unique(station_labels$station_name)){
+  station_labels = station_labels |> 
+    dplyr::filter(!station_name %in% c("Sumas Border","Yahk")) |> 
+    dplyr::bind_rows(
+      station_labels |> 
+        dplyr::filter(station_name %in% c('Sumas Border','Yahk')) |> 
+        dplyr::mutate(lat = sf::st_coordinates(geometry)[,2],
+                      lng = sf::st_coordinates(geometry)[,1]) |> 
+        dplyr::mutate(lat = lat - 0.5) |> 
+        sf::st_drop_geometry() |> 
+        sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
+    )
+}
+
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
   domain = st$num_insp_b,
@@ -2231,7 +2270,7 @@ map_4_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
 map_4_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_4_tmap, filename = 'Map4_HighRisk_Inspections_by_Station.jpg', width = 7.6, height = 6.4, dpi = 300)
+tmap_save(tm = map_4_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map4_HighRisk_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -2623,6 +2662,17 @@ centr_without_dat = sources_centroid |> filter(is.na(HRInsp))
 centr_with_dat = centr_with_dat |>
   mutate(my_colors = source_pal(HRInsp_b))
 
+
+# Make a version of centr_with_dat that is slightly offset;
+# this might help to have text labels not on top of circles.
+centr_offset = centr_with_dat |> 
+  dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
+                lng = sf::st_coordinates(geom)[,1]) |> 
+  dplyr::mutate(lat = lat - 2,
+                lng = lng - 2) |> 
+  sf::st_drop_geometry() |> 
+  sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
+
 map_5_tmap = tm_shape(northamerica_basemap, 
                       bbox = northamerica_view) +
     tm_rgb() + 
@@ -2638,7 +2688,9 @@ map_5_tmap = tm_shape(northamerica_basemap,
                legend.col.show = FALSE,
                legend.size.show = FALSE,
                title.col = '') +
-    tm_text("ABBR", auto.placement = 1, 
+  tm_shape(centr_offset) + 
+    tm_text("ABBR", 
+            # auto.placement = 1, 
             size = 0.75) +
   # tm_shape(centr_without_dat) + 
   #   tm_text("ABBR", col = 'grey', 
@@ -2654,7 +2706,7 @@ map_5_tmap = tm_shape(northamerica_basemap,
 map_5_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_5_tmap, filename = paste0(my.external.output.folder, '/GIS Maps and Excel Figures/ExcelFigures/Map5_Home_Residence_Frequency_HighRisk.jpg'), width = 7.6, height = 6.4, dpi = 300)
+tmap_save(tm = map_5_tmap, filename = paste0(my.external.output.folder, '/GIS Maps and Excel Figures/ExcelFigures/Map5_Home_Residence_Frequency_HighRisk_2.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -2705,7 +2757,7 @@ dest_wb_hr = st_set_geometry(dest_wb_hr, dest_wb_hr$geom)
 
 # Remove labels for all waterbodies below a 'yellow' level of HR inspections.
 dest_wb_hr = dest_wb_hr |>
-  mutate(GNIS_NA_label = ifelse(as.numeric(HighRisk_b) < 3, NA, GNIS_NA))
+  mutate(GNIS_NA_label = ifelse(as.numeric(HighRisk_b) >= 3 | GNIS_NA %in% c("Elk River","Kootenay Lake"), GNIS_NA, NA))
 
 # Buffer the destination waterbodies a bit.
 dest_wb_hr = st_buffer(dest_wb_hr, 500)
