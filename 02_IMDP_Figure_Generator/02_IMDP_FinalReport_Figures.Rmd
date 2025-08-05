@@ -25,17 +25,18 @@ leaflet,
 sf,
 RColorBrewer,
 openxlsx,
-tmap,
 scales,
 lubridate,
-plotrix)
+plotrix,
+basemaps,
+ggplot2)
 
 #=====================================================
 #                       OPTIONS 
 #=====================================================
 # setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
 
-my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv")
+my_opts = read_csv("C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/ZQMussels/Options.csv")
 
 #Which year should we focus on?
 my.year = 2024
@@ -367,6 +368,7 @@ data.frame(
 
 print("High Risk:")
 
+#Turn to Metabase - just in case some filtering steps have dropped some of these
 data.frame(
   number_highrisk = nrow(dat_hr |> dplyr::filter(Year == my.year)),
   decons_issued = sum(dat$Decontamination_order_issued_Ind,na.rm=T),
@@ -412,20 +414,20 @@ print("For Compliance stats, please see below...")
 
 print("Lake sampling numbers")
 
-ld = openxlsx::read.xlsx(paste0(my_opts$base_dir,"04_Extra_Figures_and_Scripts/CRB/output/2023_Provincial_PlanktonTow_LabResults_CRB_Format.xlsx"))
-
-# Fill in data gaps for waterbody name with info in the sampling location column.
-# Note that these values do not always name the lake...
-ld = ld |> 
-  dplyr::mutate(wb_name_fill_na = ifelse(is.na(Water.Body.Name), Sampling.Location.Description, Water.Body.Name))
-  
-# Number of samples, unique wb names or sampling locatoins, and unique wb names
-data.frame(
-  number_of_samples = nrow(ld),
-  number_of_unique_wb_names_or_sampling_locations = length(unique(ld$wb_name_fill_na)),
-  number_of_unique_wb_names = length(unique(ld$Water.System.Name))
-) |> 
-  knitr::kable()
+# ld = openxlsx::read.xlsx(paste0(my_opts$base_dir,"04_Extra_Figures_and_Scripts/CRB/output/2023_Provincial_PlanktonTow_LabResults_CRB_Format.xlsx"))
+# 
+# # Fill in data gaps for waterbody name with info in the sampling location column.
+# # Note that these values do not always name the lake...
+# ld = ld |> 
+#   dplyr::mutate(wb_name_fill_na = ifelse(is.na(Water.Body.Name), Sampling.Location.Description, Water.Body.Name))
+#   
+# # Number of samples, unique wb names or sampling locatoins, and unique wb names
+# data.frame(
+#   number_of_samples = nrow(ld),
+#   number_of_unique_wb_names_or_sampling_locations = length(unique(ld$wb_name_fill_na)),
+#   number_of_unique_wb_names = length(unique(ld$Water.System.Name))
+# ) |> 
+#   knitr::kable()
 ```
 
 ### Map 1. Inspection Stations by Type
@@ -496,31 +498,49 @@ bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
   st_as_sf(coords = c("lon","lat"), crs = 4326))
 
 # Download maptiles for BC station map
-bc_stations_basemap_white = maptiles::get_tiles(x = bc_station_view, provider = 'CartoDB.Positron', zoom = 6, crop = F)
-bc_stations_basemap_green = maptiles::get_tiles(x = bc_station_view, provider = 'OpenStreetMap', zoom = 6, crop = F)
+# bc_stations_basemap_white = maptiles::get_tiles(x = bc_station_view, provider = 'CartoDB.Positron', zoom = 6, crop = F)
+# bc_stations_basemap_green = maptiles::get_tiles(x = bc_station_view, provider = 'OpenStreetMap', zoom = 6, crop = F)
+bc_stations_basemap_white<- basemaps::basemap_terra(ext = bc_station_view, map_service = 'esri', map_type = 'world_street_map')
+
 
 # Set plotting mode for tmap.
-tmap_mode('plot')
+# tmap_mode('plot')
 
-map_1_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Watercraft \nInspection Stations')) + 
-  tm_shape(bc_bound) + 
-    tm_borders(col = 'grey', lwd = 2) + 
-  tm_shape(stations_for_maps) + 
-    tm_symbols(col = "station_type", title.col = '') +
-  tm_shape(station_labels) +
-    tm_text("map_label", auto.placement = F, 
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
+# map_1_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Watercraft \nInspection Stations')) + 
+#   tm_shape(bc_bound) + 
+#     tm_borders(col = 'grey', lwd = 2) + 
+#   tm_shape(stations_for_maps) + 
+#     tm_symbols(col = "station_type", title.col = '') +
+#   tm_shape(station_labels) +
+#     tm_text("map_label", auto.placement = F, 
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_1_tmap
 
-map_1_tmap
+
+
+p1<-ggplot()+
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white)+
+  geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+
+  geom_sf_text(data = station_labels, aes(label = map_label))+
+  scale_fill_manual(name = "2024 Watercraft \n Inspection Stations", values = c("Permanent Inspection Station" = "lightblue", "Roving Inspection Crew" = "purple"))+
+  ggspatial::annotation_scale()+
+  ggthemes::theme_map()+
+  theme(legend.position = c(0.68,0.8),
+        )
+  
+p1
+
 
 if(!interactive()) {
-  tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  # tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), p1, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -575,33 +595,43 @@ if((my_opts$year+1) %in% unique(dat_all$Year)){
     sf::st_as_sf(coords = c("lon","lat"),crs=4326)
   
   # Set plotting mode for tmap.
-  tmap_mode('plot')
+  # tmap_mode('plot')
   
-  station_map_this_year_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
-    tm_rgb() + 
-    tm_add_legend(title = paste0(my.year+1,' Watercraft \nInspection Stations')) + 
-    tm_shape(bc_bound) + 
-    tm_borders(col = 'grey', lwd = 2) + 
-    tm_shape(stations_for_maps_this_year) + 
-    tm_symbols(col = "station_type", title.col = '') +
-    tm_shape(station_labels_this_year) +
-    tm_text("map_label", auto.placement = F, 
-            size = 0.75) +
-    tm_scale_bar() + 
-    tm_layout(legend.frame = 'black', 
-              legend.position = c('right','top'),
-              scale = 1.25)
+  # station_map_this_year_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+  #   tm_rgb() + 
+  #   tm_add_legend(title = paste0(my.year+1,' Watercraft \nInspection Stations')) + 
+  #   tm_shape(bc_bound) + 
+  #   tm_borders(col = 'grey', lwd = 2) + 
+  #   tm_shape(stations_for_maps_this_year) + 
+  #   tm_symbols(col = "station_type", title.col = '') +
+  #   tm_shape(station_labels_this_year) +
+  #   tm_text("map_label", auto.placement = F, 
+  #           size = 0.75) +
+  #   tm_scale_bar() + 
+  #   tm_layout(legend.frame = 'black', 
+  #             legend.position = c('right','top'),
+  #             scale = 1.25)
+  # 
+  # station_map_this_year_tmap
+  p2<-ggplot()+
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white)+
+  geom_sf(data = st_buffer(stations_for_maps_this_year,20000), aes(fill = as.factor(station_type)))+
+  geom_sf_text(data = station_labels_this_year, aes(label = map_label))+
+  scale_fill_manual(name = "2025 Watercraft \n Inspection Stations", values = c("Permanent Inspection Station" = "lightblue", "Roving Inspection Crew" = "purple", "Part-time Inspection Station" = "yellow"))+
+  ggspatial::annotation_scale()+
+  ggthemes::theme_map()+
+  theme(legend.position = c(0.68,0.75),
+        )
   
-  station_map_this_year_tmap
-  
+  p2
   next.years.external.output.folder = str_remove(my.external.output.folder,"[0-9]+$")
   
   if(!dir.exists(paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/'))){
     dir.create(paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/'), recursive = T)
   }
     
-  tmap_save(tm = station_map_this_year_tmap, filename = paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
-  
+  # tmap_save(tm = station_map_this_year_tmap, filename = paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  ggsave(paste0(next.years.external.output.folder,my_opts$year+1,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), p2, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -649,44 +679,76 @@ bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
                          lat = c(48, 56)) |> 
   st_as_sf(coords = c("lon","lat"), crs = 4326))
 
-tmap_mode('plot')
-
+# tmap_mode('plot')
+# 
 my_pal = leaflet::colorFactor(
   palette = 'Spectral',
   domain = st$num_insp_b,
   reverse = T
 )
+# 
+# map_2_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+#     tm_rgb() +
+#   tm_add_legend(title = paste0(my.year,' Inspections \nby Stations'),
+#                 type = 'symbol',
+#                 labels = unique(stations_sf$bin_label),
+#                 col = my_pal(unique(stations_sf$num_insp_b)),
+#                 size = log(unique(stations_sf$num_insp_b)+1)) + 
+#   tm_shape(bc_bound) +
+#     tm_borders(col = 'grey', lwd = 2) +
+#   tm_shape(stations_sf) + 
+#     tm_symbols(col = "num_insp_b", palette = '-Spectral',
+#                size = 'num_insp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                perceptual = F,
+#                scale = 1.5,
+#                title.col = '') +
+#   tm_shape(station_labels[station_labels$station_name %in% stations_sf$station_name,]) +
+#     tm_text("map_label",
+#             auto.placement = F, 
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_2_tmap
 
-map_2_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Inspections \nby Stations'),
-                type = 'symbol',
-                labels = unique(stations_sf$bin_label),
-                col = my_pal(unique(stations_sf$num_insp_b)),
-                size = log(unique(stations_sf$num_insp_b)+1)) + 
-  tm_shape(bc_bound) +
-    tm_borders(col = 'grey', lwd = 2) +
-  tm_shape(stations_sf) + 
-    tm_symbols(col = "num_insp_b", palette = '-Spectral',
-               size = 'num_insp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               perceptual = F,
-               scale = 1.5,
-               title.col = '') +
-  tm_shape(station_labels[station_labels$station_name %in% stations_sf$station_name,]) +
-    tm_text("map_label",
-            auto.placement = F, 
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
 
-map_2_tmap
+p3 <- ggplot() +
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white) +
+  geom_sf(data = stations_sf, 
+          aes(color = station_type, 
+              size = num_insp_b)) +
+  geom_sf_label(data = station_labels_this_year, aes(label = map_label),
+              size = 3, fill = "white", color = "black", label.size = 0.1)+
+  scale_color_brewer(palette = "Dark2", name = "Station Type") +
+  scale_size_continuous(
+    name = "Inspection Volume",
+    range = c(1, 5),
+    breaks = unique(stations_sf$num_insp_b),
+    labels = unique(stations_sf$bin_label)
+  ) +
+  ggspatial::annotation_scale() +
+  ggthemes::theme_map() +
+  guides(
+    color = guide_legend(order = 1),
+    size = guide_legend(order = 2)
+  ) +
+  theme(
+    legend.position = c(0.95, 0.95),
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
+p3
+
+
 
 if(!interactive()) {
-tmap_save(tm = map_2_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+# tmap_save(tm = map_2_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+    ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2_Total_Inspections_by_Station.jpg'), p3, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -738,43 +800,85 @@ bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
                          lat = c(48, 56)) |> 
   st_as_sf(coords = c("lon","lat"), crs = 4326))
 
-tmap_mode('plot')
+# tmap_mode('plot')
+# 
+# my_pal_ps = leaflet::colorFactor(
+#   palette = 'Spectral',
+#   domain = st_ps$num_insp_b,
+#   reverse = T
+# )
+# 
+# map_2b_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Inspections \nby Permanent Stations'),
+#                 type = 'symbol',
+#                 labels = unique(stations_ps_sf$bin_label),
+#                 col = my_pal(unique(stations_ps_sf$num_insp_b)),
+#                 size = log(unique(stations_ps_sf$num_insp_b)+1)) + 
+#   tm_shape(bc_bound) +
+#     tm_borders(col = 'grey', lwd = 2) +
+#   tm_shape(stations_ps_sf) + 
+#     tm_symbols(col = "num_insp_b", palette = '-Spectral',
+#                size = 'num_insp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                perceptual = F,
+#                scale = 1.5,
+#                title.col = '') +
+#   tm_shape(station_labels[station_labels$station_name %in% stations_ps_sf$station_name,]) +
+#     tm_text("map_label", auto.placement = F, 
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_2b_tmap
 
-my_pal_ps = leaflet::colorFactor(
-  palette = 'Spectral',
-  domain = st_ps$num_insp_b,
-  reverse = T
-)
+station_labels_sf = station_labels |>
+  dplyr::filter(station_name %in% stations_ps_sf$station_name) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
 
-map_2b_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Inspections \nby Permanent Stations'),
-                type = 'symbol',
-                labels = unique(stations_ps_sf$bin_label),
-                col = my_pal(unique(stations_ps_sf$num_insp_b)),
-                size = log(unique(stations_ps_sf$num_insp_b)+1)) + 
-  tm_shape(bc_bound) +
-    tm_borders(col = 'grey', lwd = 2) +
-  tm_shape(stations_ps_sf) + 
-    tm_symbols(col = "num_insp_b", palette = '-Spectral',
-               size = 'num_insp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               perceptual = F,
-               scale = 1.5,
-               title.col = '') +
-  tm_shape(station_labels[station_labels$station_name %in% stations_ps_sf$station_name,]) +
-    tm_text("map_label", auto.placement = F, 
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
+my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
 
-map_2b_tmap
+p4 = ggplot() +
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white) +
+  geom_sf(
+    data = stations_ps_sf,
+    aes(fill = factor(num_insp_b), size = log(num_insp_b)+1),
+    shape = 21, color = "black"
+  ) +
+  geom_sf_label(data = station_labels_sf, aes(label = map_label),
+              size = 3, fill = "white", color = "black", label.size = 0.1)+
+  scale_fill_manual(
+    name = paste0(my.year, ' Inspections \nby Permanent Stations'),
+    values = my_colors,
+    labels = unique(stations_ps_sf$bin_label),
+    breaks = unique(stations_ps_sf$num_insp_b),
+    guide = guide_legend(order = 1, override.aes = list(size = log(unique(stations_ps_sf$num_insp_b) + 1) * 3))
+  ) +
+  scale_size_continuous(
+    name = "Inspection Volume",
+    range = c(3,7),
+    breaks = unique(stations_ps_sf$num_insp_b),
+    labels = unique(stations_ps_sf$bin_label),
+    guide = "none"
+  ) +
+  ggspatial::annotation_scale(location = "bl") +
+  ggthemes::theme_map() +
+  theme(
+    legend.position = c(0.95, 0.95),
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
+
+p4
+
 
 if(!interactive()) {
-tmap_save(tm = map_2b_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2b_Total_Inspections_by_Permanent_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+# tmap_save(tm = map_2b_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2b_Total_Inspections_by_Permanent_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2b_Total_Inspections_by_Permanent_Station.jpg'), p4, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -863,43 +967,85 @@ bc_station_view_roving = st_bbox(tibble(lon = c(-126, -114.5),
 
 bc_stations_basemap_green_roving = maptiles::get_tiles(x = bc_station_view_roving, provider = 'OpenStreetMap', zoom = 7, crop = T)
 
-tmap_mode('plot')
 
-my_pal_rs = leaflet::colorFactor(
-  palette = 'Spectral',
-  domain = st_rs$num_insp_b,
-  reverse = T
-)
+station_labels_sf = station_labels |>
+  dplyr::filter(station_name %in% stations_rs_sf$station_name) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
 
-map_2c_tmap = tm_shape(bc_stations_basemap_green_roving, bbox = bc_station_view_roving) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Inspections \nby Roving Stations'),
-                type = 'symbol',
-                labels = unique(stations_rs_sf$bin_label),
-                col = my_pal(unique(stations_rs_sf$num_insp_b)),
-                size = log(unique(stations_rs_sf$num_insp_b)+1)) + 
-  tm_shape(bc_bound) +
-    tm_borders(col = 'grey', lwd = 2) +
-  tm_shape(stations_rs_sf) + 
-    tm_symbols(col = "num_insp_b", palette = '-Spectral',
-               size = 'num_insp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               perceptual = F,
-               scale = 1.5,
-               title.col = '') +
-  tm_shape(station_labels_roving[station_labels_roving$station_name %in% stations_rs_sf$station_name,]) +
-    tm_text("map_label", auto.placement = F, 
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('left','top'),
-            scale = 1.25)
+my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
 
-map_2c_tmap
+p5 = ggplot() +
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white) +
+  geom_sf(
+    data = stations_rs_sf,
+    aes(fill = factor(num_insp_b), size = log(num_insp_b)+1),
+    shape = 21, color = "black"
+  ) +
+  geom_sf_label(data = station_labels_sf, aes(label = map_label),
+              size = 3, fill = "white", color = "black", label.size = 0.1)+
+  scale_fill_manual(
+    name = paste0(my.year, ' Inspections \nby Roving Crew'),
+    values = my_colors,
+    labels = unique(stations_rs_sf$bin_label),
+    breaks = unique(stations_rs_sf$num_insp_b),
+    guide = guide_legend(order = 1, override.aes = list(size = log(unique(stations_rs_sf$num_insp_b) + 1) * 3))
+  ) +
+  scale_size_continuous(
+    name = "Inspection Volume",
+    range = c(3,7),
+    breaks = unique(stations_rs_sf$num_insp_b),
+    labels = unique(stations_rs_sf$bin_label),
+    guide = "none"
+  ) +
+  ggspatial::annotation_scale(location = "bl") +
+  ggthemes::theme_map() +
+  theme(
+    legend.position = c(0.95, 0.95),
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
+
+p5
+
+# tmap_mode('plot')
+# 
+# my_pal_rs = leaflet::colorFactor(
+#   palette = 'Spectral',
+#   domain = st_rs$num_insp_b,
+#   reverse = T
+# )
+# 
+# map_2c_tmap = tm_shape(bc_stations_basemap_green_roving, bbox = bc_station_view_roving) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Inspections \nby Roving Stations'),
+#                 type = 'symbol',
+#                 labels = unique(stations_rs_sf$bin_label),
+#                 col = my_pal(unique(stations_rs_sf$num_insp_b)),
+#                 size = log(unique(stations_rs_sf$num_insp_b)+1)) + 
+#   tm_shape(bc_bound) +
+#     tm_borders(col = 'grey', lwd = 2) +
+#   tm_shape(stations_rs_sf) + 
+#     tm_symbols(col = "num_insp_b", palette = '-Spectral',
+#                size = 'num_insp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                perceptual = F,
+#                scale = 1.5,
+#                title.col = '') +
+#   tm_shape(station_labels_roving[station_labels_roving$station_name %in% stations_rs_sf$station_name,]) +
+#     tm_text("map_label", auto.placement = F, 
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('left','top'),
+#             scale = 1.25)
+# 
+# map_2c_tmap
 
 if(!interactive()) {
-tmap_save(tm = map_2c_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2c_Total_Inspections_by_Roving_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+# tmap_save(tm = map_2c_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2c_Total_Inspections_by_Roving_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map2c_Total_Inspections_by_Roving_Station.jpg'), p5, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -1642,7 +1788,8 @@ northamerica_view = tibble(lon = c(-174,-50),
   st_as_sf(coords = c("lon","lat"), crs = 4326)
 
 # Download maptiles North America
-northamerica_basemap = maptiles::get_tiles(x = northamerica_view, provider = 'CartoDB.Positron', zoom = 4, crop = F)
+# northamerica_basemap = maptiles::get_tiles(x = northamerica_view, provider = 'CartoDB.Positron', zoom = 4, crop = F)
+north_america_stations_basemap_white<- basemaps::basemap_terra(ext = northamerica_view, map_service = 'esri', map_type = 'world_street_map')
 
 # Split the centroid spatial object into 2: one with high risk inspections,
 # and one without.
@@ -1653,38 +1800,40 @@ centr_without_dat = sources_centroid |> filter(is.na(TotalInsp))
 centr_with_dat = centr_with_dat |>
   mutate(my_colors = source_pal(TotalInsp_b))
 
-map_3_tmap = tm_shape(northamerica_basemap, 
-                      bbox = northamerica_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Home Residence\n Frequency'),
-                type = 'symbol',
-                labels = unique(centr_with_dat$bin_label),
-                col = unique(centr_with_dat$my_colors),
-                size = log(unique(centr_with_dat$TotalInsp_b)+1)) + 
-  tm_shape(centr_with_dat) + 
-    tm_symbols(col = "my_colors", 
-               palette = '-Spectral',
-               size = 'TotalInsp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               title.col = '') +
-    tm_text("ABBR", auto.placement = 1, 
-            size = 0.60) +
-  # tm_shape(centr_without_dat) + 
-  #   tm_text("ABBR", col = 'grey', 
-  #           size = 0.8,
-  #           auto.placement = FALSE) +
-  #   tm_symbols(col = 'grey',
-  #              size = 0.1) + 
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('left','bottom'),
-            scale = 1.25)
+# map_3_tmap = tm_shape(northamerica_basemap, 
+#                       bbox = northamerica_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Home Residence\n Frequency'),
+#                 type = 'symbol',
+#                 labels = unique(centr_with_dat$bin_label),
+#                 col = unique(centr_with_dat$my_colors),
+#                 size = log(unique(centr_with_dat$TotalInsp_b)+1)) + 
+#   tm_shape(centr_with_dat) + 
+#     tm_symbols(col = "my_colors", 
+#                palette = '-Spectral',
+#                size = 'TotalInsp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                title.col = '') +
+#     tm_text("ABBR", auto.placement = 1, 
+#             size = 0.60) +
+#   # tm_shape(centr_without_dat) + 
+#   #   tm_text("ABBR", col = 'grey', 
+#   #           size = 0.8,
+#   #           auto.placement = FALSE) +
+#   #   tm_symbols(col = 'grey',
+#   #              size = 0.1) + 
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('left','bottom'),
+#             scale = 1.25)
+# 
+# map_3_tmap
 
-map_3_tmap
+
 
 if(!interactive()) {
-tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
+# tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -2245,32 +2394,72 @@ my_pal = leaflet::colorFactor(
   reverse = T
 )
 
-map_4_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' High Risk \nInspections'),
-                type = 'symbol',
-                labels = unique(stations_sf$bin_label),
-                col = my_pal(unique(stations_sf$num_insp_b)),
-                size = log(unique(stations_sf$num_insp_b)+1)) + 
-  tm_shape(bc_bound) +
-    tm_borders(col = 'grey', lwd = 2) +
-  tm_shape(stations_sf) + 
-    tm_symbols(col = "num_insp_b", palette = '-Spectral',
-               size = 'num_insp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               title.col = '') +
-    tm_text("map_label", auto.placement = 4, 
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
+# map_4_tmap = tm_shape(bc_stations_basemap_green, bbox = bc_station_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' High Risk \nInspections'),
+#                 type = 'symbol',
+#                 labels = unique(stations_sf$bin_label),
+#                 col = my_pal(unique(stations_sf$num_insp_b)),
+#                 size = log(unique(stations_sf$num_insp_b)+1)) + 
+#   tm_shape(bc_bound) +
+#     tm_borders(col = 'grey', lwd = 2) +
+#   tm_shape(stations_sf) + 
+#     tm_symbols(col = "num_insp_b", palette = '-Spectral',
+#                size = 'num_insp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                title.col = '') +
+#     tm_text("map_label", auto.placement = 4, 
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_4_tmap
 
-map_4_tmap
+my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
+
+map_high_risk_ggplot = ggplot() +
+  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_white) +
+  geom_sf(
+    data = stations_sf,
+    aes(fill = factor(num_insp_b), size = num_insp_b),
+    shape = 21,
+    color = "black"
+  ) +
+  geom_sf_label(data = station_labels_this_year, aes(label = map_label),
+              size = 3, fill = "white", color = "black", label.size = 0.1)+
+  scale_fill_manual(
+    name = paste0(my.year, ' High Risk \nInspections'),
+    values = my_colors,
+    labels = unique(stations_sf$bin_label),
+    breaks = unique(stations_sf$num_insp_b),
+    guide = guide_legend(order = 1, override.aes = list(size = log(unique(stations_sf$num_insp_b) + 1) * 3))
+  ) +
+  scale_size_continuous(
+    name = "Inspection Volume",
+    range = c(2, 6),
+    breaks = unique(stations_sf$num_insp_b),
+    labels = unique(stations_sf$bin_label),
+    guide = "none"
+  ) +
+  ggspatial::annotation_scale(location = "bl") +
+  ggthemes::theme_map() +
+  theme(
+    legend.position = c(0.95, 0.95),
+    legend.justification = c("right", "top"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
+
+map_high_risk_ggplot
+
 
 if(!interactive()) {
-tmap_save(tm = map_4_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map4_HighRisk_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+# tmap_save(tm = map_4_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map4_HighRisk_Inspections_by_Station.jpg'), width = 7.6, height = 6.4, dpi = 300)
+ggsave(filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map4_HighRisk_Inspections_by_Station.jpg'), 
+       plot = map_high_risk_ggplot, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
@@ -2673,37 +2862,50 @@ centr_offset = centr_with_dat |>
   sf::st_drop_geometry() |> 
   sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
 
-map_5_tmap = tm_shape(northamerica_basemap, 
-                      bbox = northamerica_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Source of \nHigh Risk Inspections'),
-                type = 'symbol',
-                labels = unique(centr_with_dat$bin_label),
-                col = unique(centr_with_dat$my_colors),
-                size = log(unique(centr_with_dat$HRInsp_b)+1)) + 
-  tm_shape(centr_with_dat) + 
-    tm_symbols(col = "my_colors", 
-               palette = '-Spectral',
-               size = 'HRInsp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               title.col = '') +
-  tm_shape(centr_offset) + 
-    tm_text("ABBR", 
-            # auto.placement = 1, 
-            size = 0.75) +
-  # tm_shape(centr_without_dat) + 
-  #   tm_text("ABBR", col = 'grey', 
-  #           size = 0.8,
-  #           auto.placement = FALSE) +
-  #   tm_symbols(col = 'grey',
-  #              size = 0.1) + 
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('left','bottom'),
-            scale = 1.25)
+map_home_res_high_risk_ggplot = ggplot() +
+  tidyterra::geom_spatraster_rgb(data = north_america_stations_basemap_white) +
+  coord_sf(
+    xlim = c(northamerica_view$xmin, northamerica_view$xmax),
+    ylim = c(northamerica_view$ymin, northamerica_view$ymax),
+    crs = st_crs(4326)
+  ) +
+  geom_sf(
+    data = centr_with_dat,
+    aes(fill = factor(HRInsp_b), size = HRInsp_b),
+    shape = 21,
+    color = "black"
+  ) +
+  geom_sf_text(
+    data = centr_offset,
+    aes(label = ABBR),
+    size = 2.5,
+    check_overlap = TRUE
+  ) +
+  scale_fill_manual(
+    name = paste0(my.year, ' Source of \nHigh Risk Inspections'),
+    values = unique(centr_with_dat$my_colors),
+    labels = unique(centr_with_dat$bin_label),
+    breaks = unique(centr_with_dat$HRInsp_b),
+    guide = guide_legend(order = 1, override.aes = list(size = log(unique(centr_with_dat$HRInsp_b) + 1) * 3))
+  ) +
+  scale_size_continuous(
+    name = "Inspection Volume",
+    range = c(2, 6),
+    breaks = unique(centr_with_dat$HRInsp_b),
+    labels = unique(centr_with_dat$bin_label),
+    guide = "none"
+  ) +
+  ggspatial::annotation_scale(location = "bl") +
+  ggthemes::theme_map() +
+  theme(
+    legend.position = c("left", "bottom"),
+    legend.justification = c("left", "bottom"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
 
-map_5_tmap
+map_home_res_high_risk_ggplot
+
 
 if(!interactive()) {
 tmap_save(tm = map_5_tmap, filename = paste0(my.external.output.folder, '/GIS Maps and Excel Figures/ExcelFigures/Map5_Home_Residence_Frequency_HighRisk_2.jpg'), width = 7.6, height = 6.4, dpi = 300)
@@ -2799,43 +3001,43 @@ MyPalette <- c("#4e92e6", "#26e0ce","gold","orange","darkred")
 bc_station_view_pushed_north = bc_station_view
 bc_station_view_pushed_north[4] = 57
 
-map_6_tmap = tm_shape(bc_stations_basemap_white, 
-                      bbox = bc_station_view_pushed_north
-                      # bbox = st_bbox(dest_wb_hr)
-                      ) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' High Risk\nDestination Waterbodies')) +
-  tm_shape(bc_bound) + 
-    tm_borders(col = 'grey', lwd = 2) +
-  tm_shape(dest_wb_hr_centr) + 
-    tm_dots(col = "bin_label", 
-            palette = MyPalette,
-            legend.show = F,
-            size = 0.25) +
-  tm_shape(dest_wb_hr) +
-    tm_fill(col = "bin_label_precise", 
-            palette = MyPalette,
-            title = '',
-            legend.col.show = T,
-            title.col = '') +
-  tm_text("GNIS_NA_label", 
-          col = 'black',
-          auto.placement = F, 
-          overwrite.lines = T,
-          just = 'top',
-            size = 0.75) +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
-
-map_6_tmap
+# map_6_tmap = tm_shape(bc_stations_basemap_white, 
+#                       bbox = bc_station_view_pushed_north
+#                       # bbox = st_bbox(dest_wb_hr)
+#                       ) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' High Risk\nDestination Waterbodies')) +
+#   tm_shape(bc_bound) + 
+#     tm_borders(col = 'grey', lwd = 2) +
+#   tm_shape(dest_wb_hr_centr) + 
+#     tm_dots(col = "bin_label", 
+#             palette = MyPalette,
+#             legend.show = F,
+#             size = 0.25) +
+#   tm_shape(dest_wb_hr) +
+#     tm_fill(col = "bin_label_precise", 
+#             palette = MyPalette,
+#             title = '',
+#             legend.col.show = T,
+#             title.col = '') +
+#   tm_text("GNIS_NA_label", 
+#           col = 'black',
+#           auto.placement = F, 
+#           overwrite.lines = T,
+#           just = 'top',
+#             size = 0.75) +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_6_tmap
 
 if(!interactive()) {
 tmap_save(tm = map_6_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map6_Destination_locations_HighRisk.jpg'), width = 7.6, height = 6.4, dpi = 300)
 }
-
-tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
+# 
+# tmap_save(tm = map_6_tmap, filename = 'Map6_Destination_locations_HighRisk.jpg', width = 7.6, height = 6.4, dpi = 300)
 ```
 
 ### Figure 22 Pie Chart of Total Watercraft Types
@@ -3155,36 +3357,36 @@ centr_without_dat = sources_centroid |> filter(is.na(MFInsp_b))
 centr_with_dat = centr_with_dat |>
   mutate(my_colors = source_pal(MFInsp_b))
 
-map_7_tmap = tm_shape(northamerica_basemap, 
-                      bbox = northamerica_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Source of \nMussel Fouled Inspections'),
-                type = 'symbol',
-                # labels = c('1','11'),
-                labels = unique(centr_with_dat$bin_label),
-                col = unique(centr_with_dat$my_colors),
-                size = log(unique(centr_with_dat$MFInsp_b)+1)) + 
-  tm_shape(centr_with_dat) + 
-    tm_symbols(col = "my_colors", 
-               palette = '-Spectral',
-               size = 'MFInsp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               title.col = '') +
-    tm_text("ABBR", auto.placement = 1, 
-            size = 0.75) +
-  # tm_shape(centr_without_dat) + 
-  #   tm_text("ABBR", col = 'grey', 
-  #           size = 0.8,
-  #           auto.placement = FALSE) +
-  #   tm_symbols(col = 'grey',
-  #              size = 0.1) + 
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('left','bottom'),
-            scale = 1.25)
-
-map_7_tmap
+# map_7_tmap = tm_shape(northamerica_basemap, 
+#                       bbox = northamerica_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Source of \nMussel Fouled Inspections'),
+#                 type = 'symbol',
+#                 # labels = c('1','11'),
+#                 labels = unique(centr_with_dat$bin_label),
+#                 col = unique(centr_with_dat$my_colors),
+#                 size = log(unique(centr_with_dat$MFInsp_b)+1)) + 
+#   tm_shape(centr_with_dat) + 
+#     tm_symbols(col = "my_colors", 
+#                palette = '-Spectral',
+#                size = 'MFInsp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                title.col = '') +
+#     tm_text("ABBR", auto.placement = 1, 
+#             size = 0.75) +
+#   # tm_shape(centr_without_dat) + 
+#   #   tm_text("ABBR", col = 'grey', 
+#   #           size = 0.8,
+#   #           auto.placement = FALSE) +
+#   #   tm_symbols(col = 'grey',
+#   #              size = 0.1) + 
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('left','bottom'),
+#             scale = 1.25)
+# 
+# map_7_tmap
 
 if(!interactive()) {
 tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', width = 7.6, height = 6.4, dpi = 300)
@@ -3342,35 +3544,35 @@ centr_without_dat = sources_centroid |> filter(is.na(CHInsp_b))
 centr_with_dat = centr_with_dat |>
   mutate(my_colors = source_pal(CHInsp_b))
 
-map_8_tmap = tm_shape(northamerica_basemap, 
-                      bbox = northamerica_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Commercially \nHauled Inspections'),
-                type = 'symbol',
-                labels = unique(centr_with_dat$bin_label),
-                col = unique(centr_with_dat$my_colors),
-                size = log(unique(centr_with_dat$CHInsp_b)+1)) + 
-  tm_shape(centr_with_dat) + 
-    tm_symbols(col = "my_colors", 
-               palette = '-Spectral',
-               size = 'CHInsp_b',
-               legend.col.show = FALSE,
-               legend.size.show = FALSE,
-               title.col = '') +
-    tm_text("ABBR", auto.placement = 1, 
-            size = 0.75) +
-  # tm_shape(centr_without_dat) + 
-  #   tm_text("ABBR", col = 'grey', 
-  #           size = 0.8,
-  #           auto.placement = FALSE) +
-  #   tm_symbols(col = 'grey',
-  #              size = 0.1) + 
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('left','bottom'),
-            scale = 1.25)
-
-map_8_tmap
+# map_8_tmap = tm_shape(northamerica_basemap, 
+#                       bbox = northamerica_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Commercially \nHauled Inspections'),
+#                 type = 'symbol',
+#                 labels = unique(centr_with_dat$bin_label),
+#                 col = unique(centr_with_dat$my_colors),
+#                 size = log(unique(centr_with_dat$CHInsp_b)+1)) + 
+#   tm_shape(centr_with_dat) + 
+#     tm_symbols(col = "my_colors", 
+#                palette = '-Spectral',
+#                size = 'CHInsp_b',
+#                legend.col.show = FALSE,
+#                legend.size.show = FALSE,
+#                title.col = '') +
+#     tm_text("ABBR", auto.placement = 1, 
+#             size = 0.75) +
+#   # tm_shape(centr_without_dat) + 
+#   #   tm_text("ABBR", col = 'grey', 
+#   #           size = 0.8,
+#   #           auto.placement = FALSE) +
+#   #   tm_symbols(col = 'grey',
+#   #              size = 0.1) + 
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('left','bottom'),
+#             scale = 1.25)
+# 
+# map_8_tmap
 
 if(!interactive()) {
 tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', width = 7.6, height = 6.4, dpi = 300)
@@ -3476,28 +3678,28 @@ sampling_pal = leaflet::colorFactor(
 lab_sf = lab_sf |> 
   mutate(my_colors = sampling_pal(`sampling group/agency`))
 
-map_9_tmap = tm_shape(bc_stations_basemap_white, bbox = bc_station_view) +
-    tm_rgb() + 
-  tm_add_legend(title = paste0(my.year,' Invasive \nMussel Lake Monitoring'),
-                type = 'symbol',
-                labels = unique(lab_sf$`sampling group/agency`),
-                col = sampling_pal(unique(lab_sf$`sampling group/agency`))) + 
-  tm_shape(bc_bound) + 
-    tm_borders(col = 'grey', lwd = 2) + 
-  tm_shape(lab_sf) + 
-    tm_symbols(col = "my_colors",
-               title.col = '') +
-  tm_scale_bar() + 
-  tm_layout(legend.frame = 'black', 
-            legend.position = c('right','top'),
-            scale = 1.25)
-
-map_9_tmap
+# map_9_tmap = tm_shape(bc_stations_basemap_white, bbox = bc_station_view) +
+#     tm_rgb() + 
+#   tm_add_legend(title = paste0(my.year,' Invasive \nMussel Lake Monitoring'),
+#                 type = 'symbol',
+#                 labels = unique(lab_sf$`sampling group/agency`),
+#                 col = sampling_pal(unique(lab_sf$`sampling group/agency`))) + 
+#   tm_shape(bc_bound) + 
+#     tm_borders(col = 'grey', lwd = 2) + 
+#   tm_shape(lab_sf) + 
+#     tm_symbols(col = "my_colors",
+#                title.col = '') +
+#   tm_scale_bar() + 
+#   tm_layout(legend.frame = 'black', 
+#             legend.position = c('right','top'),
+#             scale = 1.25)
+# 
+# map_9_tmap
 
 if(!interactive()) {
   tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
 } else {
-  tmap_save(tm = map_9_tmap, filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024.jpg", width = 7.6, height = 6.4, dpi = 300)
+  # tmap_save(tm = map_9_tmap, filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024.jpg", width = 7.6, height = 6.4, dpi = 300)
 }
 
 if(interactive()){
@@ -3536,8 +3738,8 @@ sat_plot = ggplot() +
 sat_plot = sat_plot + 
   inset_element(inset_bc, left = 0.8, top = 0.95, right = 0.95, bottom = 0.8)
 
-ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Satellite_Background.jpg", width = 10, height = 8,
-       plot = sat_plot)
+# ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Satellite_Background.jpg", width = 10, height = 8,
+#        plot = sat_plot)
 
 yellow_streets_plot = ggplot() + 
   tidyterra::geom_spatraster_rgb(data = yellow_basemap) +
@@ -3555,8 +3757,8 @@ yellow_streets_plot = ggplot() +
 yellow_streets_plot = yellow_streets_plot + 
   inset_element(inset_bc, left = 0.8, top = 0.95, right = 0.95, bottom = 0.8)
 
-ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Streets_Background.jpg", width = 10, height = 8,
-       plot = yellow_streets_plot)
+# ggsave(filename = "C:/Users/CMADSEN/Downloads/Map_of_Lake_Sampling_2024_Streets_Background.jpg", width = 10, height = 8,
+#        plot = yellow_streets_plot)
 }
 ```
 
