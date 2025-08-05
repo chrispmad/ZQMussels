@@ -6,7 +6,7 @@ library(sf)
 library(lubridate)
 library(openxlsx)
 
-my_opts = read_csv("C:/Users/CMADSEN/Downloads/LocalR/Options.csv") %>% 
+my_opts = read_csv("C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/ZQMussels/Options.csv") %>% 
   as.data.frame()
 
 my_opts$year = 2023
