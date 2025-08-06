@@ -1,315 +1,427 @@
 ---
-title: "ZQM Data Exploration"
+title: "01_ZQMussel_Survival_Probability_Assessment"
 author: "Chris Madsen"
 date: "`r Sys.Date()`"
-output:
-  prettydoc::html_pretty:
-    theme: material
-    highlight: github
-    df_print: kable
+output: html_document
 ---
 
+This script assesses the probability of survival of Zebra and Quagga Mussels in freshwater subwatersheds of BC, using environmental data (dissolved and total calcium, and water temperature from the environmental monitoring database). It is modelled after the 2017 DFO risk assessment of Canada for invasion of these species and Adam Sepulveda et al's more recent methodology. Quagga mussels are assessed first, a temperature correction factor is calculated, and this factor is then applied to the estimated risk factor of Zebra mussels.
+
+# Sections {.tabset}
+
+## Cleaning 
 ```{r setup, include=FALSE}
-library(readxl)
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+# Load libraries
 library(terra)
-library(sf)
 library(tidyverse)
-library(ggrepel)
-library(ggpubr)
-library(rmdformats)
-library(leaflet)
+library(lubridate)
+library(sf)
 library(ggspatial)
 library(ggthemes)
-
-my_opts = read_csv(paste0(here::here(),"/Options.csv"))
-
-knitr::opts_chunk$set(echo = FALSE)
-knitr::opts_chunk$set(warning = FALSE)
-knitr::opts_chunk$set(message = FALSE)
-knitr::opts_knit$set(root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/"))
-
-outlier.multiple = 25
+library(bcdata)
+library(DBI)
+library(RSQLite)
+library(tidyhydat)
 ```
 
-This R Markdown document explores the datasets we plan to use to inform our assessment of ZQM invasion risk for waterbodies in BC.
-  
-```{r import_waterbody_data_and_filtering}
-# Inspections joined to water bodies.
+```{r read_and_set_options}
+my_opts = read_csv(paste0(here::here(),"/Options.csv")) %>% 
+  as.data.frame()
 
-waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+my.year = my_opts$year
 
-#Remove average.angler.days
-waterb$average.angler.days = NULL
-waterb$WB.access = NULL
-```
+temp_limit = my_opts$zqm_risk_temp_limit
+climate_model = my_opts$zqm_risk_climate_model
 
-```{r ensure_water_temp_vars_are_factors}
-waterb = waterb |> 
-  dplyr::mutate(dplyr::across(dplyr::starts_with("water_"), \(x) factor(x, levels = c("No Risk","Low Risk","Moderate Risk","High Risk"))))
-```
+#Do we want to make monitoring location and water body level calcium shapefiles?
+#interim_shapefile_output = F #F if no, T if yes.
 
-## Filter Tracking
-When cleaning the inspection data, I removed records that were headed to the ocean or dry storage. Some inspection records also did not match to any waterbody. 
+setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+mywd = getwd()
 
-```{r inspection_filter_trackers}
-read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/Inspection_filter_tracker_with_delta.xlsx")) %>% as_tibble(.)
-```
-
-And it is important to note the number of waterbodies included in this analysis, as well as the number of waterbodies for which we have watercraft inspection data.
-
-```{r filter_steps}
-read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/waterbody_filtering_steps.xlsx")) %>% 
-  as_tibble(.)
-```
-
-```{r data_exploration_functions}
-
-bc = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/bc_shapefile.shp"))
-
-options(scipen = 999)
-
-exploration_big10 = function(x){
-  dat = waterb[!is.na(waterb[[x]]),] 
-  
-  dat %>% 
-    ungroup() %>% 
-    st_drop_geometry() %>% 
-    dplyr::arrange(desc(x)) %>% 
-    slice(1:10) %>% 
-    mutate(WaterbodyName = coalesce(GNIS_NA, as.character(WATERBO))) %>% 
-    summarise(Top10 = str_c(WaterbodyName,collapse = ", "))
+#Create organizational folders in your working directory, if they don't exist.
+#data...
+if(!dir.exists(paste0(getwd(),"/data/"))) {
+  dir.create(paste0(getwd(),"/data/"))
 }
 
-exploration_battery = function(x){
-  
-  dat = waterb %>% ungroup() %>% 
-    filter(!is.na(.[[x]])) %>% 
-    filter(.[[x]] > 0)
-  
-  #Find outliers.
-  outliers = dat %>% 
-    mutate(mean_value = mean(.[[x]],na.rm=T)) %>% 
-    filter(.[[x]] > mean_value*outlier.multiple)
-  
-  #Grab the name of the variable of interest.
-  data.name = x
-  
-  #Make a simple histogram.
-  p1 = ggplot(dat) + 
-    geom_histogram(aes(.data[[x]]))
+#shapefiles...
+data.path = paste0(getwd(),"/data/")
 
-  #Make a boxplot with violin plot overlay that highlights the outlier points with labels.
-  p2 = ggplot() + 
-    geom_boxplot(data=dat,aes(y=.data[[x]], x = data.name)) + 
-    geom_violin(data=dat,aes(y=.data[[x]], x = data.name), alpha=0.6) +
-    labs(x = "",y=data.name) +
-    {if(length(outliers$WATERSH) > 0)geom_point(data = outliers, aes(y=.data[[x]], x = data.name), col = "red")}+ 
-    {if(length(outliers$WATERSH) > 0)geom_label_repel(data = outliers, aes(y=.data[[x]], x = data.name,label=coalesce(.data$GNIS_NA,as.character(.data$WATERBO))),
-                     force = 100, max.overlaps = 20)}
- 
-  # Give an idea of the spatial coverage we have in the province.
-  if(x != "PopPressure") {
-    # browser()
-  p3 = ggplot() + 
-    geom_sf(data = bc, fill = "antiquewhite", col = "transparent") +
-    geom_sf(data = dat, aes(col = .data[[x]], fill = .data[[x]])) + 
-    scale_fill_gradient(low = "green", high = "red") +
-    scale_color_gradient(low = "green", high = "red") +
-    guides(col = "none") +
-    # labs(fill = stringr::str_replace_all(.data[[x]],"_","\n"),
-    #      col = stringr::str_replace_all(.data[[x]],"_","\n")) +
-    ggtitle("Data coverage across the province",
-            subtitle = paste0("variable: ",x)) + 
-    ggthemes::theme_map()
-  }
-  if(x == "PopPressure") {
-    p3 = ggplot() + 
-      geom_sf(data = bc, fill = "darkgreen")
-  }
-  
-  return(ggarrange(p3,ggarrange(p1,p2,nrow=2),ncol=2))
+# if(!dir.exists(paste0(data.path,"shapefiles"))) {
+#   dir.create(paste0(data.path,"shapefiles"))
+# }
+
+#output...
+if(!dir.exists(paste0(getwd(),"/output/"))) {
+  dir.create(paste0(getwd(),"/output/"))
+}
+```
+
+```{r load_in_shapefiles}
+# BC shapefile
+bc_shp = bcmaps::bc_bound() %>% 
+  st_transform(crs = 4326) |> 
+  dplyr::summarise()
+
+model <- "MRI-ESM2-0"
+scenario <- my_opts$zqm_risk_climate_model  # "ssp245" or "ssp370"
+period <- "2021-2040"
+var <- "bio"
+res <- "2.5m"
+
+file_prefix <- sprintf("wc2.1_%s_%s_%s_%s", res, var, model, scenario, period)
+bio10_filename <- paste0(file_prefix, "_10.tif")
+bio10_filepath <- file.path(data.path, bio10_filename)
+
+
+# WorldClim future temperature raster data. 
+if(my_opts$zqm_risk_climate_model == "ssp245"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+} else if(my_opts$zqm_risk_climate_model == "ssp370"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
 }
 
+# Query from EMS!
+ems_path = paste0(my_opts$base_dir, "../EMS/output/EMS.sqlite")
+conn = dbConnect(SQLite(), ems_path)
+df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
+# ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
+DBI::dbDisconnect(conn)
 
-exploration_battery_categorical = function(x){
+#Get rid of columns 29 to 60, which we do not need.
+df = df[,c(1:28)]
+
+```
+
+```{r combine_data}
+df = df |> 
+  dplyr::select(EMS_ID, MONITORING_LOCATION,LOCATION_TYPE,COLLECTION_START,COLLECTION_END,SAMPLING_AGENCY,COLLECTION_METHOD,PARAMETER,ANALYTICAL_METHOD,RESULT,UNIT,LONGITUDE,LATITUDE)
+
+# Ensure we dont' have points with missing locations or sampling dates.
+df = df |> 
+  dplyr::filter(!is.na(LATITUDE),
+                !is.na(LONGITUDE)) |> 
+  dplyr::filter(!(is.na(COLLECTION_START) & is.na(COLLECTION_END)))
+
+# Clean up date columns!
+df = df |> 
+  dplyr::mutate(COLLECTION_START = lubridate::ymd_hms(COLLECTION_START),
+                COLLECTION_END = lubridate::ymd_hms(COLLECTION_END))
+
+hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data through time?
+```
+
+```{r read_in_wb_and_subw_shapefiles}
+#Read in the water body shapefiles
+waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+# Read in subwatershed (N = 246) shapefile
+watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
+```
+
+```{r save_snapshot_of_calcium_averaged_at_the_waterbody_scale}
+# We use these waterbody-level mean calcium values to inform 
+# decisions of which waterbodies to include or not include on the final
+# waterbody list for substrate / plankton tow sampling
+calcium_match_to_wbs = df |>
+  dplyr::filter(PARAMETER != 'pH') |>
+  dplyr::filter(RESULT < 300) |> 
+  dplyr::filter(!is.na(LATITUDE)) |> 
+  st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+           crs = 4326) |> 
+  sf::st_transform(crs = 3005) |> 
+  st_join(waterbodies) |> 
+  dplyr::filter(!is.na(WATERSH)) |> 
+  dplyr::rename(WATERSHED_ = WATERSH)
+
+calcium_match_to_wbs = calcium_match_to_wbs |> 
+  sf::st_drop_geometry() |> 
+  dplyr::mutate(RESULT_100_f = ifelse(RESULT >= 100, NA, RESULT)) |> 
+  dplyr::mutate(RESULT_100_f_include = !is.na(RESULT_100_f)) |> 
+  dplyr::group_by(WATERSHED_,GNIS_NA) |> 
+  dplyr::summarise(mean_calcium_wb = mean(RESULT, na.rm=T),
+                   min_calcium_wb = min(RESULT, na.rm=T),
+                   max_calcium_wb = max(RESULT,na.rm=T),
+                   standard_deviation_calcium_wb = sd(RESULT, na.rm=T),
+                   number_calcium_data_points_wb = n(),
+                   mean_calcium_100_f_wb = mean(RESULT_100_f, na.rm=T),
+                   min_calcium_100_f_wb = min(RESULT_100_f, na.rm=T),
+                   max_calcium_100_f_wb = max(RESULT_100_f,na.rm=T),
+                   standard_deviation_calcium_100_f_wb = sd(RESULT_100_f, na.rm=T),
+                   number_calcium_data_points_100_f_wb = sum(RESULT_100_f_include)) |> 
+  dplyr::ungroup()
+
+write.csv(calcium_match_to_wbs, "output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_waterbody_scale.csv", row.names = F)
+```
+
+```{r filter_outliers_from_calcium_and_pH}
+
+df_f = df |> 
+  dplyr::filter(!is.na(RESULT)) |> 
+  mutate(retain_point = case_when(
+    PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+    PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 300) ~ F,
+    stringr::str_detect(PARAMETER,"Calcium") & UNIT != "mg/L" ~ F,
+    T ~ T
+  )) |> 
+  dplyr::filter(retain_point)
+
+# # Temporary addition - calcium filtered at 100 mg/L; stricter than 300 mg/L.
+# df_100 = df |> 
+#   dplyr::filter(!is.na(RESULT)) |> 
+#   mutate(retain_point = case_when(
+#     PARAMETER == 'pH' & (RESULT <= 0 | RESULT > 16.5) ~ F,
+#     PARAMETER != 'pH' & (RESULT <= 0 | RESULT > 100) ~ F,
+#     stringr::str_detect(PARAMETER,"Calcium") & UNIT != "mg/L" ~ F,
+#     stringr::str_detect(PARAMETER,"Calcium") & RESULT >= 100 ~ F,
+#     T ~ T
+#   )) |> 
+#   dplyr::filter(retain_point)
+
+```
+
+Note: pH values below 0 and above 16.5 were removed. Calcium values equal to or above 100 mg/L were removed. Calcium values reported in units other than mg/L (a small fraction of the total records, in any case) were removed.
+
+```{r match_EMS_records_to_wb}
+# ---------------
+# We have a decision to make here: do we filter EMS data by whether or not it matches to a waterbody (either by name or spatially)?
+
+# This code has been modified to allow for testing of calcium filtering cut-off: 300 or 100 mg/L.
+
+  # Calculate number of data points for pH and calcium
+  total_pH = nrow(df_f |> dplyr::filter(PARAMETER == 'pH'))
+  total_calc = nrow(df_f |> dplyr::filter(PARAMETER != 'pH'))
   
-  dat = waterb[!is.na(waterb[[x]]),]
+  # Simple spatial match to waterbodies
+  df_f_match_to_wbs = df_f |>
+    dplyr::filter(!is.na(LATITUDE)) |> 
+    st_as_sf(coords = c('LONGITUDE','LATITUDE'),
+             crs = 4326) |> 
+    sf::st_transform(crs = 3005) |> 
+    st_join(waterbodies) |>
+    dplyr::filter(!is.na(WATERSH))
   
-  p1 = ggplot() + 
-  geom_bar(data=dat, aes(.data[[x]]))
-
-  # Give an idea of the spatial coverage we have in the province.
-  p2 = ggplot() + 
-    geom_sf(data = bc, fill = "antiquewhite", col = "transparent") +
-    geom_sf(data = dat, aes(col = .data[[x]])) + 
-    ggtitle("Data coverage across the province",
-            subtitle = paste0("variable: ",x))
+  pH = df_f_match_to_wbs |> filter(PARAMETER == 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
+  calc = df_f_match_to_wbs |> filter(PARAMETER != 'pH') |> dplyr::rename(WATERSHED_ = WATERSH)
   
-  return(list(p1,p2))
-}
+  # Summarized number of data points for pH and calcium by subwatershed.
+  pH_by_subw = pH |>
+    sf::st_drop_geometry() |>
+    dplyr::count(WATERSHED_)
 
-my.summary = function(x){
-  my.sum = as.data.frame(as.matrix(unlist(summary(x))))
+  calc_by_subw = calc |>
+    sf::st_drop_geometry() |>
+    dplyr::count(WATERSHED_)
+```
 
-  my.sum = my.sum %>% 
-    mutate(variable = row.names(my.sum)) %>% 
-    filter(variable %in% c("Min.","Median","Mean","Max.")) %>% 
-    pivot_wider(names_from = variable, values_from = V1) %>% 
-    mutate(Data_Coverage = paste0(round(100*(length(x[!is.na(x)])/length(x)), 3), "%"))
+## Number of Data Points
+
+```{r visualize_number_pH_data_points_per_subw}
+# Add summaries to subwatershed; plot.
+watershed |> 
+  dplyr::left_join(
+    pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'pH readings matched spatially to waterbody and then to subwatershed'
+       )
+
+ggsave(filename = 'output/pH_EMS_records_spatially_matched_to_waterbodies.png',
+       width = 8,
+       height = 8)
+
+```
+
+```{r visualize_number_calcium_data_points_per_subw}
+watershed |> 
+  dplyr::left_join(
+    calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = log(n))) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched a waterbody'),
+       fill = 'Natural log\nof number of \ndata points',
+       caption = 'Calcium readings matched spatially to waterbody and then to subwatershed'
+       )
+
+ggsave(filename = 'output/calc_EMS_records_spatially_matched_to_waterbodies.png',
+       width = 8, 
+       height = 8)
+```
+
+## Mean Values 
+
+```{r mean_pH_value_by_subw}
+mean_pH_by_subw = pH |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_pH = mean(RESULT, na.rm=T),
+                   standard_deviation_pH = sd(RESULT, na.rm=T),
+                   number_pH_data_points = n())
+
+watershed |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_pH)) + 
+  labs(title = 'pH Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_pH_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(pH)/total_pH),1),'% of ~',round(total_pH/1000,0),'K points matched some watershed'),
+       fill = 'Mean pH Value',
+       caption = 'pH readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       )
+
+ggsave(filename = 'output/mean_pH_by_subwatershed_group.png',
+       width = 8, height = 8)
+```
+
+```{r mean_calcium_value_by_subw}
+
+# Brief aside! If we filter calcium for <300 and < 100 mg/L, separately, then match to 
+# watershed, write that out as csv.
+calc_values_various_filters_by_subw = calcium_match_to_wbs |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(dplyr::across(mean_calcium_wb:max_calcium_wb, \(x) mean(x,na.rm=T)),
+                   dplyr::across(mean_calcium_100_f_wb:max_calcium_100_f_wb, \(x) mean(x,na.rm=T))) |> 
+  dplyr::left_join(
+    watershed |> sf::st_drop_geometry() |> dplyr::select(WATERSHED_, WATERSHE_1)
+  )
+names(calc_values_various_filters_by_subw) = str_replace_all(names(calc_values_various_filters_by_subw),"_wb","_ws")
+
+
+write.csv(calc_values_various_filters_by_subw, paste0(here::here(),"/01_DataCleaning/output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_watershed_scale.csv"),row.names = F)
+
+# Back to our regularly scheduled programming!
+mean_calc_by_subw = calc |> 
+  sf::st_drop_geometry() |> 
+  dplyr::group_by(WATERSHED_) |> 
+  dplyr::summarise(mean_calcium = mean(RESULT, na.rm=T),
+                   standard_deviation_calcium = sd(RESULT, na.rm=T),
+                   number_calcium_data_points = n())
+
+
+
+watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = mean_calcium)) + 
+  labs(title = 'Calcium (dissolved and total) Readings from EMS across BC',
+       subtitle = paste0(nrow(mean_calc_by_subw),' of 246 subwatersheds have data; ',round(100*(nrow(calc)/total_calc),1),'% of ~',round(total_calc/1000,0),'K points matched some watershed'),
+       fill = 'Mean Calcium Value',
+       caption = 'calcium readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
+       ) + 
+  scale_fill_fermenter(palette = 'RdYlGn')
+
+ggsave(filename = 'output/mean_calcium_by_subwatershed_group.png',
+       width = 8, height = 8)
+```
+
+## pH Suitability 
+
+```{r pH_in_ideal_ZQ_conditions}
+pH_within_ideal_ZQ_range = mean_pH_by_subw |> 
+  dplyr::mutate(ideal_conditions = mean_pH >= 7 & mean_pH <= 9.6)
+
+watershed |> 
+  dplyr::left_join(
+    pH_within_ideal_ZQ_range
+  ) |> 
+  ggplot() +
+  geom_sf(aes(fill = ideal_conditions)) + 
+  labs(fill = 'Mean pH within \nideal ZQ Mussel \nrange(7 to 9.6)')
+
+ggsave(filename = 'output/mean_pH_within_ideal_ZQ_Mussels_range_by_subwatershed.png',
+       width = 8, height = 8)
+
+openxlsx::write.xlsx(pH_within_ideal_ZQ_range, 'output/mean_pH_waterbody_matched_within_ideal_ZQ_Mussels_range_by_subwatershed.xlsx')
+
+```
+
+```{r get_temperatures_per_subw}
+#Grab the temperature data from the worldclim predicted temperature raster we read in at the top of the script.
+watershed = watershed %>% 
+  mutate(temp = terra::extract(tempr, vect(watershed %>% st_transform(crs = 4326)), fun = mean, na.rm=T)[,2])
+
+watershed = watershed %>%  
+  mutate(temp_group = case_when(
+    temp < temp_limit ~ paste0("< ", temp_limit),
+    temp >=  temp_limit ~ paste0(">= ", temp_limit),
+    T ~ "NA"
+  ))
+```
+
+## Temperature Correction Map
+```{r temp_correction_map}
+my_plot = ggplot() +
+  geom_sf(data = watershed, col = "black", aes(fill = temp_group)) +
+  scale_fill_manual(values = c("< 10" = "red",
+                               "> 10" = "transparent")) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_map() +
+  labs(fill = "Air Temperature (C)")
+
+my_plot
+
+ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+```
+
+```{r join_calc_and_pH_to_watershed}
+watershed = watershed |> 
+  dplyr::left_join(
+    mean_calc_by_subw
+  ) |> 
+  dplyr::left_join(
+    mean_pH_by_subw
+  )
+```
+
+```{r bin_calcium_values}
+
+calc_bin_levels = data.frame(
+  levels = c('No Risk (< 8 mg/L)',
+             'Low (8 to <15 mg/L)',
+             'Moderate (15 to <30 mg/L)',
+             'High (30+ mg/L)',
+             'No Data'),
+  number = c(0,1,2,3, 99)
+)
   
-  return(my.sum)
-}
-
-
+watershed = watershed |> 
+  dplyr::mutate(calc_bin = case_when(
+    mean_calcium < 8 ~ 'No Risk (< 8 mg/L)',
+    mean_calcium >= 8 & mean_calcium < 15 ~ 'Low (8 to <15 mg/L)',
+    mean_calcium >= 15 & mean_calcium < 30 ~ 'Moderate (15 to <30 mg/L)',
+    mean_calcium >= 30 ~ 'High (30+ mg/L)',
+    is.na(mean_calcium) ~ "No Data"
+  )) |> 
+  mutate(calc_bin = factor(calc_bin, levels = calc_bin_levels$levels)) |> 
+  mutate(calc_bin_n = case_when(
+    calc_bin == 'No Risk (< 8 mg/L)' ~ 0,
+    calc_bin == 'Low (8 to <15 mg/L)' ~ 1,
+    calc_bin == 'Moderate (15 to <30 mg/L)' ~ 2,
+    calc_bin == 'High (30+ mg/L)' ~ 3,
+    calc_bin == 'No Data' ~ 99 
+  ))
 ```
 
-# Data Exploration 
+# Results {.tabset}
 
-### Total Inspections
-```{r}
-my.summary(waterb$TotalInspections)
+## Mean Calcium Bins
 
-exploration_big10(x = "TotalInspections")
-
-exploration_battery(x = "TotalInspections")
-```
-
-### Sum of Days Fished
-
-```{r angling_days}
-my.summary(waterb$days_fished_2023_survey)
-
-exploration_big10(x = "days_fished_2023_survey")
-
-exploration_battery(x = "days_fished_2023_survey")
-```
-
-### Campgrounds
-
-These data are a combination of Sam Fischer _et al._'s data and angler survey data.
-
-```{r campgrounds}
-my.summary(waterb$Campgrounds)
-
-exploration_big10(x = "Campgrounds")
-
-exploration_battery(x = "Campgrounds")
-```
-
-### Facilities
-
-"Facilities" refers to the number of touristic facilities (public toilets, tourist information, viewpoints, parks, attractions, and picnic sites) within 500 meters of the water body. These data come from the PhD work of Sam Fischer _et al._.
-
-```{r facilites}
-my.summary(waterb$Facilities)
-
-exploration_big10(x = "Facilities")
-
-exploration_battery(x = "Facilities")
-```
-
-### Marinas
-
-These data are a combination of Sam Fischer _et al._'s data and angler survey data.
-
-```{r marinas}
-my.summary(waterb$Marinas)
-
-exploration_big10(x = "Marinas")
-
-exploration_battery(x = "Marinas")
-```
-
-### Dams
-
-We have data from BC Hydro and Fortis on the location and capacity (in megawatts) of dams throughout British Columbia. To find the most likely spatial match for each dam, I used only large water bodies (>= 3,000,000 square meters). Without this filter, the nearest water body tended to be very small ponds right beside the location of the dam.
-
-### SummedDamCapacity
-```{r summed_dam_capacity}
-my.summary(waterb$SummedDamCapacity)
-
-waterb = waterb %>% 
-  mutate(NumberDams = as.numeric(NumberDams),
-         SummedDamCapacity = as.numeric(SummedDamCapacity))
-
-exploration_big10(x = "SummedDamCapacity")
-
-exploration_battery(x = "SummedDamCapacity")
-
-dams_sf = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/dams_summarised_sf.shp")) %>% st_transform(crs = 4326)
-
-waterb_with_dams = waterb %>% 
-  filter(NumberDams > 0 )%>% 
-  st_transform(crs = 4326)
-
-dams_sf = dams_sf %>% 
-  mutate(DC_bin = as.numeric(cut(DmCpcty, breaks = 
-                          
-                           BAMMtools::getJenksBreaks(dams_sf$DmCpcty, k = 4)))) %>% 
-  mutate(DC_bin = replace_na(DC_bin, 1))
-
-icon.blue <- makeAwesomeIcon(markerColor = 'blue', iconColor = 'blue')
-icon.red <- makeAwesomeIcon(markerColor = 'red', iconColor = 'red')
-icon.green <- makeAwesomeIcon(markerColor = 'green', iconColor = 'green')
-
-leaflet() %>%
-  addTiles() %>%
-  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==1,], popup = ~Name, label = ~DmCpcty, icon = icon.green) %>%
-  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==2,], popup = ~Name, label = ~DmCpcty, icon = icon.blue) %>%
-  addAwesomeMarkers(data = dams_sf[dams_sf$DC_bin==3,], popup = ~Name, label = ~DmCpcty, icon = icon.red) %>%
-  addPolygons(data = waterb_with_dams, color = "red", fillColor = "red", label = ~GNIS_NA)
-
-```
-
-### Number Dams
-```{r summed_dam_number}
-my.summary(waterb$NumberDams)
-
-exploration_big10(x = "NumberDams")
-
-exploration_battery(x = "NumberDams")
-
-``` 
-
-### Boat Launches
-
-We add together boat launch data from the FFSBC (Freshwatery Fisheries Society of British Columbia), 2010 angler survey data, and the recreation layer in the BCG Warehouse. Even still, we are missing boat launch data for many of the largest, most visited lakes...
-
-```{r boat_launches}
-waterb$BoatLaunches = waterb$Boat_Launches_N + waterb$BoatLaunchRecCounter
-
-my.summary(waterb$BoatLaunches)
-
-#Top 20 lakes in terms of size - how do their boat launches look?
-waterb %>% 
-  mutate(Area = as.numeric(st_area(.))) %>% 
-  arrange(desc(Area)) %>% 
-  slice(1:20) %>% 
-  st_drop_geometry() %>% 
-  select(GNIS_NA, WATERBO, Boat_Launches_N)
-
-exploration_big10(x = "BoatLaunches")
-
-exploration_battery(x = "BoatLaunches")
-```
-
-### Dissolved Calcium
-```{r}
-calc = read_sf(paste0(my_opts$base_dir,'01_DataCleaning/output/ZQM_RiskAssessment_ssp370_10C_threshold_pH_Adjustment_Subwatershed.gpkg'))
-
-calc = calc |> 
-  dplyr::mutate(calc_bin = factor(calc_bin,
-                                  levels = c(
-                                    "No Risk (< 8 mg/L)",
-                                    "Low (8 to <15 mg/L)",
-                                    "Moderate (15 to <30 mg/L)",
-                                    "High (30+ mg/L)",
-                                    "No Data"
-                                  )))
-
-ggplot() + 
-  geom_sf(data = calc, fill = 'grey') + 
-  geom_sf(data = calc, aes(fill = calc_bin)) + 
+```{r mean_calcium_binned_by_subwatershed}
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
                                "No Risk (< 8 mg/L)" = "green",
                                "Low (8 to <15 mg/L)" = "yellow",
@@ -318,287 +430,112 @@ ggplot() +
   annotation_scale(location = "br", width_hint = 0.5) +
   theme_map() + 
   labs(fill = 'Binned Calcium',
-       title = 'Binned Calcium at the Subwatershed scale',
-       subtitle = paste0(nrow(calc[calc$calc_bin != 'No Data',]), ' of 246 subwatersheds with data'))
+       title = 'Binned Calcium at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 subwatersheds with data'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_by_subwatershed.png',
+       width = 8, height = 8)
+
+write_sf(watershed,
+         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 ```
 
-### Water Temperature
+## Mean Calcium Bins, pH Adjusted
 
-```{r}
-waterb[!is.na(waterb$TotalInspections),] |> sf::st_drop_geometry() |> dplyr::count(water_temp_interp)
+```{r mean_calcium_binned_and_reduced_by_pH_by_subwatershed}
 
-waterb_for_plot = waterb |> 
-  dplyr::filter(!is.na(TotalInspections),
-                !GNIS_NA %in% c("Dry Storage","Pacific Ocean"))
+# Identify watersheds with non-ideal pH
+non_ideal_pH_subw = pH_within_ideal_ZQ_range |>
+  dplyr::filter(!ideal_conditions) |>
+  pull(WATERSHED_)
 
-ggplot() + 
-  geom_sf(data = bc) + 
-  geom_sf(data = waterb_for_plot, fill = 'grey') + 
-  geom_sf(data = waterb_for_plot, aes(fill = water_temp_interp, col = water_temp_interp)) + 
+watershed = watershed |>
+  mutate(calc_bin_n_pH_adj = case_when(
+    WATERSHED_ %in% non_ideal_pH_subw & calc_bin_n != 0 & calc_bin_n != 99 ~ calc_bin_n - 1,
+    T ~ calc_bin_n
+  ))
+
+watershed = watershed |>
+  left_join(calc_bin_levels |>
+              rename(calc_bin_n_pH_adj = number)) |>
+  mutate(calc_bin_pH_adj = levels) |>
+  dplyr::select(-levels) |>
+  mutate(calc_bin_pH_adj = factor(calc_bin_pH_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_adj), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  scale_colour_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() + 
-  labs(fill = 'Binned Water Temperature',
-       color = 'Binned Water Temperature',
-       title = 'Binned Water Temperature at the Subwatershed scale')
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "No Risk")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
 ```
 
-### Water Chlorophyll
+## Mean Calcium Bins, pH and Temperature Adjusted
 
-```{r}
-waterb[!is.na(waterb$TotalInspections),] |> sf::st_drop_geometry() |> dplyr::count(water_chlor_interp)
+```{r mean_calcium_binned_and_reduced_by_pH_reduced_by_low_temps_by_subwatershed}
 
-waterb_for_plot = waterb |> 
-  dplyr::filter(!is.na(TotalInspections),
-                !GNIS_NA %in% c("Dry Storage","Pacific Ocean"))
+# Identify watersheds with non-ideal pH
+low_temp_watersheds = watershed |>
+  dplyr::filter(temp_group == '< 10') |>
+  pull(WATERSHED_)
 
-ggplot() + 
-  geom_sf(data = bc) + 
-  geom_sf(data = waterb_for_plot, fill = 'grey') + 
-  geom_sf(data = waterb_for_plot, aes(fill = water_chlor_interp, col = water_chlor_interp)) + 
+watershed = watershed |>
+    mutate(calc_bin_n_pH_temp_adj = case_when(
+        WATERSHED_ %in% low_temp_watersheds & calc_bin_n_pH_adj != 0 & calc_bin_n_pH_adj != 99 ~ calc_bin_n_pH_adj - 1,
+        T ~ calc_bin_n_pH_adj
+    ))
+
+watershed = watershed |>
+  left_join(calc_bin_levels |>
+              rename(calc_bin_n_pH_temp_adj = number)) |>
+  mutate(calc_bin_pH_temp_adj = levels) |>
+  dplyr::select(-levels) |>
+  mutate(calc_bin_pH_temp_adj = factor(calc_bin_pH_temp_adj, levels = calc_bin_levels$levels))
+
+ggplot(watershed) +
+  geom_sf(aes(fill = calc_bin_pH_temp_adj), col = "black") +
   scale_fill_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  scale_colour_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
+                               "No Risk (< 8 mg/L)" = "green",
+                               "Low (8 to <15 mg/L)" = "yellow",
+                               "Moderate (15 to <30 mg/L)" = "orange",
+                               "High (30+ mg/L)" = "red")) +
   annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() + 
-  labs(fill = 'Binned Water \nChlorophyll',
-       color = 'Binned Water \nChlorophyll',
-       title = 'Binned Water Chlorophyll at the Subwatershed scale')
+  theme_map() +
+  labs(fill = 'Binned Calcium',
+       title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
+       subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) or Temp (<10C) reduced risk by one level (if not already "No Risk")'))
+
+ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
+       width = 8, height = 8)
 ```
 
-### Water Dissolved Oxygen
+```{r write_sf_to_disk}
+write_sf(watershed,
+         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 
-```{r}
-waterb[!is.na(waterb$TotalInspections),] |> sf::st_drop_geometry() |> dplyr::count(water_dis_ox_interp)
-
-waterb_for_plot = waterb |> 
-  dplyr::filter(!is.na(TotalInspections),
-                !GNIS_NA %in% c("Dry Storage","Pacific Ocean"))
-
-ggplot() + 
-  geom_sf(data = bc) + 
-  geom_sf(data = waterb_for_plot, fill = 'grey') + 
-  geom_sf(data = waterb_for_plot, aes(fill = water_dis_ox_interp, col = water_dis_ox_interp)) + 
-  scale_fill_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  scale_colour_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() + 
-  labs(fill = 'Binned Water \nDissolved Oxygen',
-       color = 'Binned Water \nDissolved Oxygen',
-       title = 'Binned Water Dissolved Oxygen at the Subwatershed scale')
+# ### Produce excel files and shapefiles
+# watdat = watdat %>%
+#   mutate(Quagga_Risk = "NA") %>%
+#   mutate(Quagga_Risk = replace(Quagga_Risk, bin == 1, "Minimal (less than 8 mg/L)"),
+#          Quagga_Risk = replace(Quagga_Risk, bin == 2, "Moderate (between 8 and 20 mg/L)"),
+#          Quagga_Risk = replace(Quagga_Risk, bin == 3, "High (greater than 20 mg/L)"),
+#          Zebra_Risk = "NA",
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 1, "Minimal (less than 8 mg/L)"),
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 2, "Moderate (between 8 and 20 mg/L)"),
+#          Zebra_Risk = replace(Zebra_Risk, bin_bumped == 3, "High (greater than 20 mg/L)"))
+# 
+# write_sf(watdat,
+#          paste0(mywd,"/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+#                 temp_limit,"C_threshold_Subwatershed.gpkg"))
 ```
-
-### Water Total Phosphorous
-
-```{r}
-waterb[!is.na(waterb$TotalInspections),] |> sf::st_drop_geometry() |> dplyr::count(water_tot_phos_interp)
-
-waterb_for_plot = waterb |> 
-  dplyr::filter(!is.na(TotalInspections),
-                !GNIS_NA %in% c("Dry Storage","Pacific Ocean"))
-
-ggplot() + 
-  geom_sf(data = bc) + 
-  geom_sf(data = waterb_for_plot, fill = 'grey') + 
-  geom_sf(data = waterb_for_plot, aes(fill = water_tot_phos_interp, col = water_tot_phos_interp)) + 
-  scale_fill_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  scale_colour_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() + 
-  labs(fill = 'Binned Water \nPhosphorous',
-       color = 'Binned Water \nPhosphorous',
-       title = 'Binned Water Phosphorous at the Subwatershed scale')
-```
-
-### Water pH
-
-```{r}
-waterb[!is.na(waterb$TotalInspections),] |> sf::st_drop_geometry() |> dplyr::count(water_pH)
-
-waterb_for_plot = waterb |> 
-  dplyr::filter(!is.na(TotalInspections),
-                !GNIS_NA %in% c("Dry Storage","Pacific Ocean"))
-
-ggplot() + 
-  geom_sf(data = bc) + 
-  geom_sf(data = waterb_for_plot, fill = 'grey') + 
-  geom_sf(data = waterb_for_plot, aes(fill = water_pH, col = water_pH)) + 
-  scale_fill_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  scale_colour_manual(values = c("No Data" = "grey",
-                               "No Risk" = "green",
-                               "Low Risk" = "yellow",
-                               "Moderate Risk" = "orange",
-                               "High Risk" = "red")) +
-  annotation_scale(location = "br", width_hint = 0.5) +
-  theme_map() + 
-  labs(fill = 'Binned Water pH',
-       color = 'Binned Water pH',
-       title = 'Binned Water pH at the Subwatershed scale')
-```
-
-### Population Density
-
-Population density is calculated at the subwatershed scale.
-
-```{r}
-my.summary(waterb$population_density)
-
-exploration_big10(x = "population_density")
-
-exploration_battery(x = "population_density")
-```
-
-### Watercraft Operation Restrictions
-
-These data come from Transport Canada and indicate lakes in which one may not operate any vessel, may not operate power vessels, or may not operate power/electric vessels.
-
-```{r waterbody_restrictions}
-waterb %>% 
-  st_drop_geometry() %>% 
-  group_by(OperRes) %>% 
-  summarise(Number = n()) %>% 
-  pivot_wider(names_from = OperRes, values_from = Number) %>% 
-  mutate(Data_Coverage = paste0(round(100*(nrow(waterb)-`NA`)/nrow(waterb), 3), "%")) %>% 
-  select(-`NA`)
-
-results = exploration_battery_categorical(x = "OperRes")
-
-results[[1]]
-
-results[[2]]
-```
-
-### DFO Predicted Suitability for Zebra and Quagga Mussels (Ca2+ model) {.tabset}
-
-These interpolated maps utilized EMS data for BC (2000-2020), filtered away any negative or 0 values for calcium, applied a spatial filter to remove calcium points outside of waterbodies, and removed calcium values of type 'Industrial Effluent.' The predicted value is the establishment potential based on (dissolved) calcium. There are also MaxEnt-derived models that give predictions of Zebra and Quagga mussel establishment potential (based on the following predictor variables: Ca2+, Max Temp in warmest month, min Temp in coldest month, min Temp in wettest quarter, precipitation in wettest month, precip seasonality, precip in coldest quarter, and pH, the last of which was by far the least significant predictor!) but those models' predictions perhaps under-predict the suitability of habitat across North America, so they have not been utilized or visualized here.
-
-```{r}
-# DFO interpolated calcium TIF
-dfo_calc_qm = terra::rast(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_QM_Calcium_Establishment_Potential.tif'))
-dfo_calc_zm = terra::rast(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_Calcium_Establishment_Potential.tif'))
-
-# Clip to BC.
-bc_vect = terra::project(terra::vect(dplyr::summarise(bc)), terra::crs(dfo_calc_qm))
-
-dfo_calc_qm = terra::mask(terra::crop(dfo_calc_qm, bc_vect), bc_vect)
-dfo_calc_zm = terra::mask(terra::crop(dfo_calc_zm, bc_vect), bc_vect)
-
-# Take larger predicted value for any given raster cell.
-dfo_calc = max(dfo_calc_qm, dfo_calc_zm,na.rm=T)
-
-terra::writeRaster(dfo_calc, paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZQM_Calcium_Establishment_Potential.tif'), overwrite = T)
-
-# DFO subwatershed values.
-dfo_qm_subdr = sf::read_sf(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_QM_Shapefiles/QM_Ecological_Risk_Sub-Drainage.shp'))
-dfo_zm_subdr = sf::read_sf(paste0(my_opts$base_dir,'03_PrioritizationModel/data/DFO_2024_ZM_QM_Shapefiles/ZM_Ecological_Risk_Sub-Drainage.shp'))
-
-dfo_qm_subdr = sf::st_intersection(dfo_qm_subdr, sf::st_transform(dplyr::summarise(bc), terra::crs(dfo_qm_subdr)))
-dfo_zm_subdr = sf::st_intersection(dfo_zm_subdr, sf::st_transform(dplyr::summarise(bc), terra::crs(dfo_zm_subdr)))
-```
-
-#### Zebra Mussel Establishment Potential (Ca2+)
-```{r}
-ggplot() + 
-  tidyterra::geom_spatraster(data = terra::project(dfo_calc_zm, 'EPSG:3005')) + 
-  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
-  ggthemes::theme_map()
-```
-
-#### Quagga Mussel Establishment Potential (Ca2+)
-
-```{r}
-ggplot() + 
-  tidyterra::geom_spatraster(data = terra::project(dfo_calc_qm, 'EPSG:3005')) + 
-  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
-  ggthemes::theme_map()
-```
-
-#### Combined 
-```{r}
-ggplot() + 
-  tidyterra::geom_spatraster(data = terra::project(dfo_calc, 'EPSG:3005')) + 
-  scale_fill_distiller(palette = 'Spectral', na.value = 'transparent') + 
-  ggthemes::theme_map()
-```
-
-### DFO Predicted Ecological Risk at Sub-Drainage level {.tabset}
-
-#### Zebra Mussel
-```{r}
-ggplot() + geom_sf(data = dfo_zm_subdr |> sf::st_transform(3005), aes(fill = ZMME_Mx_E)) + 
-  scale_fill_manual(values = c("Low" = "lightgreen", "Moderate" = 'gold', "High" = 'darkred')) + 
-  ggthemes::theme_map()
-```
-
-#### Quagga Mussel
-```{r}
-ggplot() + geom_sf(data = dfo_qm_subdr |> sf::st_transform(3005), aes(fill = QMME_Mx_E)) + 
-  scale_fill_manual(values = c("Low" = "lightgreen", "Moderate" = 'gold', "High" = 'darkred')) + 
-  ggthemes::theme_map()
-```
-
-```{r variable_choice_table}
-var_table = waterb %>% 
-  st_drop_geometry() %>% 
-  select(-HR_Non_Motorized_Counter,-HR_Complex_Counter,-HR_Very_Complex_Counter,-HR_Simple_Counter,-LowRisk_Complex_Counter,-LowRisk_Non_Motorized_Counter,-LowRisk_Simple_Counter,-LowRisk_Complex_Counter) %>% 
-  mutate(across(everything(), as.character)) %>% 
-  pivot_longer(cols = -c(WATERBO,WATERSH,GNIS_NA)) %>% 
-  filter(!is.na(value)) %>% 
-  #Find the total number of records for each variable.
-  group_by(name) %>% 
-  mutate(Waterbodies_with_data = paste0(n()," (",round(100*n()/nrow(waterb),2),"%)")) %>% 
-  #Find the number of records for each variable / subwatershed combination.
-  group_by(WATERSH,name) %>% 
-  mutate(Records_at_subwatershed_level = n()) %>% 
-  ungroup() %>% 
-  select(name, Waterbodies_with_data, Records_at_subwatershed_level) %>% 
-  distinct() %>% 
-  #Find the number of unique subwatersheds with values
-  group_by(name,Waterbodies_with_data) %>% 
-  summarise(Subwatersheds_with_data = n()) %>% 
-  rename(Variable = name)
-
-var_table = var_table %>% 
-  arrange(desc(as.numeric(str_extract(Waterbodies_with_data,"[0-9]*(?= \\()"))))
-
-openxlsx::write.xlsx(waterb %>% 
-           st_drop_geometry(), "waterb_with_data_explored.xlsx",
-           overwrite = T)
-```
-
