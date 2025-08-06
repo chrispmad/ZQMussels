@@ -50,54 +50,60 @@ stations.to.change = data.frame(
   new_name = c('Lower Mainland Roving')
 )
 
+# Are there any station names we want to change / correct?
+stations.to.change = data.frame(
+  Station = c('Fraser Valley Roving'),
+  new_name = c('Lower Mainland Roving')
+)
+
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:
 if(my.year == 2022){
-stations.to.include = c("Golden","Dawson Creek","Mt. Robson",
-                        "Osoyoos","Olsen","Penticton Roving",
-                        "Radium","Pacific","Fraser Valley Roving",
-                        "Keremeos")
-
-stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
-                          "Okanagan",
-                          "Penticton Roving - Hwy 33", 
-                          "Penticton Roving - Inspection Event")
+  stations.to.include = c("Golden","Dawson Creek","Mt. Robson",
+                          "Osoyoos","Olsen","Penticton Roving",
+                          "Radium","Pacific","Fraser Valley Roving",
+                          "Keremeos")
+  
+  stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                            "Okanagan",
+                            "Penticton Roving - Hwy 33", 
+                            "Penticton Roving - Inspection Event")
 }
 if(my.year == 2023){
-stations.to.include = c("Golden","Radium","Olsen","Yahk",
-                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
-                        "Keremeos","Dawson Creek","Lower Mainland Roving",
-                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
-stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
-                          "Okanagan",
-                          "Penticton Roving - Hwy 33", 
-                          "Penticton Roving - Inspection Event")
+  stations.to.include = c("Golden","Radium","Olsen","Yahk",
+                          "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+                          "Keremeos","Dawson Creek","Lower Mainland Roving",
+                          "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
+  stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                            "Okanagan",
+                            "Penticton Roving - Hwy 33", 
+                            "Penticton Roving - Inspection Event")
 }
 if(my.year == 2024){
-stations.to.include = c("Golden","Radium","Olsen","Yahk",
-                        "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
-                        "Keremeos","Dawson Creek","Lower Mainland Roving",
-                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving",
-                        "Douglas Crossing")
-stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
-                          "Okanagan",
-                          "Penticton Roving - Hwy 33", 
-                          "Penticton Roving - Inspection Event")
+  stations.to.include = c("Golden","Radium","Olsen","Yahk",
+                          "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
+                          "Keremeos (Hwy 3)","Dawson Creek","Lower Mainland Roving",
+                          "Sumas Border","Cutts (Hwy 93)","Penticton Roving",
+                          "Douglas Crossing")
+  stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
+                            "Okanagan",
+                            "Penticton Roving - Hwy 33", 
+                            "Penticton Roving - Inspection Event")
 }
 permanent.stations = c("Golden","Olsen","Yahk",
-                        "Osoyoos","Mt. Robson",
-                        "Dawson Creek")
+                       "Osoyoos","Mt. Robson",
+                       "Dawson Creek")
 
 roving.stations = c("Penticton Roving","Lower Mainland Roving",
                     "Keremeos (Hwy 3)","Sumas Border","Pacific",
-                    "Cutts (Hwy 93)","Douglas Crossing")
+                    "Cutts (Hwy 93)","Douglas Crossing", "Hwy 97c")
 
-part.time.stations = c("Sumas Border","Pacific","Cutts (Hwy 93)","Radium")
+part.time.stations = c("Sumas Border","Pacific","Cutts (Hwy 93)","Radium","Douglas Crossing")
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
 if(my.year == 2022){
-leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek",
-                                "Mt. Robson","Penticton Roving","Osoyoos","Fraser Valley Roving")
+  leaflet.stations.to.include = c("Golden","Radium","Olsen","Dawson Creek",
+                                  "Mt. Robson","Penticton Roving","Osoyoos","Fraser Valley Roving")
 } 
 if(my.year == 2023){
   leaflet.stations.to.include = c("Golden","Olsen","Dawson Creek","Mt. Robson",
@@ -482,22 +488,27 @@ stations_for_maps = stations |>
 
 # Ugh. Time to make some hand-drawn locations for the labels...
 station_labels = stations_for_maps |> 
+  # Correct Peace Arch to Douglas Crossing
+  dplyr::mutate(map_label = ifelse(map_label == "Peace Arch","Douglas \nCrossing",map_label)) |>
+  # Correct Sumas Border to just "Sumas"
+  dplyr::mutate(map_label = ifelse(map_label == "Sumas Border","Sumas",map_label)) |> 
   sf::st_drop_geometry() |> 
   dplyr::mutate(lat = lat + 0.25) |> 
   dplyr::mutate(lat = case_when(
     map_label == 'Lower Mainland' ~ lat + 0.1,
     map_label == 'Penticton' ~ lat - 0.1,
-    map_label == "Sumas Border" ~ lat - 0.5,
+    map_label == "Sumas" ~ lat - 0.5,
     map_label == "Yahk" ~ lat - 0.5,
-    map_label == "Peace Arch" ~ lat - 0.2,
+    map_label == "Douglas \nCrossing" ~ lat - 0.5,
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
-    map_label == 'Lower Mainland' ~ lon - 1,
-    map_label == 'Penticton' ~ lon + 1.5,
-    map_label == "Peace Arch" ~ lon - 1,
-    map_label == "Sumas Border" ~ lon + 1,
+    map_label == 'Lower Mainland' ~ lon - 0.5,
+    map_label == 'Penticton' ~ lon + 1,
+    map_label == "Douglas \nCrossing" ~ lon - 1.2,
+    map_label == "Sumas" ~ lon + 1,
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
+
 
 # Make a custom-sized viewing box around stations in BC.
 bc_station_view = st_bbox(tibble(lon = c(-127.58, -112),
