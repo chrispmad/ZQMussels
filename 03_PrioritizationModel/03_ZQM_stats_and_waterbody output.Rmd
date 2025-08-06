@@ -25,7 +25,7 @@ setwd(here::here())
 
 my_opts = read_csv("Options.csv")
 
-onedrive_wd = "C:/Users/CMADSEN/OneDrive - Government of BC/data/"
+onedrive_wd = "C:/Users/JPHELAN/OneDrive - Government of BC/data/"
 
 my.year = my_opts$year
 # my.year = 2023
@@ -77,7 +77,7 @@ dams = dams |>
   st_transform(crs = 3005)
 
 # CDC listed species
-cdc_sar_sp = sf::read_sf('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available_no_insects.gpkg') |>
+cdc_sar_sp = sf::read_sf('C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/species_at_risk_visualizer/app/www/species_ecosystems_at_risk_publically_available_no_insects.gpkg') |>
   sf::st_transform(3005)
 
 fed_sara_sp = sf::read_sf(paste0(onedrive_wd,"CNF/DFO_SARA_occ_data_QGIS_simplified.gpkg")) |> 
@@ -219,7 +219,7 @@ $$EV_w = (D_w) + (FSARA_w) + (PSAR_w)$$ Where *EV_w* represents the economic val
 waterb = waterb %>% 
   ungroup() %>% 
   mutate(Lowrisk_mot = LowRisk_Complex_Counter + LowRisk_Simple_Counter + LowRisk_Very_Complex_Counter,
-         HR_mot = HR_Simple_Counter + HR_Complex_Counter + HR_Very_Complex_Counter + HR_nonmot) %>% 
+         HR_mot = HR_Simple_Counter + HR_Complex_Counter + HR_Very_Complex_Counter) %>% 
   rename(Lowrisk_nonmot = LowRisk_Non_Motorized_Counter)
 ```
 
@@ -261,6 +261,9 @@ Subwatershedvars = c('ZQ_CalcRisk')
 #Establish a layer that has our risk variables of choice in their original format
 #as well as the binned values that we find below. We'll add those latter values lower down
 #in the script.
+waterb = waterb |> 
+dplyr::rename(HR_nonmot = HR_Non_Motorized_Counter)
+
 waterb_og_values = waterb %>%
   dplyr::select(WATERSH,WATERBO,GNIS_NA,all_of(all.my.vars)) %>% 
   dplyr::select(everything(), HR_mot, HR_nonmot) %>% 
