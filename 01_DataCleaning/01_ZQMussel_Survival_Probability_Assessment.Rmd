@@ -65,6 +65,17 @@ bc_shp = bcmaps::bc_bound() %>%
   st_transform(crs = 4326) |> 
   dplyr::summarise()
 
+model <- "MRI-ESM2-0"
+scenario <- my_opts$zqm_risk_climate_model  # "ssp245" or "ssp370"
+period <- "2021-2040"
+var <- "bio"
+res <- "2.5m"
+
+file_prefix <- sprintf("wc2.1_%s_%s_%s_%s", res, var, model, scenario, period)
+bio10_filename <- paste0(file_prefix, "_10.tif")
+bio10_filepath <- file.path(data.path, bio10_filename)
+
+
 # WorldClim future temperature raster data. 
 if(my_opts$zqm_risk_climate_model == "ssp245"){
   tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
@@ -75,7 +86,7 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
 }
 
 # Query from EMS!
-ems_path = paste0(stringr::str_extract(my_opts$base_dir,".*long_term_projects"),"/EMS/output/EMS.sqlite")
+ems_path = paste0(my_opts$bas)
 conn = dbConnect(SQLite(), ems_path)
 df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
 # ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
