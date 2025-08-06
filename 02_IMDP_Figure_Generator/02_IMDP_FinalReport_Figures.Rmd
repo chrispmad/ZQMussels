@@ -35,8 +35,7 @@ ggplot2)
 #                       OPTIONS 
 #=====================================================
 # setwd("C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels")
-
-my_opts = read_csv("C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/ZQMussels/Options.csv")
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
 #Which year should we focus on?
 my.year = 2024
@@ -78,7 +77,8 @@ if(my.year == 2024){
 stations.to.include = c("Golden","Radium","Olsen","Yahk",
                         "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
                         "Keremeos","Dawson Creek","Lower Mainland Roving",
-                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving")
+                        "Sumas Border","Cutts (Hwy 93)","Penticton Roving",
+                        "Douglas Crossing")
 stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
                           "Okanagan",
                           "Penticton Roving - Hwy 33", 
@@ -90,9 +90,9 @@ permanent.stations = c("Golden","Olsen","Yahk",
 
 roving.stations = c("Penticton Roving","Lower Mainland Roving",
                     "Keremeos (Hwy 3)","Sumas Border","Pacific",
-                    "Cutts (Hwy 93)")
+                    "Cutts (Hwy 93)","Douglas Crossing")
 
-part.time.stations = c("Sumas","Pacific","Cutts (Hwy 93)","Radium")
+part.time.stations = c("Sumas Border","Pacific","Cutts (Hwy 93)","Radium")
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
 if(my.year == 2022){
@@ -109,7 +109,7 @@ if(my.year == 2024){
     "Golden","Olsen","Dawson Creek","Mt. Robson",
     "Radium","Sumas Border",
     "Penticton Roving","Osoyoos","Lower Mainland Roving",
-    "Yahk","Pacific","Penticton Roving",
+    "Yahk","Pacific",
     "Keremeos (Hwy 3)","Hwy 97c","Cutts (Hwy 93)","Douglas Crossing")
 }
 
@@ -272,10 +272,13 @@ if(my.year == 2023){
                     StationType = "Roving")
 }
 if(my.year == 2024){
-  rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
-                                "Lower Mainland Roving","Pacific",
-                                "Sumas Border",
-                                "Penticton Roving","Cutts (Hwy 93)"),
+  rovers = data.frame(Station = c("Hwy 97c",
+                                  "Keremeos (Hwy 3)","Greenwood","Kaleden",
+                                  "Lower Mainland Roving","Pacific",
+                                  "Sumas Border",
+                                  "Penticton Roving",
+                                  "Cutts (Hwy 93)",
+                                  "Douglas Crossing"),
                     StationType = "Roving")
 }
 if(my.year == 2025){
@@ -452,17 +455,18 @@ stations = read_sf(paste0(
   dplyr::mutate(
     map_label = ifelse(
       map_label == 'Fraser Valley Roving', 
-      'Lower Mainland Roving',
+      'Lower Mainland',
       map_label),
     station_name = ifelse(
       station_name == 'Fraser Valley Roving',
       'Lower Mainland Roving',
       station_name)
   ) |> 
+  dplyr::mutate(map_label = ifelse(map_label == 'Penticton Roving','Penticton',map_label)) |> 
   dplyr::mutate(station_type = dplyr::case_when(
     station_name %in% permanent.stations ~ station_type,
-    station_name %in% roving.stations ~ "Roving Inspection Crew",
-    station_name %in% part.time.stations ~ "Part-time Inspection Station"
+    station_name %in% part.time.stations ~ "Part-time Inspection Station",
+    station_name %in% roving.stations ~ "Roving Inspection Crew"
   )) |> 
   dplyr::mutate(station_type = factor(station_type, levels = c("Permanent Inspection Station","Part-time Inspection Station","Roving Inspection Crew")))
 
@@ -481,14 +485,17 @@ station_labels = stations_for_maps |>
   sf::st_drop_geometry() |> 
   dplyr::mutate(lat = lat + 0.25) |> 
   dplyr::mutate(lat = case_when(
-    map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
-    map_label == 'Penticton Roving' ~ lat - 0.1,
+    map_label == 'Lower Mainland' ~ lat + 0.1,
+    map_label == 'Penticton' ~ lat - 0.1,
     map_label == "Sumas Border" ~ lat - 0.5,
     map_label == "Yahk" ~ lat - 0.5,
+    map_label == "Peace Arch" ~ lat - 0.2,
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
-    map_label == 'Lower Mainland Roving' ~ lon - 1,
-    map_label == 'Penticton Roving' ~ lon + 1.5,
+    map_label == 'Lower Mainland' ~ lon - 1,
+    map_label == 'Penticton' ~ lon + 1.5,
+    map_label == "Peace Arch" ~ lon - 1,
+    map_label == "Sumas Border" ~ lon + 1,
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
 
@@ -533,10 +540,15 @@ p1<-ggplot()+
   tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour)+
   geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+
   geom_sf_text(data = station_labels, aes(label = map_label))+
-  scale_fill_manual(name = "2024 Watercraft \n Inspection Stations", values = c("Permanent Inspection Station" = "lightblue", "Roving Inspection Crew" = "purple"))+
+  scale_fill_manual(name = "2024 Watercraft \n Inspection Stations", 
+                    values = c(
+                      "Permanent Inspection Station" = "lightblue", 
+                      "Roving Inspection Crew" = "purple",
+                      "Part-time Inspection Station" = '#E8DE51'))+
   ggspatial::annotation_scale()+
   ggthemes::theme_map()+
-  theme(legend.position = c(0.68,0.8),
+  theme(legend.position = c(0.68,0.72),
+        legend.background = element_rect(colour = 'black')
         )
   
 p1
@@ -955,13 +967,6 @@ st_rs = st_rs |>
 first_level = as.character(st_rs$jenks_1[1])
 second_level = as.character(st_rs$jenks_1[2])
 
-if(first_level == second_level){
-  st_rs = st_rs |> 
-    mutate(bin_label = str_replace_all(bin_label,
-                                       paste0(first_level, ' - ',second_level),
-                                       first_level))
-}
-
 stations_rs_sf = st_as_sf(st_rs, coords = c("lon","lat"), crs = 4326)
 
 # Make a custom-sized viewing box around stations in BC.
@@ -1003,8 +1008,9 @@ p5 = ggplot() +
   ) +
   ggspatial::annotation_scale(location = "bl") +
   ggthemes::theme_map() +
+  coord_sf(xlim = c(-14201388, -12467185), ylim =c(6107624, 7058093)) +
   theme(
-    legend.position = c(0.95, 0.95),
+    legend.position = c(0.95, 0.99),
     legend.justification = c("right", "top"),
     legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
                                      linetype = "solid")
@@ -1804,6 +1810,14 @@ centr_without_dat = sources_centroid |> filter(is.na(TotalInsp))
 centr_with_dat = centr_with_dat |>
   mutate(my_colors = source_pal(TotalInsp_b))
 
+centr_offset = centr_with_dat |> 
+  dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
+                lng = sf::st_coordinates(geom)[,1]) |> 
+  dplyr::mutate(lat = lat - 2,
+                lng = lng - 2) |> 
+  sf::st_drop_geometry() |> 
+  sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
+
 # map_3_tmap = tm_shape(northamerica_basemap, 
 #                       bbox = northamerica_view) +
 #     tm_rgb() + 
@@ -1834,7 +1848,44 @@ centr_with_dat = centr_with_dat |>
 # 
 # map_3_tmap
 
+map_home_res_ggplot 
 
+ggplot() +
+  tidyterra::geom_spatraster_rgb(data = north_america_stations_basemap_colour) +
+  coord_sf(
+    xlim = c(northamerica_view$xmin, northamerica_view$xmax),
+    ylim = c(northamerica_view$ymin, northamerica_view$ymax),
+    crs = st_crs(4326)
+  ) +
+  geom_sf(
+    data = centr_with_dat,
+    aes(fill = factor(TotalInsp_b), size = TotalInsp_b),
+    shape = 21,
+    color = "black"
+  ) +
+  geom_sf_text(
+    data = centr_offset,
+    aes(label = ABBR),
+    size = 2.5,
+    check_overlap = TRUE
+  ) +
+  scale_fill_manual(
+    name = paste0(my.year, paste0(my_opts$year,' Home Residence \nFrequency')),
+    values = unique(centr_with_dat$my_colors),
+    labels = unique(centr_with_dat$bin_label),
+    breaks = unique(centr_with_dat$HRInsp_b),
+    guide = guide_legend(order = 1, override.aes = list(size = log(unique(centr_with_dat$HRInsp_b) + 1) * 3))
+  )
+  ggspatial::annotation_scale(location = "bl") +
+  ggthemes::theme_map()
+  theme(
+    # legend.position = c("left", "bottom"),
+    # legend.justification = c("left", "bottom"),
+    legend.background = element_rect(fill = alpha("white", 0.7), color = "black",
+                                     linetype = "solid")
+  )
+
+map_home_res_high_risk_ggplot
 
 if(!interactive()) {
 # tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
@@ -2087,6 +2138,30 @@ if(my_opts$year < 2024){
 }
 ```
 
+### Blowbys By Hour
+```{r}
+
+blowb_by_hour = blowb |> 
+  dplyr::filter(lubridate::year(blow_by_time) == my_opts$year) |> 
+  dplyr::mutate(the_hour = lubridate::hour(blow_by_time)) |> 
+  dplyr::mutate(is_overnight = the_hour <= 5 | the_hour > 20) |> 
+  dplyr::count(is_overnight,the_hour, name = 'Number of Blowbys')
+
+blowb_by_hour |> 
+  dplyr::group_by(is_overnight) |> 
+  dplyr::reframe(total_blowbys = sum(`Number of Blowbys`))
+
+blowby_by_hour_plot = ggplot() +
+  geom_col(data = blowb_by_hour, aes(x = the_hour, y = `Number of Blowbys`, fill = is_overnight)) + 
+  labs(fill = "Overnight\nInspection\n(21:00 to 5:59)", x = "Hour of Day") +
+  theme_classic()
+
+
+ggsave(filename = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/blowbys_by_hour.jpg"),
+       plot = blowby_by_hour_plot,
+       height = 4, width = 8)
+```
+
 ### Figure 13 Noncompliant Watercraft Breakdown
 ```{r fig13_noncompliant_breakdown}
 
@@ -2146,7 +2221,8 @@ p14_dat = dat |>
               summarise(PrevInspected = n())
             ) |> 
   # Drop rows where we have fewer than 5 inspections
-  dplyr::filter(Station != "Lower Mainland Roving") |> 
+  dplyr::filter(TotalInsp >= 5) |> 
+  # dplyr::filter(Station != "Lower Mainland Roving") |> 
   mutate(PercPrevInsp = 100*PrevInspected/TotalInsp) |> 
   arrange(desc(PercPrevInsp)) |> 
   left_join(station_types) |> 
@@ -2274,6 +2350,38 @@ dat |>
 
 if(!interactive()) {
 ggsave("Fig15_Percent_PreviouslyInspected_Date_Bins.jpg",p15)
+}
+```
+
+### Figure of Pull the Plug Compliance
+```{r}
+dat_w_plugs = dat |> 
+  dplyr::filter(Watercraft_Has_Drainplugs_Ind)
+
+pl_of_plugs = dat_w_plugs |> 
+  dplyr::count(Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::mutate(prop = 100*(n / sum(n))) |> 
+  dplyr::arrange(-Drainplug_Removed_at_Inspection_Ind) |> 
+  dplyr::mutate(Drainplug_Removed_at_Inspection_Ind = ifelse(Drainplug_Removed_at_Inspection_Ind,"Drainplug Removed","Drainplug not Removed")) |> 
+  mutate(lab.ypos = cumsum(prop) - 0.5*prop) |> 
+  ggplot(aes(x = "", y = prop, 
+             fill = Drainplug_Removed_at_Inspection_Ind)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0) +
+    geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Drainplug_Removed_at_Inspection_Ind,"\n",round(prop,1),"%")),
+                    color = "black", nudge_x = 0.7) + 
+    theme_void() + 
+    # scale_fill_brewer(palette = "Dark2") + 
+    labs(fill = "Source") + 
+    ggtitle("Pull the Plug Compliance") +
+    theme(legend.position = "none")
+
+pl_of_plugs
+
+if(!interactive()) {
+  ggsave(filename = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig_of_Pull_the_Plug_Compliance.jpg"),
+         plot = pl_of_plugs,
+         width = 8, height = 4)
 }
 ```
 
@@ -2479,9 +2587,18 @@ dat_hr |>
 
 print("All inspections this year from high-risk areas or not:")
 dat |> 
-  count(High_Risk_Area_Ind) |> 
+  dplyr::filter(High_Risk_Area_Ind == T,
+                High_Risk_AIS_Ind == F) |> 
+  count(Previous_Waterbody_1_Province_Or_State,
+        High_Risk_AIS_Ind,
+        High_Risk_Area_Ind) |> 
   knitr::kable()
 # }
+print(paste0("Besides Alberta, there were this many inspections that were not HR for mussels but were HR for whirling disease: ",(nrow(dat |> 
+  dplyr::filter(High_Risk_Area_Ind == T,
+                High_Risk_AIS_Ind == F,
+                Previous_Waterbody_1_Province_Or_State != "AB"))))
+)
 
 # if(interactive()){
 print('Number of high-risk inspections that had been previously inspected')
@@ -2581,22 +2698,23 @@ fig18_second_dat = fig18_dat |>
   mutate(lab.ypos = cumsum(prop) - 0.5*prop) |> 
   select(-BoatsFromPlace,-TotalBoats)
 
-p18 = ggarrange(ggplot(fig18_main_dat,
-       aes(x = "", y = prop, 
-           fill = Previous_Waterbody_1_Province_Or_State)) +
-  geom_bar(width = 1, stat = "identity", color = "white") +
-  coord_polar("y", start = 0) +
-  geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")),
-                   color = "black", nudge_x = 0.7) + 
-  theme_void() + 
-  # scale_fill_brewer(palette = "Dark2") + 
-  labs(fill = "Source") + 
-  ggtitle("Main Sources") +
-  theme(legend.position = "none"),
-ggplot(fig18_second_dat,
-       aes(x = "", y = prop, 
-           fill = Previous_Waterbody_1_Province_Or_State)) +
-  geom_bar(width = 1, stat = "identity", color = "white") +
+p18 = ggarrange(
+  ggplot(fig18_main_dat,
+         aes(x = "", y = prop, 
+             fill = Previous_Waterbody_1_Province_Or_State)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0) +
+    geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")),
+                    color = "black", nudge_x = 0.7) + 
+    theme_void() + 
+    # scale_fill_brewer(palette = "Dark2") + 
+    labs(fill = "Source") + 
+    ggtitle("Main Sources") +
+    theme(legend.position = "none"),
+  ggplot(fig18_second_dat,
+         aes(x = "", y = prop, 
+             fill = Previous_Waterbody_1_Province_Or_State)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
   coord_polar("y", start = 0)+
   geom_text_repel(aes(y = lab.ypos, x = 1.00, label = paste0(Previous_Waterbody_1_Province_Or_State,"\n",round(prop,1),"%")), color = "black",nudge_x = 0.7) +
   theme_void() + 
@@ -3482,7 +3600,7 @@ map_7_ggplot <- ggplot() +
 map_7_ggplot
 if(!interactive()) {
 # tmap_save(tm = map_7_tmap, filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', width = 7.6, height = 6.4, dpi = 300)
-  ggsave(filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', map_7_tmap, width = 7.6, height = 6.4, dpi = 300)
+  ggsave(filename = 'Map7_Home_Residence_Frequency_MusselFouled.jpg', map_7_ggplot, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
