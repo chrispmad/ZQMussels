@@ -940,7 +940,8 @@ stations_roving = read_sf(paste0(my_opts$remote_spatial_data,
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations_roving = stations_roving |> 
-  filter(station_type != 'Permanent Inspection Station' | station_name != 'Cutts (Hwy 93)') |>
+  filter(station_type != 'Permanent Inspection Station') |>
+  filter(station_name != 'Cutts (Hwy 93)') |> 
   dplyr::filter(!station_name %in% c('Scheduled Inspection')) |> 
   dplyr::filter(!stringr::str_detect(station_name, 'Notification')) |> 
   dplyr::mutate(station_name = ifelse(station_name == 'Keremeos', 'Keremeos (Hwy 3)', station_name))
@@ -966,9 +967,11 @@ station_labels_roving = stations_roving |>
   sf::st_drop_geometry() |> 
   dplyr::mutate(lat = lat + 0.25) |> 
   dplyr::mutate(lat = case_when(
-    map_label == 'Penticton Roving' ~ lat - 0.05,
-    map_label == 'Sumas Border' ~ lat - 0.4,
-    map_label == 'Keremeos' ~ lat - 0.4,
+    map_label == 'Penticton Roving' ~ lat + 0.05,
+    map_label == 'Sumas Border' ~ lat - 0.5,
+    map_label == 'Keremeos' ~ lat - 0.5,
+    #map_label == 'Pacific' ~ lat - 0.4,
+    
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
     map_label == 'Penticton Roving' ~ lon + 0.05,
