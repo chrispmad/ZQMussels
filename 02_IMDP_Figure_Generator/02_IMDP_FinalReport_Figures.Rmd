@@ -171,6 +171,9 @@ if(!dir.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/Exc
 }
 ```
 
+
+
+
 ```{r load in data}
 if(!exists('dat')){
   dat = read.xlsx(paste0(my.data.folder,'figure_dat.xlsx')) |> 
@@ -441,7 +444,9 @@ print("Lake sampling numbers")
 
 ### Map 1. Inspection Stations by Type
 
-```{r map1_inspection_stations_by_type, fig.width=800}
+```{r inspection_stations_by_type, fig.width=800}
+
+
 
 # See which stations we have data for in this year.
 stations_active = dat |> 
@@ -475,6 +480,22 @@ stations = read_sf(paste0(
     station_name %in% roving.stations ~ "Roving Inspection Crew"
   )) |> 
   dplyr::mutate(station_type = factor(station_type, levels = c("Permanent Inspection Station","Part-time Inspection Station","Roving Inspection Crew")))
+
+# adding stations that are not currently present in the data
+new_stations<-data.frame(station_name = c("Douglas Crossing"), map_label = c("Douglas \nCrossing"), lat = c(49.0061439), lon =c(-122.75759020128658),
+                         lat_sf = c(49.0061439), lon_sf =c(-122.75759020128658),hours_of_operation = c("Unknown"), station_type = c("Part-time Inspection Station")) |> 
+  st_as_sf(coords = c("lon_sf", "lat_sf"), crs = 4326) %>%
+  { if ("geometry" %in% names(.)) rename(., geom = geometry) else . } # if the name is geometry, change it to geom
+  
+stations = rbind(stations, new_stations)
+
+
+#stations should be what we use as a base, at all times
+
+```
+
+
+```{r map1_plotting, fig.width=800}
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations = stations |> 
@@ -570,6 +591,7 @@ if(!interactive()) {
   ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), p1, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
+
 
 ```{r optional_map_of_inspection_stations_for_current_year_of_operations}
 # Usually, we are drafting the IMDP report for the previous year's season while the current year's season is active. We might need a map of the current year's stations.
@@ -918,7 +940,7 @@ stations_roving = read_sf(paste0(my_opts$remote_spatial_data,
 
 # Drop stations from leaflet maps that we did not want to keep.
 stations_roving = stations_roving |> 
-  filter(station_type != 'Permanent Inspection Station' | station_name == 'Cutts (Hwy 93)') |> 
+  filter(station_type != 'Permanent Inspection Station' | station_name != 'Cutts (Hwy 93)') |>
   dplyr::filter(!station_name %in% c('Scheduled Inspection')) |> 
   dplyr::filter(!stringr::str_detect(station_name, 'Notification')) |> 
   dplyr::mutate(station_name = ifelse(station_name == 'Keremeos', 'Keremeos (Hwy 3)', station_name))
@@ -987,6 +1009,8 @@ bc_station_view_roving = st_bbox(tibble(lon = c(-126, -114.5),
 
 bc_stations_basemap_green_roving = maptiles::get_tiles(x = bc_station_view_roving, provider = 'OpenStreetMap', zoom = 7, crop = T)
 
+station_labels_roving= station_labels_roving |> 
+  filter(station_name %in% stations_rs_sf$station_name)
 
 station_labels_sf = station_labels |>
   dplyr::filter(station_name %in% stations_rs_sf$station_name) |>
@@ -1001,7 +1025,7 @@ p5 = ggplot() +
     aes(fill = factor(num_insp_b), size = log(num_insp_b)+1),
     shape = 21, color = "black"
   ) +
-  geom_sf_label(data = station_labels_sf, aes(label = map_label),
+  geom_sf_label(data = station_labels_roving, aes(label = map_label),
               size = 3, fill = "white", color = "black", label.size = 0.1)+
   scale_fill_manual(
     name = paste0(my.year, ' Inspections \nby Roving Crew'),
