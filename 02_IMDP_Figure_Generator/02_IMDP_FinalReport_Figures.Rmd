@@ -520,12 +520,12 @@ station_labels = stations_for_maps |>
     map_label == 'Penticton' ~ lat - 0.1,
     map_label == "Sumas" ~ lat - 0.5,
     map_label == "Yahk" ~ lat - 0.5,
-    map_label == "Douglas Crossing" ~ lat - 0.5,
+    map_label == "Douglas \nCrossing" ~ lat - 0.5,
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
     map_label == 'Lower Mainland' ~ lon - 0.5,
     map_label == 'Penticton' ~ lon + 1,
-    map_label == "Douglas Crossing" ~ lon - 1.2,
+    map_label == "Douglas \nCrossing" ~ lon - 0.8,
     map_label == "Sumas" ~ lon + 1,
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
@@ -571,7 +571,8 @@ bc_stations_basemap_white<- basemaps::basemap_terra(ext = bc_station_view, map_s
 p1<-ggplot()+
   tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour)+
   geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+
-  geom_sf_text(data = station_labels, aes(label = map_label))+
+    geom_sf_label(data = station_labels, aes(label = map_label),
+              size = 3, fill = "white", color = "black", label.size = 0.1)+
   scale_fill_manual(name = "2024 Watercraft \n Inspection Stations", 
                     values = c(
                       "Permanent Inspection Station" = "lightblue", 
@@ -971,11 +972,13 @@ station_labels_roving = stations_roving |>
     map_label == 'Sumas Border' ~ lat - 0.5,
     map_label == 'Keremeos' ~ lat - 0.5,
     #map_label == 'Pacific' ~ lat - 0.4,
+    map_label == "Douglas \nCrossing" ~ lat - 0.5,
     
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
     map_label == 'Penticton Roving' ~ lon + 0.05,
     map_label == 'Sumas Border' ~ lon + 0.15,
+    map_label == "Douglas \nCrossing" ~ lon - 0.8,
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
 
@@ -2580,6 +2583,29 @@ my_pal = leaflet::colorFactor(
 # 
 # map_4_tmap
 
+stations_this_year = stations |> 
+    # filter(station_name %in% leaflet.stations.to.include) |> 
+    # dplyr::filter(!station_name %in% rovers_to_drop) |> 
+    dplyr::filter(station_name %in% stations_active_this_year)
+
+# Ugh. Time to make some hand-drawn locations for the labels...
+  station_labels_this_year = stations_for_maps_this_year |> 
+    filter(station_name %in% stations_sf$station_name) |> 
+    sf::st_drop_geometry() |> 
+    dplyr::mutate(lat = lat + 0.25) |> 
+    dplyr::mutate(lat = case_when(
+      map_label == 'Lower Mainland Roving' ~ lat + 0.1, 
+      map_label == 'Penticton Roving' ~ lat - 0.1,
+      map_label == 'Cutts (Hwy 93)' ~ lat - 0.1,
+      map_label == 'Sumas' ~ lat - 0.5,
+      T ~ lat)) |> 
+    dplyr::mutate(lon = case_when(
+      map_label == 'Lower Mainland Roving' ~ lon - 1,
+      map_label == 'Penticton Roving' ~ lon + 1.5,
+      map_label == 'Cutts (Hwy 93)' ~ lon + 1.25,
+      map_label == 'Sumas' ~ lon + 0.5,
+      T ~ lon)) |> 
+    sf::st_as_sf(coords = c("lon","lat"),crs=4326)
 my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
 
 map_high_risk_ggplot = ggplot() +
@@ -3067,7 +3093,7 @@ map_home_res_high_risk_ggplot = ggplot() +
     labels = unique(centr_with_dat$bin_label),
     guide = "none"
   ) +
-  ggspatial::annotation_scale(location = "bl") +
+  ggspatial::annotation_scale(location = "br") +
   ggthemes::theme_map() +
   theme(
     legend.position = c("left", "bottom"),
