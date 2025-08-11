@@ -510,7 +510,7 @@ stations_for_maps = stations |>
 # Ugh. Time to make some hand-drawn locations for the labels...
 station_labels = stations_for_maps |> 
   # Correct Peace Arch to Douglas Crossing
-  dplyr::mutate(map_label = ifelse(map_label == "Peace Arch","Douglas \nCrossing",map_label)) |>
+  # dplyr::mutate(map_label = ifelse(map_label == "Peace Arch","Douglas \nCrossing",map_label)) |>
   # Correct Sumas Border to just "Sumas"
   dplyr::mutate(map_label = ifelse(map_label == "Sumas Border","Sumas",map_label)) |> 
   sf::st_drop_geometry() |> 
@@ -520,12 +520,12 @@ station_labels = stations_for_maps |>
     map_label == 'Penticton' ~ lat - 0.1,
     map_label == "Sumas" ~ lat - 0.5,
     map_label == "Yahk" ~ lat - 0.5,
-    map_label == "Douglas \nCrossing" ~ lat - 0.5,
+    map_label == "Douglas Crossing" ~ lat - 0.5,
     T ~ lat)) |> 
   dplyr::mutate(lon = case_when(
     map_label == 'Lower Mainland' ~ lon - 0.5,
     map_label == 'Penticton' ~ lon + 1,
-    map_label == "Douglas \nCrossing" ~ lon - 1.2,
+    map_label == "Douglas Crossing" ~ lon - 1.2,
     map_label == "Sumas" ~ lon + 1,
     T ~ lon)) |> 
   sf::st_as_sf(coords = c("lon","lat"),crs=4326)
@@ -941,7 +941,7 @@ stations_roving = read_sf(paste0(my_opts$remote_spatial_data,
 # Drop stations from leaflet maps that we did not want to keep.
 stations_roving = stations_roving |> 
   filter(station_type != 'Permanent Inspection Station') |>
-  filter(station_name != 'Cutts (Hwy 93)') |> 
+  # filter(station_name != 'Cutts (Hwy 93)') |> 
   dplyr::filter(!station_name %in% c('Scheduled Inspection')) |> 
   dplyr::filter(!stringr::str_detect(station_name, 'Notification')) |> 
   dplyr::mutate(station_name = ifelse(station_name == 'Keremeos', 'Keremeos (Hwy 3)', station_name))
@@ -1311,7 +1311,9 @@ p3_c = fig3c_data |>
 p3_c
 
 if(!interactive()) {
-ggsave("Fig3b_EncounterFrequency_HR_RovingStations.jpg",p3_c)
+ggsave(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig3b_EncounterFrequency_HR_RovingStations.jpg"),
+       p3_c,
+       height = 4, width = 8)
 }
 ```
 
