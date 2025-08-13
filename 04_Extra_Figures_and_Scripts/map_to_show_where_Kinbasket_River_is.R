@@ -1,6 +1,6 @@
 library(sf)
 
-wbs = read_sf(paste0("W:/CMadsen/Projects/ZQMussels/2025 IMDP Final Report/data/spatial/waterbodies_zqm_shortlist_risk_estimates.gpkg"))
+wbs = read_sf(paste0("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/Projects/ZQMussels/2025 IMDP Final Report/data/spatial/waterbodies_zqm_shortlist_risk_estimates.gpkg"))
 
 kb = wbs |> 
   dplyr::filter(GNIS_NA == "Kinbasket River")

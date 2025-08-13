@@ -16,8 +16,8 @@ dat = read_excel("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2021
 templ = read_excel("I:/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2021/Lab Analysis/Final report/CRB_Mussel_Monitoring_2021.xlsx",
                    sheet = "Data (2021)")
 
-watsh = read_sf("W:/CMadsen/shared_data_sets/WatershedGroups.shp")
-waterbodies = read_sf("W:/CMadsen/shared_data_sets/summarized_bc_waterbodies_same_gnis_joined.shp")
+watsh = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/WatershedGroups.shp")
+waterbodies = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/summarized_bc_waterbodies_same_gnis_joined.shp")
 
 #Correct column names and drop empty first rows in template.
 names(templ) = templ[4,]
@@ -231,4 +231,4 @@ crb = crb %>%
            crs = 4326) %>% 
   st_transform(crs = 3005)
 
-write_sf(crb, "W:/CMadsen/SpatialData/BC_Veliger_Sampling_CRB_format.shp")
+write_sf(crb, "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/BC_Veliger_Sampling_CRB_format.shp")

@@ -91,7 +91,7 @@ dat_j = dat_j |>
 #   mutate(row_index = dplyr::row_number())
 # Match lake names to polygons of lakes from the BCG Warehouse.
 
-if(!exists('wbs_s')) wbs_s = read_sf('W:/CMadsen/shared_data_sets/summarized_bc_waterbodies.shp')
+if(!exists('wbs_s')) wbs_s = read_sf('//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/summarized_bc_waterbodies.shp')
 
 # Measure area of lakes that match names with our lab data.
 if(!exists('matched_wbs')){

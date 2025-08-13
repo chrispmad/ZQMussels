@@ -7,9 +7,9 @@ library(bcdata)
 
 rm(list = ls())
 
-bc = read_sf("W:/CMadsen/SpatialData/bc_simple.shp")
+bc = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/bc_simple.shp")
 
-flnro = read_sf("W:/CMadsen/SpatialData/FLNRO_Fishing_Boundaries.shp")
+flnro = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/FLNRO_Fishing_Boundaries.shp")
 
 cities = read_csv("C:/Users/CMADSEN/Downloads/LocalRWork/data/CityTableForMussels.csv") %>% 
   filter(Province == "British Columbia") %>% 

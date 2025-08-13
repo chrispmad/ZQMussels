@@ -2,8 +2,8 @@ library(bcdata)
 library(tidyverse)
 library(sf)
 
-fras = sf::read_sf("W:/CMadsen/shared_data_sets/Fraser_River_Big_Watershed.shp")
-col = sf::read_sf("W:/CMadsen/shared_data_sets/Columbia_River_Big_Watershed.shp")
+fras = sf::read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/Fraser_River_Big_Watershed.shp")
+col = sf::read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/Columbia_River_Big_Watershed.shp")
 
 ggplot() + geom_sf(data = fras)
 ggplot() + geom_sf(data = col)

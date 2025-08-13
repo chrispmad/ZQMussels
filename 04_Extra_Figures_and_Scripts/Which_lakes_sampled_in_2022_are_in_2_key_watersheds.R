@@ -16,7 +16,7 @@ my.year = my_opts$year
 lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
 
 # All waterbodies for which we have some data from our prioritization model.
-all_lakes = read_sf("W:/CMadsen/shared_data_sets/waterb_with_data.shp")
+all_lakes = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/waterb_with_data.shp")
 
 ## HCTF sampling list
 hctf = read_excel('04_Extra_Figures_and_Scripts/data/Appendix 1 for MoE report_2022 Draft.xlsx')

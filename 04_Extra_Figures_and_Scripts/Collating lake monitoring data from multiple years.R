@@ -39,7 +39,7 @@ if(!dir.exists(paste0(mywd,"output/"))) {
 #2. Download the shapefile for Canada, then just select the BC portion.
 #bc_shp = getData(name = "GADM", country = "CAN", level = 1)
 #bc_shp = bc_shp[bc_shp$NAME_1=="British Columbia",]
-bc_shp = read_sf("W:/CMadsen/SpatialData/bc_shapefile.shp")
+bc_shp = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/bc_shapefile.shp")
 
 #==========================================================================
 
@@ -104,7 +104,7 @@ dat2020 = dat2020 %>%
          VolContainers = `container volume`,
          Lat = `Lat (Decimal degrees)`,
          Lon = `Long (Decimal degrees)`,
-         WaterTemp = `Water temperature (°C)*`,
+         WaterTemp = `Water temperature (?C)*`,
          WaterpH = `pH (in water column)`,
          SecchiDepth = `Secchi Depth (m)`,
          NumPlanktonTows = `# of Plankton tows`,
@@ -369,7 +369,7 @@ dat2018 = dat2018 %>%
          PlanktonTowType = `Type of tow`,
          LifeStage = `target life stage`,
          TowDepthOrLength = `Depth (m)`,
-         NetMeshSize_um = `net mesh size (µm)`,
+         NetMeshSize_um = `net mesh size (?m)`,
          TotalVolume_L = `Minimum volume of water sampled (L)`) %>%
   select(-`...14`)
 
@@ -404,7 +404,7 @@ dat2019 = dat2019 %>%
          NumContainers = `# Containers`,
          Lat = `Lat (Decimal degrees)`,
          Lon = `Long (Decimal degrees)`,
-         WaterTemp = `Water temperature (°C)*`,
+         WaterTemp = `Water temperature (?C)*`,
          WaterpH = `pH (in water column)`,
          SecchiDepth = `Secchi Depth (m)`,
          NumPlanktonTows = `# of Plankton tows`,
@@ -447,8 +447,8 @@ dat2021_m = dat2021 %>%
   mutate(CollectDate = janitor::excel_numeric_to_date(as.numeric(date_collected_yyyy_mm_dd))) %>% 
   mutate(CollectDate = replace_na(CollectDate,lubridate::as_date("2021-07-08"))) %>%
   mutate(Year = year(CollectDate)) %>% 
-  mutate(lat_decimal_degrees = str_remove(lat_decimal_degrees, "°"),
-         long_decimal_degrees = str_remove(long_decimal_degrees, "°")) %>% 
+  mutate(lat_decimal_degrees = str_remove(lat_decimal_degrees, "?"),
+         long_decimal_degrees = str_remove(long_decimal_degrees, "?")) %>% 
   mutate(lat_decimal_degrees = str_remove(lat_decimal_degrees, "(?<=\\.) ")) %>% 
   mutate(Lat = as.numeric(lat_decimal_degrees),
          Lon = as.numeric(long_decimal_degrees)) %>% 

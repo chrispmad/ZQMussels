@@ -52,7 +52,7 @@
 #   boatl_ffsbc = read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/Small_Lakes_Data_Request.xlsx"))
 #   
 #   # FLNRO fishing regions
-#   #fln = read_sf("W:/CMadsen/SpatialData/FLNRO_Fishing_Boundaries.shp")
+#   #fln = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/FLNRO_Fishing_Boundaries.shp")
 #   
 #   # Dams
 #   dams = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/dams_cleaned.xlsx"))
@@ -177,9 +177,9 @@
 #   # WATERSHED_, WATERBOD_1, GNIS_NAME_, Perimeter, Developed
 #   
 #   #Perimeter.
-#   # peri_xl = openxlsx::read.xlsx("W:/CMadsen/SpatialData/waterbody_lines_perimeter.xlsx")
+#   # peri_xl = openxlsx::read.xlsx("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/waterbody_lines_perimeter.xlsx")
 #   # 
-#   # dev_xl = openxlsx::read.xlsx("W:/CMadsen/SpatialData/waterbody_polygons_cut_by_cadastral.xlsx")
+#   # dev_xl = openxlsx::read.xlsx("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/waterbody_polygons_cut_by_cadastral.xlsx")
 #   # 
 #   # peri_xl = peri_xl %>%
 #   #   left_join(dev_xl) %>%
@@ -212,7 +212,7 @@
 #     st_as_sf(coords = c("lng","lat"), crs = 4326) %>% 
 #     st_transform(., crs = crs(waterb))
 #   
-#   #write_sf(dams_sf, "W:/CMadsen/SpatialData/DamFeatures.shp")
+#   #write_sf(dams_sf, "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/DamFeatures.shp")
 #   
 #   #We're just going to use big waterbodies so that we can focus 
 #   #on rivers and very big lakes, not little ponds and whatnot.

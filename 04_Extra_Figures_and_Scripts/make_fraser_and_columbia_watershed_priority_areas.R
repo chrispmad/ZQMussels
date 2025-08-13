@@ -3,7 +3,7 @@ library(sf)
 library(leaflet)
 # Load in data.
 
-watersheds = sf::read_sf('W:/CMadsen/shared_data_sets/WatershedGroups_lowres.shp') |> 
+watersheds = sf::read_sf('//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/WatershedGroups_lowres.shp') |> 
   st_transform(crs = 4326)
 
 watershed_names = watersheds |> 
@@ -86,5 +86,5 @@ leaflet() |>
     data = columbia
   )
 
-write_sf(fraser, "W:/CMadsen/shared_data_sets/fraser_watershed_priority_area.gpkg")
-write_sf(columbia, "W:/CMadsen/shared_data_sets/columbia_watershed_priority_area.gpkg")
+write_sf(fraser, "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/fraser_watershed_priority_area.gpkg")
+write_sf(columbia, "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/columbia_watershed_priority_area.gpkg")

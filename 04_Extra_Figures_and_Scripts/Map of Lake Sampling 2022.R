@@ -39,7 +39,7 @@ ml_sf = ml_sf |>
   filter(!duplicated(lake_name))
 
 # Bring in priority waterbodies
-wbs = sf::read_sf('W:/CMadsen/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp')
+wbs = sf::read_sf('//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp')
 
 hr = wbs |> 
   filter(Risk_bn >= 2)

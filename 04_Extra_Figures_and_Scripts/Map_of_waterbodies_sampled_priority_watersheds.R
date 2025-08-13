@@ -12,7 +12,7 @@ focus.year = 2022
 # samples = read_excel(paste0(my_opts$base_dir,'02_IMDP_Figure_Generator/data/lake_monitoring_for_report_appendix.xlsx'))
 lab_dat = read_excel(paste0('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/',focus.year,'/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx'))
 
-wb = read_sf('W:/CMadsen/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp') %>% 
+wb = read_sf('//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/Projects/ZQMussels/2022 IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values.shp') %>% 
   st_transform(crs = 4326)
 
 # dat = read_excel(paste0(my_opts$base_dir,'02_IMDP_Figure_Generator/output/sampled lakes in fraser or columbia priority areas.xlsx')) |> 
@@ -83,7 +83,7 @@ dat_sf = dat |>
 dat_sf = dat_sf |>
   mutate(substrate = ifelse(substrate_samples >= 1, 'Plankton and Substrate', 'Plankton Only'))
 
-# subwatersheds = read_sf("W:/CMadsen/shared_data_sets/WatershedGroups.shp") |> 
+# subwatersheds = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/WatershedGroups.shp") |> 
 #   st_transform(crs = 4326)
 
 # Map

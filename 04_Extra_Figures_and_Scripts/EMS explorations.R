@@ -8,8 +8,8 @@ library(gmodels)
 library(ggthemes)
 library(terra)
 
-bc = read_sf("W:/CMadsen/SpatialData/bc_simple.shp")
-subw = read_sf("W:/CMadsen/SpatialData/WatershedGroups.shp")
+bc = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/bc_simple.shp")
+subw = read_sf("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/SpatialData/WatershedGroups.shp")
 ems = fread("C:/Users/CMADSEN/Downloads/ems_sample_results_historic_expanded.csv")
 
 keep_n_top_parameters = function(x,number_parameters = 50){
