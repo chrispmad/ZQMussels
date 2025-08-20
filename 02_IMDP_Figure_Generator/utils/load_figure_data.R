@@ -12,7 +12,8 @@ if (!exists('dat')) {
     #   )
     # )
 }
-
+dat = dat |> 
+  mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",TRUE ~ Station))
 if(!exists('dat_all')){
   dat_all = read.xlsx(paste0(my.data.folder,'figure_dat_all.xlsx')) |>
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
@@ -25,6 +26,10 @@ if(!exists('dat_all')){
     #   )
     # )
 }
+
+dat_all = dat_all |> 
+  mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",TRUE ~ Station))
+
 # In case the 'figure_dat.xlsx' file has been updated past the year we 
 # are currently working on (e.g., I've run the imdp code for 2023 but now
 # we're looking back at 2022 data... sigh)
@@ -38,12 +43,33 @@ if(!exists('dat_hr')){
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
     as_tibble()
 }
+# High risk inspections
+dat_hr = dat_hr |> 
+  mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",
+                             Station == "Penticton Roving" ~ "Penticton",
+                             Station == "Sumas Border" ~ "Sumas",
+                             Station == "Lower Mainland Roving" ~ "Lower Mainland",
+                             Station == "Peace Arch Crossing" ~ "Douglas Crossing",
+                             TRUE ~ Station),
+         Station = str_replace(Station, "Lower Mainland Roving", "Lower Mainland"))
+
+
+
 
 if(!exists('dat_mf')){
   dat_mf = read.xlsx(paste0(my.data.folder,'figure_dat_mf.xlsx')) |>
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
     as_tibble()
 }
+# Mussel fouled inspections
+dat_mf = dat_mf |> 
+  mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",
+                             Station == "Penticton Roving" ~ "Penticton",
+                             Station == "Sumas Border" ~ "Sumas",
+                             Station == "Lower Mainland Roving" ~ "Lower Mainland",
+                             Station == "Peace Arch Crossing" ~ "Douglas Crossing",
+                             TRUE ~ Station),
+         Station = str_replace(Station, "Lower Mainland Roving", "Lower Mainland"))
 
 flnro_lookup = read_excel(paste0(my.external.data.folder,"waterbody_name_flrno_region_lookup_table.xlsx")) |> distinct()
 

@@ -74,6 +74,8 @@ for the_url in [url, url2]:
         file_pattern = r'get_blowby_table.*\.csv$'
 
     # Does the file already exist in downloads folder? If so, skip download section. If not, download it.
+    # url is the flat file - lots of things about boats inspectors etc 60+ cols
+    # url2 blowby table - owner that doesn't stop for whatever reason - data is useful for missed inspections
     if the_url == url:
         file_downloaded_already = [f for f in os.listdir(downloads_folder) if re.search(r'_mussel_summary_csv_export.*\.csv$', f)]
     elif the_url == url2:
@@ -141,7 +143,7 @@ for the_url in [url, url2]:
         downloaded_file = file_downloaded[0]
 
         # Define the path to the network drive folder
-        network_drive_folder = r"J:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"
+        network_drive_folder = r"Z:\2 SCIENCE - Invasives\SPECIES\Zebra_Quagga_Mussel\Operations\Watercraft Inspection Data\Raw inspection data for sharing (all years)\Clean files all years"
 
         # Define the new file name
         if the_url == url:

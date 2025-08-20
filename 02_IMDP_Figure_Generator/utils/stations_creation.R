@@ -1,10 +1,10 @@
 # go through the code and find where the full stations list is
 #dput(stations)
 
-stations_df<-stations |> st_drop_geometry()
-stations_df$lat_sf<-stations$lat
-stations_df$lon_sf<-stations$lon
-stations_new<-st_as_sf(stations_df, coords = c("lon_sf", "lat_sf"), crs = 4326)
+# stations_df<-stations |> st_drop_geometry()
+# stations_df$lat_sf<-stations$lat
+# stations_df$lon_sf<-stations$lon
+# stations_new<-st_as_sf(stations_df, coords = c("lon_sf", "lat_sf"), crs = 4326)
 # adding stations that are not currently present in the data
 # new_stations<-data.frame(station_name = c("Douglas Crossing"), map_label = c("Douglas \nCrossing"), lat = c(49.0061439), lon =c(-122.75759020128658),
 #                          lat_sf = c(49.0061439), lon_sf =c(-122.75759020128658),hours_of_operation = c("Unknown"), station_type = c("Part-time Inspection Station")) |> 
@@ -16,13 +16,13 @@ stations_new<-st_as_sf(stations_df, coords = c("lon_sf", "lat_sf"), crs = 4326)
 stations<-structure(list(station_name = c("Cascade", "Cutts (Hwy 93)", 
                                           "Dawson Creek", "Golden", "Laidlaw", "Mt. Robson", "Olsen", "Osoyoos", 
                                           "Pacific", "Radium", "Salmo", "Yahk", "Balfour", "Castlegar", 
-                                          "Elko", "Midway", "Penticton Roving", "Scheduled Inspection", 
-                                          "Lower Mainland Roving", "Keremeos", "Sumas Border", "Douglas Crossing"
+                                          "Elko", "Midway", "Penticton", "Scheduled Inspection", 
+                                          "Lower Mainland", "Keremeos", "Sumas", "Douglas Crossing"
 ), map_label = c("Cascade", "Cutts (Hwy 93)", "Dawson Creek", 
                  "Golden", "Laidlaw", "Mt. Robson", "Olsen", "Osoyoos", "Pacific", 
                  "Radium", "Salmo", "Yahk", "Balfour", "Castlegar", "Elko", "Midway", 
                  "Penticton", "Scheduled Inspection", "Lower Mainland", "Keremeos", 
-                 "Sumas Border", "Douglas \nCrossing"), 
+                 "Sumas", "Douglas"), 
 lat = c(49.002104, 49.203097, 
         55.481347, 51.28151, 49.342155, 53.007403, 49.625793, 49.001, 
         49.002876, 50.618197, 49.17924, 49.0776, 49.62, 49.29, 49.3, 

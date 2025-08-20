@@ -53,11 +53,12 @@ fig3_data = dat |>
   arrange(desc(NumberInsp)) |> 
   mutate(Station = factor(Station)) |> 
   mutate(Station = fct_inorder(Station)) |> 
-  left_join(station_types) |> 
+  left_join(station_types, by = "Station") |> 
   mutate(StationLabel = ifelse(StationType == "Roving", paste0(Station,"*"),Station)) |> 
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
-  mutate(col.width = replace(col.width, col.width == 3, 4))
+  mutate(col.width = replace(col.width, col.width == 3, 4)) |> 
+mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
 
 fig3b_data = dat |> 
   dplyr::filter(Station %in% permanent.stations) |> 
@@ -85,11 +86,12 @@ fig3b_data = dat |>
   arrange(desc(NumberInsp)) |> 
   mutate(Station = factor(Station)) |> 
   mutate(Station = fct_inorder(Station)) |> 
-  left_join(station_types) |> 
+  left_join(station_types, by = "Station") |> 
   mutate(StationLabel = ifelse(StationType == "Roving", paste0(Station,"*"),Station)) |> 
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
-  mutate(col.width = replace(col.width, col.width == 3, 4))
+  mutate(col.width = replace(col.width, col.width == 3, 4))|> 
+  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
 
 fig3c_data = dat |> 
   dplyr::filter(Station %in% stations.to.include) |> 
@@ -119,11 +121,12 @@ fig3c_data = dat |>
   arrange(desc(NumberInsp)) |> 
   mutate(Station = factor(Station)) |> 
   mutate(Station = fct_inorder(Station)) |> 
-  left_join(station_types) |> 
+  left_join(station_types, by = "Station") |> 
   mutate(StationLabel = ifelse(StationType == "Roving", paste0(Station,"*"),Station)) |> 
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
-  mutate(col.width = replace(col.width, col.width == 3, 4))
+  mutate(col.width = replace(col.width, col.width == 3, 4))|> 
+  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
 
 p3.x = dat_all |> 
   filter(Year %in% c((my.year-2):my.year)) |> 
@@ -147,7 +150,11 @@ p3.x = dat_all |>
   theme_classic() +
   labs(x = "") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
-  scale_fill_brewer(palette = "Dark2")
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
+  
 
 p3.x_b = dat_all |> 
   filter(Year %in% c((my.year-2):my.year)) |> 
@@ -167,7 +174,10 @@ p3.x_b = dat_all |>
   theme_classic() +
   labs(x = "") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
-  scale_fill_brewer(palette = "Dark2")
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p3.x_c = dat_all |> 
   filter(Year %in% c((my.year-2):my.year)) |> 
@@ -187,7 +197,10 @@ p3.x_c = dat_all |>
   theme_classic() +
   labs(x = "") +
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
-  scale_fill_brewer(palette = "Dark2")
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p4 = dat |>
   dplyr::filter(Station %in% stations.to.include) |> 
@@ -196,7 +209,7 @@ p4 = dat |>
   summarise(Different_Sources = n()) |> 
   summarise(TotalSources = n()) |> 
   arrange(desc(TotalSources)) |> 
-  left_join(station_types) |> 
+  left_join(station_types, by = "Station") |> 
   mutate(Station = as.factor(Station)) |> 
   mutate(StationLabel = paste0(Station,
                                ifelse(StationType == "Roving", "*", ""))) |> 
@@ -207,7 +220,10 @@ p4 = dat |>
   labs(x = '', y = "Number of Origin Jurisdictions") + 
   theme_classic() + 
   scale_fill_brewer(palette = "Dark2") +
-  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))
 
 p5 = ggarrange(
   dat |> 
@@ -222,7 +238,10 @@ p5 = ggarrange(
                   label=round(Number_Insp,0))) +
     theme_classic() +
     labs(x = "", y = "Watercraft Encounters (# of inspections)") +
-    theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
+    theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+    scale_x_discrete(labels = c(
+      "Douglas Crossing" = "Douglas"
+    )),
   
   dat |> 
     filter(!Station %in% rovers_to_drop) |> 
@@ -241,7 +260,10 @@ p5 = ggarrange(
     theme_classic() +
     labs(x = "", y = "Total Effort (hours)") +
     theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
-  ncol = 2, nrow = 1)
+  ncol = 2, nrow = 1)+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p6 = dat |> 
   mutate(the.month = month(TimeOfInspection,label=T,abbr=F)) |> 
@@ -284,7 +306,10 @@ p6 = dat |>
                 label=round(EncounterFreq,1)),nudge_x = 0.4) +
   theme_classic() +
   labs(x = "", y = "Encounter Frequency") +
-  scale_y_continuous(breaks = seq(0,6.5,0.5))
+  scale_y_continuous(breaks = seq(0,6.5,0.5))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p7 = ggarrange(dat |> 
                  mutate(the.day = wday(TimeOfInspection,label=T,abbr=F,week_start = getOption("lubridate.week.start", 1))) |> 
@@ -297,7 +322,10 @@ p7 = ggarrange(dat |>
                                label=round(Number_Insp,0))) +
                  theme_classic() +
                  labs(x = "", y = "Watercraft Encounters (# of inspections)") +
-                 theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
+                 theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+                 scale_x_discrete(labels = c(
+                   "Douglas Crossing" = "Douglas"
+                 )),
                dat |> 
                  mutate(the.day = wday(TimeOfInspection,label=T,abbr=F,week_start = getOption("lubridate.week.start", 1))) |> 
                  group_by(the.day) |> 
@@ -313,7 +341,10 @@ p7 = ggarrange(dat |>
                  theme_classic() +
                  labs(x = "", y = "Total Effort (hours)") +
                  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)),
-               ncol = 2, nrow = 1)
+               ncol = 2, nrow = 1)+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p8 = dat |> 
   # Drop scheduled inspections?
@@ -349,7 +380,10 @@ p8 = dat |>
   geom_text(aes(x=the.day,y=EncounterFreq,
                 label=round(EncounterFreq,1)),nudge_x = 0.4) +
   theme_classic() +
-  labs(x = "", y = "Encounter Frequency")
+  labs(x = "", y = "Encounter Frequency")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p9 = dat |> 
   mutate(the.hour = hour(TimeOfInspection)) |>
@@ -377,7 +411,10 @@ p9 = dat |>
   ) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p9.2 = dat |> 
   filter(High_Risk_AIS_Ind == T) |> 
@@ -391,7 +428,10 @@ p9.2 = dat |>
                 label=round(Number_Insp,0))) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p9.3 = dat |> 
   filter(Station == "Golden") |> 
@@ -405,7 +445,10 @@ p9.3 = dat |>
                 label=round(Number_Insp,0))) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p9.4 = dat |> 
   filter(High_Risk_AIS_Ind == T,
@@ -420,7 +463,10 @@ p9.4 = dat |>
                 label=round(Number_Insp,0))) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p11 = dat |> 
   filter(!is.na(Destination_Waterbody_1_Name)) |> 
@@ -439,4 +485,7 @@ p11 = dat |>
                 label=paste0(round(Percent,1),"%"))) +
   theme_classic() +
   labs(x = "",y = "Percent of Total Inspections") + 
-  theme(axis.text.x = element_text(angle = 45,hjust=1,vjust=1))
+  theme(axis.text.x = element_text(angle = 45,hjust=1,vjust=1))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))

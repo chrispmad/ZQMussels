@@ -1,15 +1,3 @@
-# Are there any station names we want to change / correct?
-stations.to.change = data.frame(
-  Station = c('Fraser Valley Roving'),
-  new_name = c('Lower Mainland Roving')
-)
-
-# Are there any station names we want to change / correct?
-stations.to.change = data.frame(
-  Station = c('Fraser Valley Roving'),
-  new_name = c('Lower Mainland Roving')
-)
-
 
 # Apply station name correction(s)
 dat = dat |> 
@@ -31,37 +19,43 @@ stations_active = dat |>
   dplyr::filter(n >= 2) |> 
   dplyr::pull(Station)
 
+
+
+# stations_active<-gsub("Keremeos (Hwy 3)", "Keremeos", stations_active)
+
 #Establish colour scheme for roving stations that we keep.
 if(my.year == 2022){
   rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
-                                  "Lower Mainland Roving","Pacific",
-                                  "Penticton Roving"),
+                                  "Lower Mainland","Pacific",
+                                  "Penticton"),
                       StationType = "Roving")
 }
 if(my.year == 2023){
-  rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
-                                  "Lower Mainland Roving","Pacific",
-                                  "Sumas Border",
-                                  "Penticton Roving","Cutts (Hwy 93)"),
+  rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
+                                  "Lower Mainland","Pacific",
+                                  "Sumas",
+                                  "Penticton","Cutts (Hwy 93)"),
                       StationType = "Roving")
 }
 if(my.year == 2024){
   rovers = data.frame(Station = c("Hwy 97c",
-                                  "Keremeos (Hwy 3)","Greenwood","Kaleden",
-                                  "Lower Mainland Roving","Pacific",
-                                  "Sumas Border",
-                                  "Penticton Roving",
+                                  "Keremeos","Greenwood","Kaleden",
+                                  "Lower Mainland","Pacific",
+                                  "Sumas",
+                                  "Penticton",
                                   "Cutts (Hwy 93)",
                                   "Douglas Crossing"),
                       StationType = "Roving")
 }
 if(my.year == 2025){
-  rovers = data.frame(Station = c("Hwy 97c","Keremeos (Hwy 3)","Greenwood","Kaleden",
-                                  "Lower Mainland Roving","Pacific",
-                                  "Sumas Border",
-                                  "Penticton Roving","Cutts (Hwy 93)"),
+  rovers = data.frame(Station = c("Hwy 97c","Keremeos","Greenwood","Kaleden",
+                                  "Lower Mainland","Pacific",
+                                  "Sumas",
+                                  "Penticton","Cutts (Hwy 93)"),
                       StationType = "Roving")
 }
+
+
 
 station_types = bind_rows(rovers,
                           data.frame(Station = dat |> 
@@ -70,6 +64,7 @@ station_types = bind_rows(rovers,
                                        distinct() |> 
                                        pull(Station),
                                      StationType = "Permanent"))
+
 rm(rovers)
 
 # what is this for?
@@ -118,6 +113,16 @@ stations = read_sf(paste0(
   )) |> 
   dplyr::mutate(station_type = factor(station_type, levels = c("Permanent Inspection Station","Part-time Inspection Station","Roving Inspection Crew")))
 
+
+stations = stations |> 
+  mutate(station_name = case_when(station_name == "Keremeos (Hwy 3)" ~ "Keremeos",
+                                  station_name == "Penticton Roving" ~ "Penticton",
+                                  station_name == "Sumas Border" ~ "Sumas",
+                                  station_name == "Lower Mainland Roving" ~ "Lower Mainland",
+                                  station_name == "Peace Arch Crossing" ~ "Douglas Crossing",
+                             TRUE ~ station_name),
+         station_name = str_replace(station_name, "Lower Mainland Roving", "Lower Mainland"))
+
 # Drop stations from leaflet maps that we did not want to keep.
 stations_current = stations |> 
   filter(station_name %in% leaflet.stations.to.include) |> 
@@ -126,16 +131,13 @@ stations_current = stations |>
 stations_for_maps = stations_current |> 
   mutate(station_type = replace(station_type, station_type == 'Unknown', 'Roving')) |> 
   mutate(my_text_size = ifelse(str_detect(map_label,"(Roving|Border)+$"), 'small', 'medium')) |> 
-  dplyr::filter(station_name %in% stations_active)
+  dplyr::filter(station_name %in% stations_active) |> 
+  distinct()
 
 
 source(here::here("02_IMDP_Figure_Generator", "utils", "station_label_offsets.R"))
 
-station_labels = adjust_station_labels(
-  stations_for_maps |>
-    dplyr::mutate(map_label = ifelse(map_label == "Sumas Border", "Sumas", map_label)),
-  offsets
-)
+station_labels = adjust_station_labels(stations_for_maps ,offsets)
 
 
 
@@ -150,10 +152,14 @@ stations_active_this_year = dat_all |>
     str_detect(Station,"Lower Mainland") ~ "Lower Mainland Roving",
     T ~ Station
   )) |> 
+  dplyr::mutate(Station = dplyr::case_when(
+    str_detect(Station,"Lower Mainland Roving") ~ "Lower Mainland",
+    T ~ Station
+  )) |> 
   dplyr::filter(Year == my.year+1) |> 
   dplyr::count(Station) |> 
   dplyr::filter(n > 5) |> 
-  dplyr::pull(Station)
+  dplyr::pull(Station) 
 
 # If we're in 2024, Martina and co. also want Radium and Sumas as part-time stations.
 stations_active_this_year = c(stations_active_this_year, "Radium","Sumas Border")
@@ -185,7 +191,6 @@ stations_roving = stations |>
   # filter(station_name != 'Cutts (Hwy 93)') |> 
   dplyr::filter(!station_name %in% c('Scheduled Inspection')) |> 
   dplyr::filter(!stringr::str_detect(station_name, 'Notification')) |> 
-  dplyr::mutate(station_name = ifelse(station_name == 'Keremeos', 'Keremeos (Hwy 3)', station_name)) |> 
   dplyr::mutate(map_label = ifelse(map_label == 'Fraser Valley Roving', 
                                    'Lower Mainland Roving',
                                    map_label),

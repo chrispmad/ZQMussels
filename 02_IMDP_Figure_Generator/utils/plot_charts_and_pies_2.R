@@ -27,7 +27,10 @@ p13 = dat_w_blowbys |>
   scale_fill_manual(values = c("Non-Motorized" = my.grey,
                                "Motorized" = "grey")) +
   scale_y_continuous(breaks = seq(0,100,10), labels = paste0(seq(0,100,10),"%")) +
-  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p14_dat = dat |> 
   dplyr::filter(Station %in% stations.to.include) |>
@@ -69,7 +72,10 @@ p14 = p14_dat |>
                      limits = c(0,max_perc_plus_buffer),
                      labels = paste0(seq(0,max_perc_plus_buffer,10),"%")) +  
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) + 
-  scale_fill_brewer(palette = "Dark2")
+  scale_fill_brewer(palette = "Dark2")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))
 
 #Remove Penticton Roving
 figure_15 = dat |> 
@@ -127,7 +133,10 @@ p15 = figure_15 |>
                                "> 30 Days" = "#cc0000",
                                "> 1 Year" = "#2986cc")) +
   scale_y_continuous(breaks = seq(0,100,10), labels = paste0(seq(0,100,10),"%")) + 
-  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))
 
 dat_w_plugs = dat |> 
   dplyr::filter(Watercraft_Has_Drainplugs_Ind)
@@ -148,7 +157,10 @@ pl_of_plugs = dat_w_plugs |>
   # scale_fill_brewer(palette = "Dark2") + 
   labs(fill = "Source") + 
   ggtitle("Pull the Plug Compliance") +
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))
 
 p16_dat = dat_hr |> 
   #Filter for our target year and the 2 years prior
@@ -181,7 +193,10 @@ p16 = ggplot() +
   theme_classic() +
   scale_fill_brewer(palette = 'Dark2') +
   # scale_fill_manual(values = c("darkgrey","lightgrey","black")) +
-  labs(x = "",y = "Number of High-Risk Inspections", fill = 'Year')
+  labs(x = "",y = "Number of High-Risk Inspections", fill = 'Year')+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 #Remove Penticton Roving
 fig18_dat = dat_hr |> 
@@ -241,7 +256,10 @@ p18 = ggarrange(
     labs(fill = "Source") + 
     ggtitle("Breakdown of `Other`") +
     theme(legend.position = "none"),
-  ncol = 2, nrow = 1)
+  ncol = 2, nrow = 1)+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 
 fig19_dat = dat_hr |> 

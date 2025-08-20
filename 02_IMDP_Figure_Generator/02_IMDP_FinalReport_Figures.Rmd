@@ -287,7 +287,10 @@ p3 = fig3_data |>
   theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1),
         axis.text.y.right = element_text(colour = "red"),
         axis.title.y.right = element_text(colour = "red"),
-        panel.grid.major.y = element_line(linetype = 2, colour = "darkgrey"))
+        panel.grid.major.y = element_line(linetype = 2, colour = "darkgrey"))+
+scale_x_discrete(labels = c(
+    "Douglas Crossing" = "Douglas"
+  ))
 
 p3
 
@@ -337,6 +340,7 @@ ggsave("Fig3b_EncounterFrequency_HR_PermanentStations.jpg",p3_b)
 # on the left Y axis.
 
 p3_c = fig3c_data |>
+  mutate(StationLabel = str_remove(StationLabel, "\\*$")) |> 
   ggplot() +
   geom_col(aes(x=StationLabel, y=encounter_freq), fill = my.grey, width = 0.40) +
   geom_line(aes(x=StationLabel,y=PercentHR,group=1),col="red",linewidth=2) +
@@ -367,7 +371,7 @@ ggsave(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigure
 ```{r}
 
 # These are made in dat_for_charts_and_pies
-p3.x
+p3.x 
 
 if(interactive()){
   dat |> 
@@ -648,26 +652,53 @@ if(!interactive()) {
 
 ```{r}
 
+source(here::here("02_IMDP_Figure_Generator", "utils", "boat_launch_again.R"))
 
-
-source(here::here("02_IMDP_Figure_Generator", "utils", "boat_launch_plot.R"))
-fig_boat_launches = ggplot(boatlaunch_dat_count) + 
-  geom_col(aes(x = likely_lake, y = n, fill = Station, group = High_Risk_AIS_Ind, col = High_Risk_AIS_Ind), position = position_dodge()) + 
-  scale_color_manual(values = c("FALSE" = "transparent", "TRUE" = "red")) +
+fig_boat_launches <- ggplot(boatlaunch_dat_count) + 
+  geom_col(
+    aes(
+      x = reorder(likely_lake, -n),
+      y = n, 
+      fill = Station,
+      color = High_Risk_AIS_Ind,   # outline color
+      group = High_Risk_AIS_Ind,
+      size = High_Risk_AIS_Ind     # outline thickness
+    ),
+    position = position_dodge(width = 0.9),
+    width = 0.8
+  ) +
+  scale_color_manual(
+    values = c("FALSE" = "grey40", "TRUE" = "red"),
+    labels = c("No", "Yes")
+  ) +
+  scale_size_manual(
+    values = c("FALSE" = 0.3, "TRUE" = 1.2),
+    guide = "none"     # hide size legend
+  ) +
   scale_fill_brewer(palette = 'Set2') +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) + 
-  labs(x = "Roving Inspection at Boat Launch", y = "Number of Inspections",
-       fill = 'Roving Station',
-       color = 'High Risk Inspection')
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 40, hjust = 1, vjust = 1),
+    legend.position = "right",
+    legend.box = "vertical",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  ) + 
+  labs(
+    title = "Boat Launch Inspections by Lake",
+    x = "Roving Inspection at Boat Launch", 
+    y = "Number of Inspections",
+    fill = "Boat Launch",
+    color = "High Risk Inspection"
+  )
 
 fig_boat_launches
-
 
 if(!interactive()) {
 # tmap_save(tm = map_3_tmap, filename = 'Map3_Home_Residence_Frequency.jpg', width = 7.6, height = 6.4, dpi = 300)
   ggsave(filename = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/Fig_boat_launches_risk.jpg"),
-         plot = home_res_plot,
+         plot = fig_boat_launches,
          width = 7.6, height = 6.4, dpi = 300)
 }
 ```
@@ -1072,8 +1103,8 @@ centr_with_dat = centr_with_dat |>
 centr_offset = centr_with_dat |> 
   dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
                 lng = sf::st_coordinates(geom)[,1]) |> 
-  dplyr::mutate(lat = lat - 2,
-                lng = lng - 2) |> 
+  dplyr::mutate(lat = lat - 1,
+                lng = lng - 1) |> 
   sf::st_drop_geometry() |> 
   sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
 
@@ -1604,8 +1635,8 @@ centr_with_dat = centr_with_dat |>
 centr_offset = centr_with_dat |> 
   dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
                 lng = sf::st_coordinates(geom)[,1]) |> 
-  dplyr::mutate(lat = lat - 2,
-                lng = lng - 2) |> 
+  dplyr::mutate(lat = lat - 1,
+                lng = lng - 1) |> 
   sf::st_drop_geometry() |> 
   sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
 
@@ -1748,7 +1779,7 @@ print("Total count of commercially hauled boats:")
  p29 = dat |> 
   filter(Commercially_Hauled_Ind == T,
          Station != "Hwy 97c") |> 
-  # filter(Station %in% stations.to.include) |> 
+  filter(Station %in% stations.to.include) |> 
   group_by(Station) |> 
   summarise(NumberBoats = n()) |> 
   arrange(desc(NumberBoats)) |> 
@@ -1828,8 +1859,8 @@ centr_with_dat = centr_with_dat |>
 centr_offset = centr_with_dat |> 
   dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
                 lng = sf::st_coordinates(geom)[,1]) |> 
-  dplyr::mutate(lat = lat - 2,
-                lng = lng - 2) |> 
+  dplyr::mutate(lat = lat - 1,
+                lng = lng - 1) |> 
   sf::st_drop_geometry() |> 
   sf::st_as_sf(coords = c("lng","lat"), crs = 4326)
 
@@ -2206,7 +2237,11 @@ p32 = ggplot() +
                     values = c("TRUE" = my.grey,
                                "FALSE" = "grey"),
                     labels = c("Yes","No")) +
-  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))
+
   
 p32
 

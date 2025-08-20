@@ -56,4 +56,7 @@ p12 = dat_w_blowbys |>
   theme_classic() +
   labs(x = "",y = "Percent Compliance") + 
   scale_y_continuous(breaks = seq(0,100,10), labels = paste0(seq(0,100,10),"%")) + 
-  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))
+  theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1)) +
+  scale_x_discrete(labels = c(
+    "Douglas Crossing*" = "Douglas*"
+  ))

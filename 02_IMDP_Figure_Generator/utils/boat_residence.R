@@ -51,7 +51,7 @@ centr_with_dat = centr_with_dat |>
 centr_offset = centr_with_dat |> 
   dplyr::mutate(lat = sf::st_coordinates(geom)[,2],
                 lng = sf::st_coordinates(geom)[,1]) |> 
-  dplyr::mutate(lat = lat - 2,
-                lng = lng - 2) |> 
+  dplyr::mutate(lat = lat - 1.2,
+                lng = lng - 1.2) |> 
   sf::st_drop_geometry() |> 
   sf::st_as_sf(coords = c("lng","lat"), crs = 4326)

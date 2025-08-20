@@ -38,15 +38,10 @@ update.gis = FALSE
 
 # Are there any station names we want to change / correct?
 stations.to.change = data.frame(
-  Station = c('Fraser Valley Roving'),
-  new_name = c('Lower Mainland Roving')
+  Station = c('Fraser Valley Roving', "Penticton Roving", "Sumas Border", "Keremeos (Hwy 3)"),
+  new_name = c('Lower Mainland', "Penticton", "Sumas", "Keremeos")
 )
 
-# Are there any station names we want to change / correct?
-stations.to.change = data.frame(
-  Station = c('Fraser Valley Roving'),
-  new_name = c('Lower Mainland Roving')
-)
 
 #Are there any stations we would like to exclude from the excel-type figures?
 #In 2021, we will exclude:
@@ -74,8 +69,8 @@ if(my.year == 2023){
 if(my.year == 2024){
   stations.to.include = c("Golden","Radium","Olsen","Yahk",
                           "Pacific","Osoyoos","Hwy 97c","Mt. Robson",
-                          "Keremeos (Hwy 3)","Dawson Creek","Lower Mainland Roving",
-                          "Sumas Border","Cutts (Hwy 93)","Penticton Roving",
+                          "Keremeos","Dawson Creek","Lower Mainland",
+                          "Sumas Border","Cutts (Hwy 93)","Penticton",
                           "Douglas Crossing")
   stations.to.put.aside = c("Scheduled Inspection","Boat Launch - Okanagan",
                             "Okanagan",
@@ -86,11 +81,11 @@ permanent.stations = c("Golden","Olsen","Yahk",
                        "Osoyoos","Mt. Robson",
                        "Dawson Creek")
 
-roving.stations = c("Penticton Roving","Lower Mainland Roving",
-                    "Keremeos (Hwy 3)","Sumas Border","Pacific",
-                    "Cutts (Hwy 93)","Douglas Crossing", "Hwy 97c")
+roving.stations = c("Penticton","Lower Mainland",
+                    "Sumas","Pacific",
+                    "Cutts (Hwy 93)","Douglas Crossing")
 
-part.time.stations = c("Sumas Border","Pacific","Cutts (Hwy 93)","Radium","Douglas Crossing")
+part.time.stations = c("Sumas","Pacific","Cutts (Hwy 93)","Radium","Douglas Crossing", "Hwy 97c","Keremeos")
 # Just in case it's different, which stations do we want to show in the 
 # leaflet maps?
 if(my.year == 2022){
@@ -105,8 +100,8 @@ if(my.year == 2023){
 if(my.year == 2024){
   leaflet.stations.to.include = c(
     "Golden","Olsen","Dawson Creek","Mt. Robson",
-    "Radium","Sumas Border",
-    "Penticton Roving","Osoyoos","Lower Mainland Roving",
+    "Radium","Sumas",
+    "Penticton","Osoyoos","Lower Mainland",
     "Yahk","Pacific",
     "Keremeos","Hwy 97c","Cutts (Hwy 93)","Douglas Crossing")
 }
@@ -114,6 +109,7 @@ if(my.year == 2024){
 #Data folders
 my.data.folder = paste0(my_opts$zqm_figure_local_folder,"data/")
 my.external.data.folder = paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/")
+my.external.data.folder = paste0("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/Projects/ZQMussels/data/")
 
 #Which folder should we put specific output files in?
 my.output.folder = paste0(my_opts$zqm_figure_local_folder,"output/")

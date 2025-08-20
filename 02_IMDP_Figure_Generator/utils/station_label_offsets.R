@@ -1,14 +1,13 @@
 offsets <- tibble::tribble(
   ~map_label,                ~lat_offset, ~lon_offset,
-  "Lower Mainland Roving",    0.10,        -1.00,
-  "Penticton Roving",        -0.10,         1.50,
+  "Lower Mainland",    0.10,        -1.00,
+  "Penticton",        -0.10,         1.00,
   "Cutts (Hwy 93)",          -0.10,         1.25,
-  "Sumas",                   -0.50,         0.50,
-  "Lower Mainland",           0.10,        -0.50,
-  "Penticton",               -0.10,         1.00,
   "Yahk",                    -0.50,         NA,
-  "Douglas \nCrossing",      -0.50,        -0.80,
-  "Sumas Border",            -0.50,         0.50,
+  "Douglas",      -0.50,        -0.80,
+  "Sumas",            -0.50,         0.50,
+  "Keremeos",                NA,            -0.5,
+  "Osoyoos",                 -0.5,            -0.5,
   
 )
 
