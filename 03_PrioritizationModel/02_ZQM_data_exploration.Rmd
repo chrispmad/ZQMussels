@@ -37,8 +37,8 @@ climate_model = my_opts$zqm_risk_climate_model
 #Do we want to make monitoring location and water body level calcium shapefiles?
 #interim_shapefile_output = F #F if no, T if yes.
 
-setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
-mywd = getwd()
+# setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+# mywd = getwd()
 
 #Create organizational folders in your working directory, if they don't exist.
 #data...
@@ -47,7 +47,7 @@ if(!dir.exists(paste0(getwd(),"/data/"))) {
 }
 
 #shapefiles...
-data.path = paste0(getwd(),"/data/")
+data.path = paste0(my_opts$base_dir,"01_DataCleaning/","data/")
 
 # if(!dir.exists(paste0(data.path,"shapefiles"))) {
 #   dir.create(paste0(data.path,"shapefiles"))
@@ -86,7 +86,7 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
 }
 
 # Query from EMS!
-ems_path = paste0(my_opts$base_dir, "../EMS/output/EMS.sqlite")
+ems_path = paste0(my_opts$base_dir, "../../long_term_projects/AIS_EMS/output/EMS.sqlite")
 conn = dbConnect(SQLite(), ems_path)
 df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
 # ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
@@ -117,7 +117,7 @@ hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data throug
 
 ```{r read_in_wb_and_subw_shapefiles}
 #Read in the water body shapefiles
-waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+waterbodies = read_sf(paste0(my_opts$base_dir, "/01_DataCleaning/data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
 # Read in subwatershed (N = 246) shapefile
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
 ```
@@ -373,7 +373,7 @@ my_plot = ggplot() +
 
 my_plot
 
-ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+ggsave(filename = paste0("/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
 ```
 
 ```{r join_calc_and_pH_to_watershed}

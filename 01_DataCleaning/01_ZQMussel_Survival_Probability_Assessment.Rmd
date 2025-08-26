@@ -37,8 +37,8 @@ climate_model = my_opts$zqm_risk_climate_model
 #Do we want to make monitoring location and water body level calcium shapefiles?
 #interim_shapefile_output = F #F if no, T if yes.
 
-setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
-mywd = getwd()
+# setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+# mywd = getwd()
 
 #Create organizational folders in your working directory, if they don't exist.
 #data...
@@ -78,15 +78,15 @@ bio10_filepath <- file.path(data.path, bio10_filename)
 
 # WorldClim future temperature raster data. 
 if(my_opts$zqm_risk_climate_model == "ssp245"){
-  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
+  tempr <- rast(paste0("01_DataCleaning/data/wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
   tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
 } else if(my_opts$zqm_risk_climate_model == "ssp370"){
-  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
+  tempr <- rast(paste0("01_DataCleaning/data/wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
   tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
 }
 
 # Query from EMS!
-ems_path = paste0(my_opts$bas)
+ems_path = paste0(my_opts$base_dir, "../../long_term_projects/AIS_EMS/output/EMS.sqlite")
 conn = dbConnect(SQLite(), ems_path)
 df = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Calcium %' or PARAMETER like 'pH'")
 # ems_temp = DBI::dbGetQuery(conn, "SELECT * FROM results where PARAMETER like 'Temperature%'")
@@ -117,7 +117,7 @@ hist(lubridate::year(df$COLLECTION_END)) #What's the distribution of data throug
 
 ```{r read_in_wb_and_subw_shapefiles}
 #Read in the water body shapefiles
-waterbodies = read_sf(paste0("data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
+waterbodies = read_sf(paste0(my_opts$base_dir,"/01_DataCleaning/data/summarized_bc_waterbodies_same_gnis_joined.gpkg"))
 # Read in subwatershed (N = 246) shapefile
 watershed = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/WatershedGroups_lowres.shp"))
 ```
@@ -154,7 +154,7 @@ calcium_match_to_wbs = calcium_match_to_wbs |>
                    number_calcium_data_points_100_f_wb = sum(RESULT_100_f_include)) |> 
   dplyr::ungroup()
 
-write.csv(calcium_match_to_wbs, "output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_waterbody_scale.csv", row.names = F)
+write.csv(calcium_match_to_wbs, "01_DataCleaning/output/calcium_only_filtered_for_sub_300_and_100_mg_L_at_waterbody_scale.csv", row.names = F)
 ```
 
 ```{r filter_outliers_from_calcium_and_pH}
@@ -233,7 +233,7 @@ watershed |>
        caption = 'pH readings matched spatially to waterbody and then to subwatershed'
        )
 
-ggsave(filename = 'output/pH_EMS_records_spatially_matched_to_waterbodies.png',
+ggsave(filename = '01_DataCleaning/output/pH_EMS_records_spatially_matched_to_waterbodies.png',
        width = 8,
        height = 8)
 
@@ -252,7 +252,7 @@ watershed |>
        caption = 'Calcium readings matched spatially to waterbody and then to subwatershed'
        )
 
-ggsave(filename = 'output/calc_EMS_records_spatially_matched_to_waterbodies.png',
+ggsave(filename = '01_DataCleaning/output/calc_EMS_records_spatially_matched_to_waterbodies.png',
        width = 8, 
        height = 8)
 ```
@@ -279,7 +279,7 @@ watershed |>
        caption = 'pH readings matched spatially to subwatershed \ngroup directly, skipping match with waterbodies'
        )
 
-ggsave(filename = 'output/mean_pH_by_subwatershed_group.png',
+ggsave(filename = '01_DataCleaning/output/mean_pH_by_subwatershed_group.png',
        width = 8, height = 8)
 ```
 
@@ -323,7 +323,7 @@ watershed |>
        ) + 
   scale_fill_fermenter(palette = 'RdYlGn')
 
-ggsave(filename = 'output/mean_calcium_by_subwatershed_group.png',
+ggsave(filename = '01_DataCleaning/output/mean_calcium_by_subwatershed_group.png',
        width = 8, height = 8)
 ```
 
@@ -341,10 +341,10 @@ watershed |>
   geom_sf(aes(fill = ideal_conditions)) + 
   labs(fill = 'Mean pH within \nideal ZQ Mussel \nrange(7 to 9.6)')
 
-ggsave(filename = 'output/mean_pH_within_ideal_ZQ_Mussels_range_by_subwatershed.png',
+ggsave(filename = '01_DataCleaning/output/mean_pH_within_ideal_ZQ_Mussels_range_by_subwatershed.png',
        width = 8, height = 8)
 
-openxlsx::write.xlsx(pH_within_ideal_ZQ_range, 'output/mean_pH_waterbody_matched_within_ideal_ZQ_Mussels_range_by_subwatershed.xlsx')
+openxlsx::write.xlsx(pH_within_ideal_ZQ_range, '01_DataCleaning/output/mean_pH_waterbody_matched_within_ideal_ZQ_Mussels_range_by_subwatershed.xlsx')
 
 ```
 
@@ -373,7 +373,7 @@ my_plot = ggplot() +
 
 my_plot
 
-ggsave(filename = paste0(mywd,"/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+ggsave(filename = paste0("01_DataCleaning//output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
 ```
 
 ```{r join_calc_and_pH_to_watershed}
@@ -437,7 +437,7 @@ ggsave(filename = 'output/Binned_Mean_Calcium_by_subwatershed.png',
        width = 8, height = 8)
 
 write_sf(watershed,
-         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+         paste0("01_DataCleaning/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
                 temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
 ```
 
@@ -476,7 +476,7 @@ ggplot(watershed) +
        title = 'Binned Calcium (Adjusted by pH suitability) at the Watershed Group scale',
        subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) reduced risk by one level (if not already "No Risk")'))
 
-ggsave(filename = 'output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
+ggsave(filename = '01_DataCleaning/output/Binned_Mean_Calcium_pH_Adjusted_by_subwatershed.png',
        width = 8, height = 8)
 ```
 
@@ -515,14 +515,15 @@ ggplot(watershed) +
        title = 'Binned Calcium (Adjusted by pH and temperature suitability) at the Watershed Group scale',
        subtitle = paste0(nrow(watershed[watershed$calc_bin != 'No Data',]), ' of 246 with data; unsuitable pH (<7 or >9.6) or Temp (<10C) reduced risk by one level (if not already "No Risk")'))
 
-ggsave(filename = 'output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
+ggsave(filename = '01_DataCleaning/output/Binned_Mean_Calcium_pH_and_Temp_Adjusted_by_subwatershed.png',
        width = 8, height = 8)
 ```
 
 ```{r write_sf_to_disk}
 write_sf(watershed,
-         paste0("output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
-                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"))
+         paste0("01_DataCleaning/output/ZQM_RiskAssessment_",my_opts$zqm_risk_climate_model,"_",
+                temp_limit,"C_threshold_pH_Adjustment_Subwatershed.gpkg"),
+         delete_dsn = TRUE)
 
 # ### Produce excel files and shapefiles
 # watdat = watdat %>%

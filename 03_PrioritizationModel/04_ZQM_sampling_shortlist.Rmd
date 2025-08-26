@@ -49,15 +49,16 @@ knitr::opts_chunk$set(
 update_remote_output_files = T
 
 my_path = ifelse(interactive(), "03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
 
-source(paste0(my_path,'utility_functions.R'))
+source(paste0('03_PrioritizationModel/utility_functions.R'))
 ```
 
 This R Markdown script takes the output of the script '03_ZQM_stats_and_waterbody output.Rmd' (namely, waterbodies with raw and binned risk estimates for choice variables) to produce a short-list of priority waterbodies vis-a-vis Zebra and Quagga Mussel risk.
 
 ```{r read_in_data}
 # Read RDS.
-dat = read_rds(paste0("data/data_for_making_shortlist.rds"))
+dat = read_rds(paste0("03_PrioritizationModel/data/data_for_making_shortlist.rds"))
 # if(interactive()){
 #   dat = read_rds('03_PrioritizationModel/data/data_for_making_shortlist.rds')
 # } else {
@@ -221,7 +222,7 @@ rm(duplicated_river_names); rm(duplicated_rivers); rm(waterb_risk_rivers_merged)
 
 ```{r add_NR_Region_name_to_waterbodies}
 # nr_regions = bcmaps::nr_regions()
-nr_regions = sf::read_sf("W:/CMadsen/shared_data_sets/FLNRO_Fishing_Boundaries.shp")
+nr_regions = sf::read_sf(paste0(lan_root,"2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/FLNRO_Fishing_Boundaries.shp"))
 
 waterb_risk_with_region = waterb_risk |> 
  st_join(nr_regions |> dplyr::select(REGION_N),
@@ -250,15 +251,15 @@ waterb_risk = waterb_risk |>
 sample_protocol_2021 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2021/Updates to protocol_waterbody ranking/2021 priority waterbodies for sampling.xlsx"),sheet = "2021 FINAL LIST")
 
 sample_protocol_2022 = get_wb_list_from_protocol_doc(
-  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2022/Sampling protocol/2022 Invasive Mussel Field Protocol_Draft_V1.docx')
+  officer::read_docx(paste0(paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2022/Sampling protocol/2022 Invasive Mussel Field Protocol_Draft_V1.docx")))
 )
 
 sample_protocol_2023 = get_wb_list_from_protocol_doc(
-  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2023/Sampling protocol/2023 Invasive Mussel Field Protocol_Draft_V1.docx')
+  officer::read_docx(paste0(lan_root,'2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2023/Sampling protocol/2023 Invasive Mussel Field Protocol_Draft_V1.docx'))
 )
 
 sample_protocol_2024 = get_wb_list_from_protocol_doc(
-  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx')
+  officer::read_docx(paste0(lan_root,"2 SCIENCE - Invasives//SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx"))
 )
 
 past_sample_protocols = sample_protocol_2021 |> 
@@ -758,7 +759,7 @@ final_waterbody_list = final_waterbody_list |>
   mutate(region_wb = paste0(Region,'-',Waterbody))
 
 last_year = get_wb_list_from_protocol_doc(
-  officer::read_docx('J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx')
+  officer::read_docx(paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx"))
 ) |> 
   mutate(Waterbody = stringr::str_replace(Waterbody,"’","'")) |> 
   mutate(region_wb = paste0(Region,'-',Waterbody))

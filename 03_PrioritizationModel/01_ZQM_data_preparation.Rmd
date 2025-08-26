@@ -83,7 +83,7 @@ dams = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft
   # as_tibble()
 
 # 2022-2023 Freshwater fisheries society questionnaire - days fished by waterbody.
-angsur = sf::read_sf("W:/CMadsen/shared_data_sets/freshwater_fisheries_society_angler_survey_2022_2023.gpkg")
+angsur = sf::read_sf(paste0(lan_root,"2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/freshwater_fisheries_society_angler_survey_2022_2023.gpkg"))
 # Now using the 2022-2023 Freshwater fisheries society questionnaire from Rob Payntor!
 
 # distance to highways from AIS prioritization model work with John Phelan
