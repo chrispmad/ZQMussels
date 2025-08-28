@@ -581,7 +581,7 @@ home_res_plot<-ggplot() +
   coord_sf(
     xlim = c(bounds$xmin, bounds$xmax),
     ylim = c(bounds$ymin, bounds$ymax),
-    expand = F
+    expand = FALSE
   ) +
   geom_sf_text(
     data = centr_without_dat,
@@ -630,7 +630,7 @@ home_res_plot<-ggplot() +
     legend.position = c(0.05, 0.05),
     legend.justification = c("left", "bottom"),
     legend.background = element_rect(
-      fill = alpha("white", 0.7),
+      fill = alpha("white", 0.9),
       color = "black",
       linetype = "solid"
     )
@@ -654,19 +654,33 @@ if(!interactive()) {
 
 source(here::here("02_IMDP_Figure_Generator", "utils", "boat_launch_again.R"))
 
+boatlaunch_dat_count = boatlaunch_dat_count |> 
+  group_by(likely_lake) |> 
+  mutate(ypos = sum(n))
+
+boatlaunch_dat_count$High_Risk_AIS_Ind <- factor(boatlaunch_dat_count$High_Risk_AIS_Ind, levels = c("TRUE", "FALSE"))
+
 fig_boat_launches <- ggplot(boatlaunch_dat_count) + 
   geom_col(
     aes(
       x = reorder(likely_lake, -n),
       y = n, 
       fill = Station,
-      color = High_Risk_AIS_Ind,   # outline color
-      group = High_Risk_AIS_Ind,
+      color = as.factor(High_Risk_AIS_Ind),   # outline color
       size = High_Risk_AIS_Ind     # outline thickness
     ),
-    position = position_dodge(width = 0.9),
+   # position = position_dodge(width = 0.9),
     width = 0.8
   ) +
+  geom_text(
+  data = boatlaunch_dat_count |> filter(High_Risk_AIS_Ind == TRUE),
+  aes(
+    x = reorder(likely_lake, -n),
+    y = ypos +1,       # push label above bar top by 2 units
+    label = paste0("High Risk: ", n)
+  ),
+  vjust = 0,         # anchor bottom of text at this height
+)+
   scale_color_manual(
     values = c("FALSE" = "grey40", "TRUE" = "red"),
     labels = c("No", "Yes")
@@ -679,16 +693,15 @@ fig_boat_launches <- ggplot(boatlaunch_dat_count) +
   theme_minimal(base_size = 14) +
   theme(
     axis.text.x = element_text(angle = 40, hjust = 1, vjust = 1),
-    legend.position = "right",
+    legend.position = "None",
     legend.box = "vertical",
     legend.title = element_text(size = 12, face = "bold"),
     legend.text = element_text(size = 11),
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
   ) + 
   labs(
-    title = "Boat Launch Inspections by Lake",
-    x = "Roving Inspection at Boat Launch", 
     y = "Number of Inspections",
+    x = NULL,
     fill = "Boat Launch",
     color = "High Risk Inspection"
   )
@@ -751,10 +764,11 @@ source(here::here("02_IMDP_Figure_Generator", "utils", "compliance_total_data.R"
 source(here::here("02_IMDP_Figure_Generator", "utils", "blowbys_by_hour.R"))
 
 blowby_by_hour_plot = ggplot() +
-  geom_col(data = blowb_by_hour, aes(x = the_hour, y = `Number of Blowbys`, fill = is_overnight)) + 
+  geom_col(data = blowb_by_hour, aes(x = the_hour, y = `Number of Blowbys`)) + 
   labs(fill = "Overnight\nInspection\n(21:00 to 5:59)", x = "Hour of Day") +
+  scale_x_continuous(limits = c(0 , 24), breaks = seq(0,23,1))+
   theme_classic()
-
+blowby_by_hour_plot
 
 ggsave(filename = paste0(my.external.output.folder,"/GIS Maps and Excel Figures/ExcelFigures/blowbys_by_hour.jpg"),
        plot = blowby_by_hour_plot,
@@ -875,6 +889,8 @@ my_pal = leaflet::colorFactor(
   domain = st$num_insp_b,
   reverse = T
 )
+
+station_labels = adjust_station_labels(stations_for_maps ,offsets)
 
 my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
 
@@ -1129,7 +1145,8 @@ map_home_res_high_risk_ggplot = ggplot() +
   tidyterra::geom_spatraster_rgb(data = basemap_cropped) +
   coord_sf(
     xlim = c(bounds_sfc$xmin, bounds_sfc$xmax),
-    ylim = c(bounds_sfc$ymin, bounds_sfc$ymax)
+    ylim = c(bounds_sfc$ymin, bounds_sfc$ymax),
+    expand = FALSE
   ) +
   geom_sf(
     data = centr_with_dat,
@@ -1160,7 +1177,8 @@ map_home_res_high_risk_ggplot = ggplot() +
   ggspatial::annotation_scale(location = "bl") +
   ggthemes::theme_map() +
   theme(
-  plot.margin = margin(10, 80, 10, 10), # top, right, bottom, left
+  plot.margin = margin(0, 0, 0, 0),  # top, right, bottom, left
+  #plot.margin = margin(10, 80, 10, 10), # top, right, bottom, left
   legend.position = c(0.97, 0.03),
   legend.justification = c("right", "bottom")
 )
@@ -1914,6 +1932,7 @@ map_8_ggplot <- ggplot() +
   ggspatial::annotation_scale(location = "bl") +
   ggthemes::theme_map() +
   theme(
+    plot.margin = margin(0, 0, 0, 0),  # top, right, bottom, left
     legend.position = c(0.05, 0.05),
     legend.justification = c("left", "bottom"),
     legend.background = element_rect(
@@ -1926,7 +1945,8 @@ map_8_ggplot <- ggplot() +
 map_8_ggplot
 if(!interactive()) {
 # tmap_save(tm = map_8_tmap, filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg', width = 7.6, height = 6.4, dpi = 300)
-  ggsave(filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg',map_8_ggplot, width = 7.6, height = 6.4, dpi = 300)
+   ggsave(filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map8_Commercially_Hauled_Watercraft_Sources.jpg'), map_8_ggplot,  width = 7.6, height = 6.4, dpi = 300)
+  # ggsave(filename = 'Map8_Commercially_Hauled_Watercraft_Sources.jpg',map_8_ggplot, width = 7.6, height = 6.4, dpi = 300)
 }
 ```
 
