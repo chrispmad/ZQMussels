@@ -14,6 +14,15 @@ import os
 import shutil
 import glob
 from datetime import datetime
+import subprocess
+
+# Ensure the network drive is mounted
+try:
+    subprocess.run(["net", "use", "Z:"], check=True, shell=True)
+except subprocess.CalledProcessError:
+    print("⚠️ Could not verify Z: drive mapping. Trying to reconnect...")
+    # You can supply credentials if needed:
+    # subprocess.run(["net", "use", "Z:", "\\\\SFP.IDIR.BCGOV\\Science", "/persistent:yes"], shell=True)
 
 
 # %%
