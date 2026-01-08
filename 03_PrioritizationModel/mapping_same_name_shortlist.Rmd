@@ -1,0 +1,107 @@
+---
+title: "Mapping Shortlist ZQ"
+author: "John Phelan"
+date: "2026-01-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(openxlsx)
+library(dplyr)
+library(data.table)
+library(kableExtra)
+library(leaflet)
+library(leaflet.extras)
+library(sf)
+
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+
+my.year = 2026
+zq<- read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,".xlsx"))
+
+
+## keep only those GNIS_NA that are duplicated - drop all that only appear once
+zq_shortlist <- zq %>%
+  group_by(GNIS_NA) %>%
+  filter(n()>1) %>%
+  ungroup()
+  
+## select waterbodies that have "wood" as part of gnis_na  
+  wood = zq |> 
+  filter(str_detect(tolower(GNIS_NA), "wood")) |> 
+  # drop Larchwood Lake
+  filter(!str_detect(tolower(GNIS_NA), "larchwood"))
+
+waterbodies_to_test = bind_rows(zq_shortlist, wood)  
+  
+
+waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+
+watershed = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/WatershedGroups_lowres.shp')) |> 
+ st_drop_geometry() |> 
+ reframe(WATERSH = WATERSHED_, WatershedName = WATERSHE_1)
+
+waterb <- waterb |> 
+  inner_join(
+    watershed,
+    by = "WATERSH"
+  )
+
+```
+
+```{r manips_map, fig.width=8, fig.height=6}
+# get the geometries for waterbodies_to_test from waterb by GNIS_NA and WATERSH
+waterb_to_map <- waterb |> 
+  inner_join(
+    waterbodies_to_test |> 
+      select(GNIS_NA, WatershedName),
+    by = c("GNIS_NA", "WatershedName")
+  ) |> 
+  st_transform(4326)
+
+waterb_to_map <- waterb_to_map %>%
+  mutate(
+    centroid = st_centroid(geom),
+    lon_offset = st_coordinates(centroid)[,1] + 0.01,  # offset longitude
+    lat_offset = st_coordinates(centroid)[,2] + 0.01   # offset latitude
+  )
+
+## leaflet map to see these
+leaflet(data = waterb_to_map) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    color = "blue",
+    weight = 1,
+    opacity = 1,
+    fillOpacity = 0.5,
+    highlightOptions = highlightOptions(
+      color = "white",
+      weight = 2,
+      bringToFront = TRUE
+    ),
+    label = ~paste0(GNIS_NA, " - ", WatershedName)
+  ) %>%
+  addLabelOnlyMarkers(
+    lng = ~lon_offset,
+    lat = ~lat_offset,
+    label = ~paste0(GNIS_NA, " - ", WatershedName),
+    labelOptions = labelOptions(
+      noHide = TRUE,             # always visible
+      direction = "auto",        # automatic arrow direction
+      textsize = "12px",
+      style = list(
+        "color" = "white",
+        "background-color" = "blue",
+        "padding" = "5px 10px",
+        "border-radius" = "8px",
+        "box-shadow" = "2px 2px 5px rgba(0,0,0,0.3)"
+      )
+    )
+  ) %>%
+  addScaleBar(position = "bottomleft")
+```
+
