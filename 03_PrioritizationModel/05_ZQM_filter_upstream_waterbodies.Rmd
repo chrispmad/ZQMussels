@@ -1,0 +1,309 @@
+---
+title: " Remove Manual waterbodies, Add Golden Mussel WBs, Filtering Upstream Waterbodies"
+author: "John Phelan"
+date: "2026-01-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(readxl)
+library(terra)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(sf)
+library(leaflet)
+library(BAMMtools)
+library(RColorBrewer)
+library(openxlsx)
+library(diffdf)
+library(bcdata)
+library(readr)
+library(bcdata)
+library(DT)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year + 1
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.height = 10,
+	fig.width = 10,
+	message = FALSE,
+	warning = FALSE,
+	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
+)
+# 
+# if(interactive()){
+#   if(stringr::str_extract(getwd(),"[0-9]{2}_.*") != "03_PrioritizationModel"){
+#     setwd(paste0(stringr::str_remove(getwd(),"[0-9]{2}_.*")))
+#   }
+# }
+
+update_remote_output_files = T
+
+library(here)
+source(here("03_PrioritizationModel", "utility_functions.R"))
+
+my_path = ifelse(interactive(), "./03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+source(here(paste0('03_PrioritizationModel/utility_functions.R')))
+```
+
+All of the ZQ waterbodies that are identified for sampling are combined with waterbodies that appear only on the Golden Mussel list. We then identify waterbodies in the same watershed, that are one level upstream of another waterbody already present on the list. These are mapped and an excel spreadsheet saved with these waterbodies.
+
+```{r files}
+
+waterb_zq = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,".xlsx")) |> 
+  rename(waterbody = GNIS_NA) |> 
+  mutate(list_source = "ZQ")
+
+### add Golden Mussel waterbodies
+waterb_golden = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/golden_not_on_zq_Beck_edits.xlsx")) |> 
+  filter(`Add to waterbody list` == "Y") |> 
+  select(-c(`Add to waterbody list`, Veliger.Sampling.Frequency, Sampling_Frequency, Region)) |> 
+  mutate(list_source = "Golden") |> 
+  rename(waterbody = Waterbody, InvasionRisk = InvasionRisk_bin, EVRisk = EVRisk_bin)
+
+
+
+waterb = bind_rows(waterb_zq, waterb_golden)
+
+watersheds = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/WatershedGroups_lowres.shp')) |> 
+ st_drop_geometry() |> 
+ reframe(WATERSH = WATERSHED_, WatershedName = WATERSHE_1)
+
+lakes_and_rivers = read_rds("Z:/2 SCIENCE - Invasives/AIS_R_Projects/LargeDataFiles/named_lakes_and_rivers.rds") |> 
+  rename(WATERSH = watershed)
+
+lakes_and_rivers = lakes_and_rivers |> 
+  left_join(
+    watersheds |> select(WATERSH, WatershedName),
+    by = c("WATERSH")
+  )
+
+waterb = waterb |> 
+  left_join(
+    lakes_and_rivers |> select(FWA_WATERSHED_CODE, waterbody, WatershedName),
+    by = c("waterbody", "WatershedName")
+  )
+
+
+```
+
+
+```{r drop_upstream}
+
+# Split code into segments
+split_code <- function(code) {
+  str_split(code, "-", simplify = TRUE)
+}
+
+# Count how many meaningful (non-zero) levels
+code_depth <- function(code) {
+  sum(split_code(code) != "000000")
+}
+
+# Get prefix up to a given depth
+code_prefix <- function(code, depth) {
+  paste(split_code(code)[1:depth], collapse = "-")
+}
+
+waterb2 <- waterb %>%
+  mutate(
+    depth = map_int(FWA_WATERSHED_CODE, code_depth)
+  )
+
+upstream_pairs <- waterb2 %>%
+  inner_join(
+    waterb2,
+    by = "WatershedName",
+    suffix = c("_down", "_up")
+  ) %>%
+  filter(
+    depth_up == depth_down + 1,
+    map2_lgl(
+      FWA_WATERSHED_CODE_down,
+      FWA_WATERSHED_CODE_up,
+      ~ code_prefix(.x, code_depth(.x)) ==
+        code_prefix(.y, code_depth(.x))
+    )
+  )
+
+upstream_waterbodies = upstream_pairs |> 
+  select(WatershedName, waterbody_down, waterbody_up, geometry_up, geometry_down)
+
+# New dataframe of upstream waterbodies
+waterb_upstream <- upstream_pairs %>%
+  select(ends_with("_up")) %>%
+  rename_with(~ str_remove(.x, "_up$"))
+
+# Remove them from original waterb
+waterb_remaining <- waterb %>%
+  anti_join(
+    waterb_upstream,
+    by = "FWA_WATERSHED_CODE"
+  )
+
+```
+
+There was originally `r nrow(waterb)` waterbodies on the list. After removing those one level upstream, there are `r nrow(waterb_remaining)` waterbodies remaining on the Priority list.
+
+## Upstream and Downstream Waterbodies {.tabset}
+
+### Map
+
+
+```{r upstream_plots, fig.height= 8, fig.width=10}
+
+upstream_sf <- upstream_waterbodies |>
+  select(WatershedName, waterbody_up, waterbody_down, geometry = geometry_up) |>
+  st_as_sf()
+
+downstream_sf <- upstream_waterbodies |>
+  select(WatershedName, waterbody_up, waterbody_down, geometry = geometry_down) |>
+  st_as_sf()
+
+st_crs(upstream_sf) <- 4326
+st_crs(downstream_sf) <- 4326
+
+
+
+
+leaflet() |>
+  addProviderTiles("CartoDB.Positron") |>
+  
+  # Downstream waterbodies
+  addPolygons(
+    data = downstream_sf,
+    color = "#1f78b4",
+    weight = 2,
+    fillOpacity = 0.4,
+    group = "Downstream",
+    popup = ~paste0(
+      "<b>Upstream:</b> ", waterbody_up, "<br/>",
+      "<b>Waterbody:</b> ", waterbody_down,"<br/>",
+      "<br><b>Watershed:</b> ", WatershedName
+    )
+  ) |>
+  
+  # Upstream waterbodies
+  addPolygons(
+    data = upstream_sf,
+    color = "#33a02c",
+    weight = 2,
+    fillOpacity = 0.4,
+    group = "Upstream",
+    popup = ~paste0(
+      "<b>Waterbody:</b> ", waterbody_up,"<br/>",
+      "<b>Downstream:</b> ", waterbody_down,"<br/>",
+      "<br><b>Watershed:</b> ", WatershedName
+    )
+  ) |>
+  
+  addLayersControl(
+    overlayGroups = c("Upstream", "Downstream"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) |> 
+    addLegend(
+    position = "bottomleft",
+    colors = c("#33a02c", "#1f78b4"),
+    labels = c("Upstream waterbodies", "Downstream waterbodies"),
+    opacity = 0.8
+  )
+```
+
+### Data table - Upstream and downstream waterbodies
+
+```{r data_table_upstream}
+upstream_waterbodies |> 
+  select(WatershedName, waterbody_up, waterbody_down) |> 
+  rename(
+    Upstream_Waterbody = waterbody_up,
+    Downstream_Waterbody = waterbody_down
+  ) |> 
+  arrange(WatershedName, Upstream_Waterbody, Downstream_Waterbody) |> 
+  datatable(
+    options = list(pageLength = 10, scrollX = TRUE),
+    caption = htmltools::tags$caption(
+      style = 'caption-side: bottom; text-align: left;',
+      'Table: ', htmltools::em('List of upstream and downstream waterbodies identified in the filtering process.')
+    )
+  )
+
+```
+
+```{r write_files}
+
+## write the waterbodies remaining
+
+waterb_write = waterb_remaining |> 
+  select(-c(FWA_WATERSHED_CODE, geometry)) |> 
+  st_drop_geometry()
+  
+
+my.wb = createWorkbook("waterbodies_risk")
+
+addWorksheet(wb = my.wb, sheetName = "Risk Estimates")
+
+writeDataTable(wb = my.wb,
+               sheet = "Risk Estimates",
+               x = waterb_write,
+               withFilter = T)
+
+width_vec <- apply(waterb_write, 2,
+                  function(x) max(nchar(as.character(x)) + 2, na.rm = TRUE))
+width_vec_header <- nchar(colnames(waterb_write)) + 2
+max_vec_header <- pmax(width_vec, width_vec_header)
+setColWidths(my.wb, "Risk Estimates",
+            cols = 1:ncol(waterb_write), widths = max_vec_header)
+
+addWorksheet(wb = my.wb,
+            sheetName = "Metadata")
+
+explanation_col = c("Name of waterbody's subwatershed according to BCG warehouse subwatershed layer",
+                                             "Unique identifying number of waterbody polygon in BCG Warehouse lake, river or man-made waterbody layers",
+                                             "Name of waterbody in BCG Warehouse lake, river or man-made waterbody layers",
+                                             "Risk estimate for Use variables (total inspections, angler days, and number of marinas)",
+                                             "Risk estimate for High-risk variables (High-risk inspections minus Transport Canada operation restrictions)",
+                                             "The number of high-risk inspections",
+                                             "Risk estimate (1 or 0) depending on mussel-fouled inspections or no",
+                                             "The summed dam capacity at the waterbody scale",
+                                             "The number of distinct species-at-risk in the waterbody",
+                                             "Subwatershed-scale dissolved calcium levels (<8 is low risk, 8-20 medium risk, 20+ high risk); bins are 0, 1 and 2",
+                                             "If calcium bin is 0, is this due to the calcium level being <8, or because that subwatershed lacked calcium data?",
+                                             "Overall risk estimate calculated by combining the use, high-risk, mussel-fouled and calcium_bin risk estimates",
+                                             "As last column, but binned into 3 bins",
+                                             "FLRNO region code",
+                                             "Was the waterbody included in the 2021 list of priority lakes to sample?",
+                                             "Was the waterbody included in the 2022 list of priority lakes to sample?",
+                                             "Was the lake sampled in 2022?",
+                                             "Was the lake sampled in 2023?",
+                                             "Latitude of centroid of polygon",
+                                             "Longitude of centroid of polygon")
+
+explanation_col = c(explanation_col, 
+                    rep('Unbinned variable', 
+                        ncol(waterb_write) - length(explanation_col))
+)
+
+writeDataTable(wb = my.wb, sheet = "Metadata",
+              x = data.frame(Variable = names(waterb_write),
+                             Explanation = explanation_col),
+              withFilter = F)
+
+setColWidths(my.wb, "Metadata",
+            cols = 1, widths = 17)
+
+if(!dir.exists(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"))) {
+  dir.create(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"), recursive = T)
+}
+
+saveWorkbook(my.wb,
+            paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,"_downstream_only.xlsx"),
+            overwrite = T)
+
+```
+
