@@ -16,6 +16,7 @@ update_imdp_automatically.bat
 *.xlsx
 *.docx
 *.rds
+*.gpkg
 ZQMussels.Rproj
 /01_DataCleaning/data/**
 /01_DataCleaning/output/**
