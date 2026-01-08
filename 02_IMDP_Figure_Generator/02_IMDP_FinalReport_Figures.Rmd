@@ -1,6 +1,6 @@
 ---
 title: "02_IMDP_FinalReport_Figures"
-author: "Chris Madsen"
+author: "John Phelan"
 date: "`r Sys.Date()`"
 output: html_document
 fig_width: 8
@@ -1966,6 +1966,10 @@ if(my.year == 2023){
 }
 if(my.year == 2024){
   lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/Final report/BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx'))
+}
+
+if(my.year == 2025){
+  lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/Final report/BC Veliger Sampling Inventory 2025_FINAL REPORT.xlsx'))
 }
 
 lab_dat =  lab_dat |> 
