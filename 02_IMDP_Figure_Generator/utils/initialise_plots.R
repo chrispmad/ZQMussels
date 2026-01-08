@@ -30,7 +30,7 @@ pacman::p_load(
 my_opts = read_csv(paste0(here::here(),"/Options.csv"))
 
 #Which year should we focus on?
-my.year = 2024
+my.year = my_opts$year
 # my.year = 2025
 
 #Update GIS maps? We probably want this turned on unless you are making fine adjustments to some figures.
