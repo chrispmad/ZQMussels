@@ -159,7 +159,7 @@ subw_wb_example_left = ggplot() +
   geom_sf(data = watershed_m, fill = 'purple') + 
   ggthemes::theme_map() + 
   labs(title = '246 Subwatersheds in BC',
-       subtitle = htmltools::HTML(paste0('Pulling out <span style="color:purple;">"',watershed_m$WATERSHE_1,'"</span> subwatershed as example'))) + 
+       subtitle = htmltools::HTML(paste0('Pulling out <span style="color:purple;">"',watershed_m$WATERSHE_1,'"</span> subwatershed as  example'))) + 
   theme(plot.subtitle = ggtext::element_markdown())
 
 subw_wb_example_right = ggplot() + 
@@ -813,7 +813,7 @@ ggplot() +
 
 ```{r mussel_fouled}
 # data for mussel-fouled inspections.
-risk_data_mf = risk_data %>% 
+risk_data_mf =risk_data %>% 
   st_drop_geometry() %>% 
   #Get rid of empty rows.
   filter(!is.na(NumberMusselFouled)) %>% 
@@ -1273,7 +1273,7 @@ saveRDS(
     subw_w_dat,
     breaks_tbl
   ), 
-  file = '03_PrioritizationModel/data/data_for_making_shortlist.rds'
+  file = "C:/Users/JPHELAN/Documents/mussel_model/data_for_making_shortlist.rds"
 )
 ```
 
