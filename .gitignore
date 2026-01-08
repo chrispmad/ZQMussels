@@ -11,6 +11,9 @@ update_imdp_automatically.txt
 update_imdp_automatically.bat
 *.txt
 *.bat
+*.png
+*.csv
+*.xlsx
 ZQMussels.Rproj
 /01_DataCleaning/data/**
 /01_DataCleaning/output/**
