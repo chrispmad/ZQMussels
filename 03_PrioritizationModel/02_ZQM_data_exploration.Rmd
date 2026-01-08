@@ -59,6 +59,7 @@ if(!dir.exists(paste0(getwd(),"/output/"))) {
 }
 ```
 
+
 ```{r load_in_shapefiles}
 # BC shapefile
 bc_shp = bcmaps::bc_bound() %>% 
@@ -76,6 +77,9 @@ bio10_filename <- paste0(file_prefix, "_10.tif")
 bio10_filepath <- file.path(data.path, bio10_filename)
 
 
+
+
+
 # WorldClim future temperature raster data. 
 if(my_opts$zqm_risk_climate_model == "ssp245"){
   tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"), lyrs = 10)
@@ -84,6 +88,46 @@ if(my_opts$zqm_risk_climate_model == "ssp245"){
   tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"), lyrs = 10)
   tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
 }
+
+## there are 19 layers in the wordclim data - this is what they are
+
+# BIO1 = Annual Mean Temperature
+# 
+# BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
+# 
+# BIO3 = Isothermality (BIO2/BIO7) (×100)
+# 
+# BIO4 = Temperature Seasonality (standard deviation ×100)
+# 
+# BIO5 = Max Temperature of Warmest Month
+# 
+# BIO6 = Min Temperature of Coldest Month
+# 
+# BIO7 = Temperature Annual Range (BIO5-BIO6)
+# 
+# BIO8 = Mean Temperature of Wettest Quarter
+# 
+# BIO9 = Mean Temperature of Driest Quarter
+# 
+# BIO10 = Mean Temperature of Warmest Quarter
+# 
+# BIO11 = Mean Temperature of Coldest Quarter
+# 
+# BIO12 = Annual Precipitation
+# 
+# BIO13 = Precipitation of Wettest Month
+# 
+# BIO14 = Precipitation of Driest Month
+# 
+# BIO15 = Precipitation Seasonality (Coefficient of Variation)
+# 
+# BIO16 = Precipitation of Wettest Quarter
+# 
+# BIO17 = Precipitation of Driest Quarter
+# 
+# BIO18 = Precipitation of Warmest Quarter
+# 
+# BIO19 = Precipitation of Coldest Quarter
 
 # Query from EMS!
 ems_path = paste0(my_opts$base_dir, "../../long_term_projects/AIS_EMS/output/EMS.sqlite")
@@ -373,7 +417,7 @@ my_plot = ggplot() +
 
 my_plot
 
-ggsave(filename = paste0("/output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
+ggsave(filename = paste0("./output/TemperatureCorrection_",temp_limit,"_",climate_model,"_RiskMap.png"), plot = my_plot, dpi = 150, width = 10, height = 7)
 ```
 
 ```{r join_calc_and_pH_to_watershed}
