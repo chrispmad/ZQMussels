@@ -19,13 +19,13 @@ library(rmdformats)
 library(leaflet)
 library(bcdata)
 
+
 my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels'),"/Options.csv"))
 
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_knit$set(root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/"))
-
 onedrive_wd = paste0(str_extract(getwd(),"C:/Users/[A-Z]+/"),"OneDrive - Government of BC/data/CNF/")
 lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
 
@@ -95,8 +95,8 @@ wat_temp = terra::rast(paste0(onedrive_wd,"../raster/Temperature_All_masked_krig
 wat_chlor = terra::rast(paste0(onedrive_wd,"../raster/Chlorophyll_All_masked_krig.tif"))
 wat_dis_ox = terra::rast(paste0(onedrive_wd,"../raster/Oxygen_Dissolved_All_masked_krig.tif"))
 wat_tot_phos = terra::rast(paste0(onedrive_wd,"../raster/Phosphorus_Total_Dissolved_All_masked_krig.tif"))
-wat_pH = terra::rast(paste0(onedrive_wd,"/ph-KR-208784-median_10km_ZN.tif"))
-
+#wat_pH = terra::rast(paste0(onedrive_wd,"/ph-KR-208784-median_10km_ZN.tif"))
+wat_pH = terra::rast(paste0(onedrive_wd,"../raster/pH_All_masked_krig.tif"))
 # Number of waterbodies downstream of waterbody.
 # library(fwa.connect)
 # fwa_code_tbl = fwa.connect::stream_conn_tbl()
