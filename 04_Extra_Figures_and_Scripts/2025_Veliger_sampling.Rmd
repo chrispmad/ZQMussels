@@ -1,0 +1,115 @@
+---
+title: "2025 Veliger Sampling Locations"
+author: "John Phelan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = F, warning = F, message = F)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(sf)
+library(bcdata)
+library(bcmaps)
+library(readxl)
+library(leaflet)
+library(leafpop)
+library(leaflet.extras)
+library(janitor)
+library(here)
+library(openxlsx)
+library(htmlwidgets)
+
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/"
+
+
+dat<-openxlsx::read.xlsx(here::here("./data/BC Veliger Sampling Inventory 2025_FINAL_REPORT.xlsx.xlsx"))
+
+
+```
+
+
+```{r data grab}
+
+dat <- dat |> 
+  clean_names()
+
+dat<- dat |> 
+  rename(count =  x1)
+
+dat<- dat |> 
+  mutate(date_collected_yyyy_mm_dd = as.Date(as.numeric(date_collected_yyyy_mm_dd), origin = "1899-01-01"))
+
+dat_complete<-dat |> 
+  filter(!is.na(lat_decimal_degrees) | !is.na(long_decimal_degrees))
+dat_missing<-dat |> 
+  filter(is.na(lat_decimal_degrees) | is.na(long_decimal_degrees))
+
+
+#fix wrong longs - all should be negative
+dat_complete<-dat_complete |> 
+  mutate(long_decimal_degrees = ifelse(long_decimal_degrees > 0, long_decimal_degrees * -1, long_decimal_degrees))
+
+
+dat_sf<-st_as_sf(dat_complete, coords = c("long_decimal_degrees", "lat_decimal_degrees"), crs = 4326)
+
+```
+
+
+
+
+## Veliger Sampling 2025
+
+
+
+```{r leaflet map, fig.width=10, fig.height=8}
+
+pal_sampling <- colorFactor(
+  palette = "Set2",
+  domain  = dat_sf$sampling_group_agency,
+  na.color = "#cccccc"
+)
+
+leaflet() |> 
+  addTiles(group = "OSM") |> 
+  addProviderTiles(providers$CartoDB.Positron, group = "CartoDB") |> 
+  addLayersControl(
+    position = 'bottomleft',
+    baseGroups = c("CartoDB","OSM"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) |> 
+  addCircleMarkers(
+    data = dat_sf,
+    color = ~pal_sampling(sampling_group_agency),
+    fillOpacity = 0.8,
+    radius = 2,
+    label = ~paste0(waterbody, ", ", date_collected_yyyy_mm_dd),
+    popup = leafpop::popupTable(
+      dat_sf,
+      zcol = c(
+        "waterbody",
+        "location_site_name",
+        "date_collected_yyyy_mm_dd",
+        "secchi_depth_m",
+        "water_temperature_c",
+        "p_h_in_water_column",
+        "zebra_quagga_mussels_veligers",
+        "sampling_group_agency"
+      )
+    )
+  ) |> 
+  addLegend(
+    position = "bottomright",
+    pal = pal_sampling,
+    values = dat_sf$sampling_group_agency,
+    title = "Sampling group / agency",
+    opacity = 1
+  )
+
+
+
+```
+
+
+
