@@ -1,0 +1,60 @@
+---
+title: " Combine ZQ list and "
+author: "John Phelan"
+date: "2026-01-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(readxl)
+library(terra)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(sf)
+library(leaflet)
+library(BAMMtools)
+library(RColorBrewer)
+library(openxlsx)
+library(diffdf)
+library(bcdata)
+library(readr)
+library(bcdata)
+library(DT)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year + 1
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.height = 10,
+	fig.width = 10,
+	message = FALSE,
+	warning = FALSE,
+	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
+)
+# 
+# if(interactive()){
+#   if(stringr::str_extract(getwd(),"[0-9]{2}_.*") != "03_PrioritizationModel"){
+#     setwd(paste0(stringr::str_remove(getwd(),"[0-9]{2}_.*")))
+#   }
+# }
+
+update_remote_output_files = T
+
+library(here)
+source(here("03_PrioritizationModel", "utility_functions.R"))
+
+my_path = ifelse(interactive(), "./03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+source(here(paste0('03_PrioritizationModel/utility_functions.R')))
+```
+
+```{r get_files}
+
+
+
+```
+
