@@ -1,7 +1,7 @@
 # loading the data
 
 if (!exists('dat')) {
-  dat <- read.xlsx(paste0(my.data.folder, 'figure_dat.xlsx')) |> 
+  dat <- read.xlsx(paste0(my.data.folder, '/figure_dat.xlsx')) |> 
     mutate(TimeOfInspection = convertToDateTime(TimeOfInspection)) |> 
     as_tibble() #|> 
     # mutate(
@@ -15,7 +15,7 @@ if (!exists('dat')) {
 dat = dat |> 
   mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",TRUE ~ Station))
 if(!exists('dat_all')){
-  dat_all = read.xlsx(paste0(my.data.folder,'figure_dat_all.xlsx')) |>
+  dat_all = read.xlsx(paste0(my.data.folder,'/figure_dat_all.xlsx')) |>
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
     as_tibble()#|> 
     # mutate(
@@ -39,7 +39,7 @@ if(dat[1,]$Year != my.year){
 }
 
 if(!exists('dat_hr')){
-  dat_hr = read.xlsx(paste0(my.data.folder,'figure_dat_hr.xlsx')) |> 
+  dat_hr = read.xlsx(paste0(my.data.folder,'/figure_dat_hr.xlsx')) |> 
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
     as_tibble()
 }
@@ -57,7 +57,7 @@ dat_hr = dat_hr |>
 
 
 if(!exists('dat_mf')){
-  dat_mf = read.xlsx(paste0(my.data.folder,'figure_dat_mf.xlsx')) |>
+  dat_mf = read.xlsx(paste0(my.data.folder,'/figure_dat_mf.xlsx')) |>
     mutate(TimeOfInspection = openxlsx::convertToDateTime(TimeOfInspection)) |> 
     as_tibble()
 }
