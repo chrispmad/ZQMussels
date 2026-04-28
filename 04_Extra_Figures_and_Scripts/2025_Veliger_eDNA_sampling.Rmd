@@ -1,0 +1,192 @@
+---
+title: "2025 Veliger Sampling Locations"
+author: "John Phelan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = F, warning = F, message = F)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(sf)
+library(bcdata)
+library(bcmaps)
+library(readxl)
+library(leaflet)
+library(leafpop)
+library(leaflet.extras)
+library(janitor)
+library(here)
+library(openxlsx)
+library(htmlwidgets)
+
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/"
+
+
+dat<-openxlsx::read.xlsx(here::here("./data/BC Veliger Sampling Inventory 2025_FINAL_REPORT.xlsx"))
+
+dat_edna = read.csv(here::here("./data/2025_sample_locations_final.csv")) |> 
+  filter(sample_type == "eDNA")
+```
+
+
+```{r data grab}
+
+dat <- dat |> 
+  clean_names()
+
+dat<- dat |> 
+  rename(count =  x1)
+
+dat<- dat |> 
+  mutate(date_collected_yyyy_mm_dd = as.Date(as.numeric(date_collected_yyyy_mm_dd), origin = "1899-01-01"))
+
+dat_complete<-dat |> 
+  mutate(long_decimal_degrees = as.numeric(long_decimal_degrees),
+         lat_decimal_degrees = as.numeric(lat_decimal_degrees)) |> 
+  filter(!is.na(lat_decimal_degrees) | !is.na(long_decimal_degrees))
+dat_missing<-dat |> 
+  mutate(long_decimal_degrees = as.numeric(long_decimal_degrees),
+         lat_decimal_degrees = as.numeric(lat_decimal_degrees)) |> 
+  filter(is.na(lat_decimal_degrees) | is.na(long_decimal_degrees))
+
+
+#fix wrong longs - all should be negative
+dat_complete<-dat_complete |> 
+  mutate(long_decimal_degrees = ifelse(long_decimal_degrees > 0, long_decimal_degrees * -1, long_decimal_degrees))
+
+
+dat_sf<-st_as_sf(dat_complete, coords = c("long_decimal_degrees", "lat_decimal_degrees"), crs = 4326)
+
+
+############## 
+# --------- we also want the eDNA samples taken in 2025
+dat_edna = dat_edna |> 
+  rename(count = X) |> 
+  mutate(long_decimal_degrees = ifelse(long_decimal_degrees > 0, long_decimal_degrees * -1, long_decimal_degrees))
+dat_edna_sf = st_as_sf(dat_edna, coords = c("long_decimal_degrees", "lat_decimal_degrees"), crs = 4326)
+
+```
+
+
+
+```{r leaflet map, fig.width=10, fig.height=8}
+
+
+sampling_levels <- unique(dat_sf$sampling_group_agency)
+
+pal_sampling <- colorFactor(
+  palette = c(
+    "CLSS"   = "#66c2a5",
+    "CSISS"  = "#fc8d62",
+    "ONA"    = "#e78ac3",  # <-- pink (high contrast to water)
+    "FVISS"  = "#a6d854",
+    "MLWRS"  = "#ffd92f",
+    "ISCBC"  = "#e5c494",
+    "CKISS"  = "#b3b3b3",
+    "EKISC"  = "#1b9e77",
+    "BISS"   = "#d95f02",
+    "OASISS" = "#7570b3",
+    "ISCMV"  = "#66a61e",
+    "MOE"    = "#e7298a"
+  ),
+  domain   = sampling_levels,
+  na.color = "#cccccc"
+)
+
+pal_edna <- colorFactor(
+  palette = "#3182bd",  # a distinct blue
+  domain = dat_edna_sf$sample_type
+)
+
+
+leaflet() |> 
+  addTiles(group = "OSM") |> 
+  addProviderTiles(providers$CartoDB.Positron, group = "CartoDB") |> 
+  addLayersControl(
+    position = 'bottomleft',
+    baseGroups = c("CartoDB", "OSM"),
+    overlayGroups = c("Veliger Sampling", "eDNA Sampling"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) |> 
+  addCircleMarkers(
+    data = dat_sf,
+    group = "Veliger Sampling",
+    color = ~pal_sampling(sampling_group_agency),
+    fillOpacity = 0.8,
+    radius = 2,
+    label = ~paste0(waterbody, ", ", date_collected_yyyy_mm_dd),
+    popup = leafpop::popupTable(
+      dat_sf,
+      zcol = c(
+        "waterbody",
+        "location_site_name",
+        "date_collected_yyyy_mm_dd",
+        "secchi_depth_m",
+        "water_temperature_c",
+        "p_h_in_water_column",
+        "zebra_quagga_mussels_veligers",
+        "sampling_group_agency"
+      )
+    )
+  ) |> 
+  addCircleMarkers(
+    data = dat_edna_sf,
+    group = "eDNA Sampling",
+    color = "#3182bd",
+    fillColor = "#3182bd",
+    fillOpacity = 0.8,
+    radius = 2,
+    label = ~paste0(waterbody, ", ", date_collected),
+    popup = leafpop::popupTable(
+      dat_edna_sf,
+      zcol = c(
+        "waterbody",
+        "location_site_name",
+        "sampling_organisation",
+        "date_collected",
+        "sample_type"
+      )
+    )
+  ) |> 
+  addLegend(
+    position = "bottomright",
+    pal = pal_sampling,
+    values = dat_sf$sampling_group_agency,
+    title = "Sampling group / agency",
+    opacity = 1,
+    group = "Veliger Sampling"                # <-- ties legend to layer toggle
+  ) |> 
+  addLegend(
+    position = "bottomright",
+    colors = "#3182bd",
+    labels = "eDNA Sampling",
+    title = "eDNA",
+    opacity = 1,
+    group = "eDNA Sampling"                   # <-- ties legend to layer toggle
+  ) |> 
+  htmlwidgets::onRender("
+    function(el, x) {
+      var map = this;
+      map.on('overlayadd overlayremove', function(e) {
+        map.eachLayer(function(layer) {
+          if (layer.options && layer.options.className) {
+            var legendClass = layer.options.className;
+            var groupName = e.name;
+            if (legendClass.includes(groupName.replace(/ /g, '-'))) {
+              layer.getElement().style.display = 
+                e.type === 'overlayadd' ? 'block' : 'none';
+            }
+          }
+        });
+      });
+    }
+  ")
+
+
+
+```
+
+
+

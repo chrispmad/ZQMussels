@@ -1,0 +1,124 @@
+---
+title: "Golden Mussel Sample Locations"
+author: "John Phelan"
+date: "2025-12-23"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(openxlsx)
+library(dplyr)
+library(data.table)
+library(kableExtra)
+library(sf)
+library(leaflet)
+library(leafpop)
+
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+
+my.year = 2026
+zq<- read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,".xlsx"))
+
+golden<-read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_golden_mussel.xlsx"))
+
+# waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+
+```
+
+
+
+```{r check_zq, fig.width= 8, fig.height=6}
+
+golden_only <- golden %>%
+  anti_join(
+    zq,
+    by = c("WatershedName", "Waterbody")
+  )
+
+waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+
+waterb = waterb |> 
+  rename(Waterbody = GNIS_NA)
+
+golden_only_sf <- golden_only %>%
+  left_join(
+    waterb %>% select(Waterbody,WATERBO, geom),
+    by = c("Waterbody","WATERBO")
+  ) %>%
+  st_as_sf() |> 
+  st_transform(4326)
+
+
+golden_labels <- golden_only_sf %>%
+  st_point_on_surface()   # better than centroid for polygons
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+
+  ## Polygons (clickable)
+  addPolygons(
+    data = golden_only_sf,
+    fillColor   = "orange",
+    fillOpacity = 0.6,
+    color       = "black",
+    weight      = 1,
+    popup = leafpop::popupTable(
+      golden_only_sf,
+      zcol = c("WatershedName", "Waterbody"),
+      feature.id = FALSE
+    )
+  ) %>%
+
+  ## Labels (always visible, offset top-right)
+  addLabelOnlyMarkers(
+    data = golden_labels,
+    label = ~Waterbody,
+    labelOptions = labelOptions(
+      noHide = TRUE,
+      direction = "topright",
+      offset = c(20, -20),
+      textOnly = FALSE,
+      style = list(
+        "background-color" = "rgba(255,255,255,0.9)",
+        "border" = "1px solid #444",
+        "border-radius" = "8px",
+        "padding" = "4px 8px",
+        "font-size" = "8px",
+        "font-weight" = "bold"
+      )
+    )
+  )
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

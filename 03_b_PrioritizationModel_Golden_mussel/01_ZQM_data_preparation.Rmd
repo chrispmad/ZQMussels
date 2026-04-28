@@ -1,0 +1,588 @@
+---
+title: "ZQM Data Exploration"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: material
+    highlight: github
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(terra)
+library(sf)
+library(tidyverse)
+library(ggrepel)
+library(rmdformats)
+library(leaflet)
+library(bcdata)
+
+
+my_opts = read_csv(paste0(str_extract(getwd(), '.*ZQMussels'),"/Options.csv"))
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_knit$set(root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/"))
+onedrive_wd = paste0(str_extract(getwd(),"C:/Users/[A-Z]+/"),"OneDrive - Government of BC/data/CNF/")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+recount.features = T
+```
+
+This R Markdown document explores the datasets we plan to use to inform our assessment of ZQM invasion risk for waterbodies in BC.
+  
+```{r import_waterbody_data_and_filtering}
+
+# Inspections joined to water bodies.
+# waterb = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/Waterbodies_with_Inspection_Data_Summaries.gpkg"))
+waterb = read_sf(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/Waterbodies_with_Inspection_Data_Summaries_all_years.gpkg"))
+# The above file was updated when I ran {imdp}'s summarise_imdp_data_to_waterbodies() function. I'd like some way to verify that it has all the data up to date...
+# waterb_from_2nd_file = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+
+#Sam and Don's lake list - has facilities, campgrounds, etc.
+SamDonLakeList = read_csv(paste0(my_opts$remote_spatial_data,"shared_data_sets/Lake_data.csv"))
+
+# Try to find rec sites in the BC Data Catalogue - Found something!
+rec_sites_all = bcdc_query_geodata('recreation-sites-subset-information-purposes-only') |> 
+  collect()
+
+# Urban locations.
+urb = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/Census_Cities_2016.shp")) %>% 
+  dplyr::select(CENSUS_S_1,CENSUS_D_1,POP_TOTAL)
+
+# Angling locations
+# ang = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/AnglingLocations.shp"))
+angling_sites = rec_sites_all |> 
+  dplyr::select(dplyr::contains("ACTIVITY_DESC")) |> 
+  tidyr::pivot_longer(cols = dplyr::contains("ACTIVITY_DESC")) |> 
+  dplyr::filter(value == 'Angling') |> 
+  dplyr::select(-name, activity = value) |> 
+  dplyr::distinct()
+
+# Boat Launch Locations
+boatl_rec = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/BoatLaunchLocations.shp"))
+
+boatl_ffsbc = read_excel(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/Small_Lakes_Data_Request.xlsx"))
+
+boating_sites = rec_sites_all |> 
+  dplyr::select(dplyr::contains("ACTIVITY_DESC")) |> 
+  tidyr::pivot_longer(cols = dplyr::contains("ACTIVITY_DESC")) |> 
+  dplyr::filter(value %in% c('Boating','Kayaking')) |> 
+  dplyr::select(-name, activity = value) |> 
+  dplyr::distinct()
+
+# Dams
+dams = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/dams_cleaned.xlsx"))
+
+# Angler survey data - old excel file that includes sum of days fished, average
+# angler days, WB access, and boat launch, as point data.
+# angsurvey_old = openxlsx::read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/angler effort by water body.xlsx")) %>%
+  # as_tibble()
+
+# 2022-2023 Freshwater fisheries society questionnaire - days fished by waterbody.
+angsur = sf::read_sf(paste0(lan_root,"2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/freshwater_fisheries_society_angler_survey_2022_2023.gpkg"))
+# Now using the 2022-2023 Freshwater fisheries society questionnaire from Rob Payntor!
+
+# distance to highways from AIS prioritization model work with John Phelan
+# dist_to_h = terra::rast(paste0(onedrive_wd,"distance_to_numbered_highway_raster.tif"))
+
+# Interpolated water temperature
+wat_temp = terra::rast(paste0(onedrive_wd,"../raster/Temperature_All_masked_krig.tif"))
+# Interpolated water chemistry variables
+wat_chlor = terra::rast(paste0(onedrive_wd,"../raster/Chlorophyll_All_masked_krig.tif"))
+wat_dis_ox = terra::rast(paste0(onedrive_wd,"../raster/Oxygen_Dissolved_All_masked_krig.tif"))
+wat_tot_phos = terra::rast(paste0(onedrive_wd,"../raster/Phosphorus_Total_Dissolved_All_masked_krig.tif"))
+#wat_pH = terra::rast(paste0(onedrive_wd,"/ph-KR-208784-median_10km_ZN.tif"))
+wat_pH = terra::rast(paste0(onedrive_wd,"../raster/pH_All_masked_krig.tif"))
+# Number of waterbodies downstream of waterbody.
+# library(fwa.connect)
+# fwa_code_tbl = fwa.connect::stream_conn_tbl()
+salinity = terra::rast(paste0(onedrive_wd,"../raster/salinity_All_krig.tif"))
+calcium = terra::rast(paste0(onedrive_wd,"../raster/Calcium_Dissolved_All_krig.tif "))
+
+# BCG waterbodies
+bcg_waterbodies = read_sf(paste0(my_opts$remote_spatial_data,"shared_data_sets/summarized_bc_waterbodies.shp"))
+
+#Start a filter tracking table that we use for transparency.
+filter_steps = data.frame(Step = "Initial data load - note that this includes rivers and man-made waterbodies",
+                          Numb_waterb_tot = nrow(bcg_waterbodies),
+                          Numb_waterb_data = nrow(sf::st_drop_geometry(waterb)[complete.cases(sf::st_drop_geometry(waterb)),]))
+```
+
+```{r data_cleaning}
+# Sam and Don's lake data #
+samdon = SamDonLakeList %>%
+  rename(WATERBO = `Waterbody ID`) %>%
+  mutate(WATERBO = as.numeric(str_remove_all(WATERBO, "[A-Z]+"))) %>%
+  group_by(WATERBO) %>%
+    summarise(across(!contains("WATERBO"), sum)) %>%
+  dplyr::select(-Area, -Perimeter)
+```
+
+```{r get_WATERBO_for_waterb}
+# Get the unique polygon IDs of each waterbody, add to the waterb object.
+# Note that some waterbodies are split into many pieces in the bcg warehouse.
+# For such waterbodies, I take only the first unique polygon number for a given GNIS name + subwatershed combination. This avoids inflating our dataset with duplicates.
+waterb = waterb |>  
+  left_join(bcg_waterbodies |> 
+              st_drop_geometry()  |>  
+              dplyr::select(WATERSHED_,WATERBOD_1,GNIS_NAME_) |> 
+              group_by(WATERSHED_,GNIS_NAME_) |>  
+              slice(1) |> 
+              rename(WATERSH = WATERSHED_,
+                     WATERBO = WATERBOD_1,
+                     GNIS_NA = GNIS_NAME_),
+            by = join_by(WATERSH, GNIS_NA))
+```
+
+```{r rbind_waterb_with_all_waterbodies,include=F}
+#The waterb shapefile is composed of only those lakes for which we have inspection data.
+#In this step, we bind the rows of those lakes with the huge bcg warehouse layer of waterbodies.
+
+waterb = waterb %>% 
+  bind_rows(bcg_waterbodies %>% 
+              dplyr::rename(geom = geometry) |> 
+              filter(!paste0(GNIS_NAME_,WATERBOD_1,WATERSHED_) %in% paste0(waterb$GNIS_NA,waterb$WATERBO,waterb$WATERSH)) %>% 
+              dplyr::select(WATERSHED_, GNIS_NAME_, WATERBOD_1) %>% 
+              rename(WATERSH = WATERSHED_,
+                     GNIS_NA = GNIS_NAME_,
+                     WATERBO = WATERBOD_1)) #%>% 
+  #mutate(across(!contains("geometry"), replace_na, 0)) %>% 
+  #mutate(GNIS_NA = replace(GNIS_NA, GNIS_NA == "0", NA))
+```
+
+
+```{r join_angling_data}
+# Now join the more recent (2022/2023) Freshwater Fisheries Angler survey data.
+waterb = waterb |>
+  dplyr::left_join(
+    angsur |>
+      sf::st_drop_geometry() |>
+      dplyr::select(WATERSH = WATERSHED_GROUP_ID, GNIS_NA = Waterbody, days_fished_2023_survey = days_fished) |>
+      dplyr::group_by(WATERSH, GNIS_NA) |>
+      dplyr::reframe(days_fished_2023_survey = sum(days_fished_2023_survey))
+  )
+```
+
+```{r join_sams_data, include=F}
+rm(bcg_waterbodies)
+#2,323 waterbodies for which we have Sam's data on campgrounds etc.
+waterb = waterb %>% 
+  left_join(samdon)
+```
+
+```{r join_dam_data}
+dams_sf = dams %>% 
+  #Correct any longitude values that are not negative, but should be.
+  mutate(lng = case_when(
+    lng > 0 ~ (-1)*lng,
+    lng < 0 ~ lng
+  )) %>% 
+  rename(DamCapacity = Capacity) %>% 
+  st_as_sf(coords = c("lng","lat"), crs = 4326) %>% 
+  st_transform(., crs = crs(waterb))
+
+#write_sf(dams_sf, "W:/CMadsen/SpatialData/DamFeatures.shp")
+
+#We're just going to use big waterbodies so that we can focus 
+#on rivers and very big lakes, not little ponds and whatnot.
+big_waterb = waterb |> 
+  dplyr::mutate(Area = as.numeric(sf::st_area(geom))) |> 
+  dplyr::filter(Area >= 3000000)
+
+#Find the nearest water body for each dam.
+nearest_waterbody_to_dam = st_nearest_feature(dams_sf, big_waterb, check_crs = T)
+
+#Get the unique id of the closest waterbody and assign it to the dams.
+dams_sf$WATERBO = big_waterb[nearest_waterbody_to_dam,]$WATERBO
+dams_sf$WATERSH = big_waterb[nearest_waterbody_to_dam,]$WATERSH
+dams_sf$GNIS_NA = big_waterb[nearest_waterbody_to_dam,]$GNIS_NA
+
+write_sf(dams_sf, paste0(my_opts$remote_spatial_data,"shared_data_sets/dams_summarised_sf.shp"))
+
+#Summarize dam info.
+dams_summarised = dams_sf %>% 
+  st_drop_geometry() %>% 
+  group_by(WATERSH,WATERBO,GNIS_NA) %>% 
+  summarise(SummedDamCapacity = sum(DamCapacity),
+            NumberDams = n())
+
+#Take a look at where the dams and waterbodies are.
+# leaflet(data = dams_sf %>% st_transform(crs = 4326)) %>% 
+#   addTiles() %>% 
+#   addMarkers(label = ~Name) %>% 
+#   addPolygons(data = big_waterb[big_waterb$WATERBO %in% all_of(dams_sf$NearestWaterbody),] %>% st_transform(crs = 4326), fillColor = "red")
+
+#Join to waterb layer.
+waterb = waterb %>% 
+  left_join(dams_summarised)
+```
+
+```{r join_boat_launch_info}
+#Note: we already have some boat launch info from the angler survey data.
+#Now we are going to add 2 more sources of boat launch data.
+
+#We have to spatialize the boat launch info because it doesn't have waterbody info except name.
+
+#Here is the rec layer with boat launch info.
+boatl_rec_sf = boatl_rec %>% 
+  filter(str_detect(StrctrT, "Boat Launch") | str_detect(STRUCTU, "Boat Launch")) %>% 
+  mutate(BoatLaunchRec = "YES",
+         BoatLaunchID = row_number()) %>% 
+  st_buffer(dist = 500)
+
+#And this is the boat launch data Martina got us from FFSBC.
+boatl = boatl_ffsbc %>% 
+  filter(!is.na(UTM_Easting),
+         !is.na(UTM_Northing)) %>% 
+  dplyr::select(UTM_Zone, UTM_Easting, UTM_Northing,
+         Boat_Launches, Campsites)
+
+# And here is the recreation layer from the BC Data Catalogue, specifically points labelled 'Boating' or 'Kayaking'
+# boating_sites
+
+boatl_sf = boatl %>% 
+  filter(UTM_Zone == 9) %>% 
+  st_as_sf(coords = c("UTM_Easting","UTM_Northing"),
+           crs = "+proj=utm +zone=8 +datum=NAD83 +units=m +no_defs
++ellps=GRS80 +towgs84=0,0,0 ") %>% 
+  st_transform(crs = 3005) %>% 
+  bind_rows(boatl %>% 
+  filter(UTM_Zone == 9) %>% 
+  st_as_sf(coords = c("UTM_Easting","UTM_Northing"),
+           crs = "+proj=utm +zone=9 +datum=NAD83 +units=m +no_defs
++ellps=GRS80 +towgs84=0,0,0 ") %>% 
+  st_transform(crs = 3005)) %>% 
+  bind_rows(boatl %>% 
+  filter(UTM_Zone == 10) %>% 
+  st_as_sf(coords = c("UTM_Easting","UTM_Northing"),
+           crs = "+proj=utm +zone=10 +datum=NAD83 +units=m +no_defs
++ellps=GRS80 +towgs84=0,0,0 ") %>% 
+  st_transform(crs = 3005)) %>% 
+  bind_rows(boatl %>% 
+  filter(UTM_Zone == 11) %>% 
+  st_as_sf(coords = c("UTM_Easting","UTM_Northing"),
+           crs = "+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs
++ellps=GRS80 +towgs84=0,0,0 ") %>% 
+  st_transform(crs = 3005)) %>% 
+  dplyr::select(-UTM_Zone)
+
+#Now we need to match these boatl points to waterbodies
+
+#First, the rec layer.
+rec_join = st_join(waterb, boatl_rec_sf %>% 
+                 dplyr::select(BoatLaunchRec,BoatLaunchID), join = st_intersects)
+
+#Some water bodies have multiple boat launches in this rec layer.
+#Count those up and summarise for each water body.
+waterb = waterb %>% 
+  left_join(rec_join %>% 
+              mutate(SurfaceArea = st_area(.)) %>% 
+              st_drop_geometry() %>% 
+              filter(!is.na(BoatLaunchID)) %>% 
+              #If a boat launch matches to 2+ lakes, grab the biggest lake.
+              group_by(BoatLaunchID) %>% 
+              arrange(desc(SurfaceArea)) %>% 
+              slice(1) %>% 
+              #And for any water body with multiple boat launches, sum them.
+              group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+              summarise(BoatLaunchRecCounter = n()))
+rm(rec_join)
+
+ang_join = st_join(waterb, boatl_sf, join = st_intersects)
+
+#Combine any campsites or boat launches from angler survey data.
+waterb = waterb %>% 
+  #Join the boat launch records that are "YES", and sum them for each wb.
+  left_join(ang_join %>% 
+              st_drop_geometry() %>% 
+              filter(!is.na(Boat_Launches),
+                     Boat_Launches != "NO") %>% 
+              group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+              summarise(Boat_Launches_N = n())
+            ) %>% 
+  #Join the campsites records and sum them too.
+  left_join(ang_join %>% 
+              st_drop_geometry() %>% 
+              filter(!is.na(Campsites),
+                     Campsites != "NO") %>% 
+              group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+              summarise(Campsites_N = n())
+            )
+rm(ang_join)
+
+#Add together campgrounds/campsites, and boat launch info from
+#the rec layer and the angler survey.
+waterb = waterb %>% 
+  mutate(Campgrounds = Campgrounds + Campsites_N) %>% 
+  dplyr::select(-Campsites_N) |> 
+  mutate(Campgrounds = replace(Campgrounds, Campgrounds == 0, NA))
+```
+
+```{r add_distance_to_highways}
+# waterb$distance_to_nearest_highway = terra::extract(dist_to_h, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+
+# waterb = waterb |> 
+#   dplyr::mutate(distance_to_nearest_highway = tidyr::replace_na(distance_to_nearest_highway, 0))
+
+```
+
+```{r add_population_density}
+popdens = terra::rast(paste0(onedrive_wd,"population_density_raster.tif"))
+
+waterb$population_density = terra::extract(popdens, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+
+waterb = waterb |> 
+  dplyr::mutate(population_density = tidyr::replace_na(population_density, 0))
+```
+
+```{r add_number_of_downstream_waterbodies}
+
+# # First of all, simplify the list of waterbodies for which we'll calculate this 
+# # to just those waterbodies with boat inspections.
+# waterb_needing_blk = waterb |> 
+#   dplyr::filter(!is.na(TotalInspections)) |> 
+#   sf::st_drop_geometry() |> 
+#   dplyr::select(WATERSH, GNIS_NA)
+# 
+# # Read in the summarized BC waterbodies object from Chris' W: drive! Snag FWA_WATERSHED_CODE
+# # from that.
+# all_wbs = sf::read_sf("W:/CMadsen/shared_data_sets/summarized_bc_waterbodies.shp")
+# 
+# wbs_with_fwa = all_wbs |> 
+#   dplyr::select(FWA_WATERSHED_CODE = FWA_WAT,
+#                 WATERSH = WATERSHED_,
+#                 GNIS_NA = GNIS_NAME_) |> 
+#   dplyr::filter(paste0(GNIS_NA,WATERSH) %in% paste0(waterb_needing_blk$GNIS_NA,waterb_needing_blk$WATERSH)) |> 
+#   sf::st_drop_geometry() |> 
+#   dplyr::distinct() |> 
+#   dplyr::group_by(WATERSH,GNIS_NA) |> 
+#   dplyr::slice(1) |> 
+#   dplyr::ungroup()
+# 
+# wbs_with_fwa = wbs_with_fwa |> 
+#   dplyr::mutate(wbs_downstream = stringr::str_count(stringr::str_remove_all(FWA_WATERSHED_CODE,'-000000-.*'),'-'))
+# 
+# waterb = waterb |> 
+#   dplyr::left_join(wbs_with_fwa)
+```
+
+```{r add_interpolated_water_temperature_and_chemistry_vars}
+
+waterb$water_temp_interp = terra::extract(wat_temp, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_chlor_interp = terra::extract(wat_chlor, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_dis_ox_interp = terra::extract(wat_dis_ox, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_tot_phos_interp = terra::extract(wat_tot_phos, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$water_pH = terra::extract(wat_pH, terra::vect(sf::st_transform(waterb,4326)), fun = 'mean',na.rm=T)[,2]
+waterb$salinity = terra::extract(salinity, terra::vect(sf::st_transform(waterb,4326)),
+                                 fun = 'mean', na.rm = T)[,2]
+waterb$calcium = terra::extract(calcium, terra::vect(sf::st_transform(waterb,4326)),
+                                 fun = 'mean', na.rm = T)[,2]
+
+
+
+waterb = waterb |> dplyr::mutate(water_temp_interp = tidyr::replace_na(water_temp_interp, 0))
+waterb = waterb |> dplyr::mutate(water_chlor_interp = tidyr::replace_na(water_chlor_interp, 0))
+waterb = waterb |> dplyr::mutate(water_dis_ox_interp = tidyr::replace_na(water_dis_ox_interp, 0))
+waterb = waterb |> dplyr::mutate(water_tot_phos_interp = tidyr::replace_na(water_tot_phos_interp, 0))
+waterb = waterb |> dplyr::mutate(water_pH = tidyr::replace_na(water_pH, 0))
+waterb = waterb |> dplyr::mutate(salinity = tidyr::replace_na(salinity, 0))
+waterb = waterb |> dplyr::mutate(calcium = tidyr::replace_na(calcium,0))
+```
+
+```{r add_correct_binning_to_water_temp_and_chem_vars}
+waterb <- waterb |>
+  # -------------------------
+  # Water pH
+  # -------------------------
+  dplyr::mutate(water_pH = dplyr::case_when(
+    water_pH < 5.8 | water_pH > 9.2 ~ "No Risk",
+    water_pH <= 6.5 | water_pH >= 8.8 ~ "Low Risk",
+    (water_pH > 6.5 & water_pH < 7.0) | 
+      (water_pH >= 8.0 & water_pH < 8.8) ~ "Moderate Risk",
+    water_pH >= 7.0 & water_pH <= 8.0 ~ "High Risk",
+    TRUE ~ as.character(water_pH)
+  )) |>
+
+  # -------------------------
+  # Water temperature (°C)
+  # -------------------------
+  dplyr::mutate(water_temp_interp = dplyr::case_when(
+    water_temp_interp < 5 | water_temp_interp > 35 ~ "No Risk",
+    water_temp_interp <= 12 | water_temp_interp >= 30 ~ "Low Risk",
+    (water_temp_interp > 12 & water_temp_interp <= 18) |
+      (water_temp_interp > 26 & water_temp_interp < 30) ~ "Moderate Risk",
+    water_temp_interp > 18 & water_temp_interp <= 26 ~ "High Risk",
+    TRUE ~ as.character(water_temp_interp)
+  )) |>
+
+  # -------------------------
+  # Chlorophyll-a (µg/L)
+  # -------------------------
+  dplyr::mutate(water_chlor_interp = dplyr::case_when(
+    water_chlor_interp < 1 | water_chlor_interp > 60 ~ "No Risk",
+    water_chlor_interp <= 3 | water_chlor_interp >= 40 ~ "Low Risk",
+    (water_chlor_interp > 3 & water_chlor_interp < 10) |
+      (water_chlor_interp >= 25 & water_chlor_interp < 40) ~ "Moderate Risk",
+    water_chlor_interp >= 10 & water_chlor_interp < 25 ~ "High Risk",
+    TRUE ~ as.character(water_chlor_interp)
+  )) |>
+
+  # -------------------------
+  # Dissolved oxygen (mg/L)
+  # -------------------------
+  dplyr::mutate(water_dis_ox_interp = dplyr::case_when(
+    water_dis_ox_interp < 2 ~ "No Risk",
+    water_dis_ox_interp < 4 ~ "Low Risk",
+    water_dis_ox_interp < 6 ~ "Moderate Risk",
+    water_dis_ox_interp >= 6 ~ "High Risk",
+    TRUE ~ as.character(water_dis_ox_interp)
+  )) |>
+
+  # -------------------------
+  # Total phosphorus (mg/L → µg/L)
+  # -------------------------
+  dplyr::mutate(water_tot_phos_interp = 1000 * water_tot_phos_interp) |>
+  dplyr::mutate(water_tot_phos_interp = dplyr::case_when(
+    water_tot_phos_interp < 5 | water_tot_phos_interp > 100 ~ "No Risk",
+    water_tot_phos_interp <= 15 | water_tot_phos_interp >= 75 ~ "Low Risk",
+    (water_tot_phos_interp > 15 & water_tot_phos_interp <= 30) |
+      (water_tot_phos_interp > 50 & water_tot_phos_interp < 75) ~ "Moderate Risk",
+    water_tot_phos_interp > 30 & water_tot_phos_interp <= 50 ~ "High Risk",
+    TRUE ~ as.character(water_tot_phos_interp)
+  )) |> 
+  dplyr::mutate(salinity = dplyr::case_when(
+    salinity > 5 ~ "No Risk",
+    salinity > 3 & salinity <= 5 ~ "Low Risk",
+    salinity > 1.5 & salinity <= 3 ~ "Moderate Risk",
+    salinity >= 0 & salinity <= 1.5 ~ "High Risk",
+    TRUE ~ as.character(salinity)
+  )) |>
+
+  # -------------------------
+  # Calcium (mg/L)
+  # -------------------------
+  dplyr::mutate(calcium = dplyr::case_when(
+    calcium < 3 ~ "No Risk",
+    calcium < 6 ~ "Low Risk",
+    calcium < 12 ~ "Moderate Risk",
+    calcium >= 12 ~ "High Risk",
+    TRUE ~ as.character(calcium)
+  ))
+```
+
+```{r add_waterbody_restrictions}
+# wor = read_sf("data/shapefiles/Waterbody_operation_restrictions.shp")
+# 
+# #Find the nearest waterbody; it should be the one named in "Name_Given"
+# wor_nearest_feature = st_nearest_feature(wor, waterb)
+# 
+# wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
+# wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
+# wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
+# 
+# length(unique(paste0(wor$WATERBO,wor$WATERSH,wor$GNIS_NA)))
+# 
+# #Quick visual check.
+# ggplot() + 
+#   geom_sf(data = waterb[wor_nearest_feature,]) + 
+#   geom_sf(data = wor)
+# 
+# # leaflet(data = wor %>% st_transform(crs = 4326)) %>%
+# #   addTiles() %>%
+# #   addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
+# #   addPolygons(data = waterb[wor_nearest_feature,] %>% 
+# #           st_transform(crs = 4326), fillColor = "red", label = ~GNIS_NA)
+# 
+# test = waterb %>% 
+#   inner_join(wor %>% st_drop_geometry())
+
+```
+
+## Filter Tracking
+
+When cleaning the inspection data, I removed records that were headed to the ocean or dry storage, etc, and some inspection records did not match to a waterbody. Note that in this filtering phase, I kept ALL mussel-fouled boats, regardless of whether they "passed the test" of the filtering step. However, some of the mussel-fouled inspections did not match with a BC waterbody, in the end, and such inspections have been saved to four place-holder polygons: "No Match", "Dry Storage", "NA", and "Pacific Ocean". 
+
+```{r inspection_filter_tracker}
+# library(imdp)
+# 
+# inspect_filter = read_excel("Inspection_filter_tracker.xlsx")
+# inspect_filter = inspect_filter %>% 
+#   #Add how many records were removed, in parentheses, to all but first row.
+#   mutate(across(-c(Step,Variable), ~ paste0(.x, " (",.x-lag(.x),")"))) %>% 
+#   mutate(across(-c(Step,Variable), ~ str_remove_all(.x, "\\(NA\\)"))) %>% 
+#   rename(`Total Inspections` = TotalInspection,
+#          `High-Risk Insp.` = HighRisk,
+#          `Mussel-Fouled Insp.` = MusselFouled)
+# openxlsx::write.xlsx(inspect_filter,
+#                      paste0(my_opts$base_dir,"03_PrioritizationModel/output/Inspection_filter_tracker_with_delta.xlsx"),
+#                             overwrite = T)
+```
+
+And it is important to note the number of waterbodies included in this analysis (`r scales::comma(nrow(waterb))`), as well as the number of waterbodies for which we have watercraft inspection data (`r scales::comma(nrow(waterb[!is.na(waterb$TotalInspections),]))`).
+
+```{r filter_steps}
+filter_steps = filter_steps %>% 
+  add_row(Step = "Joined inspection data to waterbodies and retained only waterbodies with 'valid geometries'", 
+                          Numb_waterb_tot = nrow(waterb),
+                          Numb_waterb_data = filter_steps[1,3])
+row.names(filter_steps) = NULL
+filter_steps = filter_steps %>% 
+  rename(`Number of waterbodies with inspection data` = Numb_waterb_data,
+         `Total number of waterbodies` = Numb_waterb_tot)
+
+openxlsx::write.xlsx(filter_steps,
+                     paste0(my_opts$base_dir,"03_PrioritizationModel/output/waterbody_filtering_steps_golden_mussel.xlsx"),
+                     overwrite = T)
+```
+
+```{r add_operational_restrictions_to_waterb}
+wor = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/Waterbody_operation_restrictions.gpkg"))
+
+#Remove the two rows that code for almost all waterbodies in Strathcona and Bowron Lake parks.
+wor = wor %>% 
+  filter(!str_detect(Name_Given, "All waters"))
+
+wor_nearest_feature = st_nearest_feature(wor, waterb)
+
+wor$GNIS_NA = waterb[wor_nearest_feature,]$GNIS_NA
+wor$WATERBO = waterb[wor_nearest_feature,]$WATERBO
+wor$WATERSH = waterb[wor_nearest_feature,]$WATERSH
+
+# Maybe drop all mismatches between given name and spatial match name?
+wor = wor |> filter(Name_Given == GNIS_NA)
+
+# leaflet(data = wor %>% st_transform(crs = 4326)) %>%
+#   addTiles() %>%
+#   addAwesomeMarkers(popup = ~Name_Given, label = ~OperRes) %>%
+#   addPolygons(data = waterb[wor_nearest_feature,] %>%
+#           st_transform(crs = 4326), color = "red", fillColor = "red", label = ~GNIS_NA)
+
+wor = wor %>% 
+  group_by(GNIS_NA,WATERBO,WATERSH) %>% 
+  arrange(desc(OperRes)) %>% 
+  slice(1)
+
+#Join to the waterbody layer.
+waterb = waterb %>% 
+  left_join(wor %>% 
+              st_drop_geometry() %>% 
+              dplyr::select(-Name_Given)) %>% 
+  group_by(GNIS_NA,WATERSH,WATERBO) %>% 
+  slice(1)
+```
+
+```{r write_to_disk}
+#Column names.
+column.names = as.data.frame(colnames(waterb))
+
+openxlsx::write.xlsx(column.names,
+                     paste0(my_opts$base_dir,"03_PrioritizationModel/output/column_names_for_waterb_with_data_golden_mussel.xlsx"),
+                     overwrite = T)
+
+sf::write_sf(waterb, paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/data/waterb_with_data_golden_mussel.gpkg"))
+sf::write_sf(waterb, paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data_golden_mussel.gpkg"))
+```

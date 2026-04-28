@@ -1,0 +1,886 @@
+---
+title: "Golden Mussel Waterbody Sampling Shortlist"
+author: "John Phelan"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+  self_contained: true
+highlight: tango
+df_print: kable
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(terra)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(sf)
+library(leaflet)
+library(BAMMtools)
+library(RColorBrewer)
+library(openxlsx)
+library(diffdf)
+library(bcdata)
+library(readr)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year + 1
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.height = 10,
+	fig.width = 10,
+	message = FALSE,
+	warning = FALSE,
+	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
+)
+# 
+# if(interactive()){
+#   if(stringr::str_extract(getwd(),"[0-9]{2}_.*") != "03_PrioritizationModel"){
+#     setwd(paste0(stringr::str_remove(getwd(),"[0-9]{2}_.*")))
+#   }
+# }
+
+update_remote_output_files = T
+
+library(here)
+source(here("03_PrioritizationModel", "utility_functions.R"))
+
+my_path = ifelse(interactive(), "./03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+source(here(paste0('03_PrioritizationModel/utility_functions.R')))
+```
+
+This R Markdown script takes the output of the script '03_ZQM_stats_and_waterbody output.Rmd' (namely, waterbodies with raw and binned risk estimates for choice variables) to produce a short-list of priority waterbodies vis-a-vis Zebra and Quagga Mussel risk.
+
+```{r read_in_data}
+# Read RDS.
+dat = read_rds(paste0("C:/Users/JPHELAN/Documents/mussel_model/data_for_making_shortlist_golden_mussel.rds"))
+# if(interactive()){
+#   dat = read_rds('03_PrioritizationModel/data/data_for_making_shortlist.rds')
+# } else {
+# dat = read_rds('data/data_for_making_shortlist.rds')
+# }
+
+waterb = dat[[1]]
+waterb_risk = dat[[2]]
+waterb_og_values = dat[[3]]
+subw_w_dat = dat[[4]]
+naturalbreaks = dat[[5]]
+```
+
+# Filter Waterbodies to get High-priority Short-list
+
+```{r put_aside_mussel_fouled}
+waterb_with_any_mf = waterb |> 
+  filter(!is.na(NumberMusselFouled) & NumberMusselFouled > 0)
+
+# + 3. Waterbodies with a binned risk estimate of 2 and a subwatershed-scale dissolved calcium level that was the lowest risk were dropped.
+```
+
+```{r join_risk_bins_with_og_values}
+#Join the OG values for our risk variables to this layer with binned values.
+waterb_og_values_and_bins = waterb_risk |> 
+  left_join(waterb_og_values |> 
+              filter(!is.na(TotalInspections)) |> 
+              st_drop_geometry() |> 
+              dplyr::rename(
+                SummedDamCapacity_unbinned = SummedDamCapacity,
+                # distinct_SAR_unbinned = distinct_SAR,
+                distinct_Fed_SARA_listed_SAR_unbinned = distinct_Fed_SARA_listed_SAR,
+                distinct_CDC_listed_SAR_unbinned = distinct_CDC_listed_SAR,
+                OperRes_unbinned = OperRes) |> 
+              dplyr::mutate(SummedDamCapacity_unbinned = replace_na(SummedDamCapacity_unbinned, 0),
+                            # distinct_SAR_unbinned = replace_na(distinct_SAR_unbinned, 0),
+                            distinct_Fed_SARA_listed_SAR_unbinned = replace_na(distinct_Fed_SARA_listed_SAR_unbinned),
+                            distinct_CDC_listed_SAR_unbinned = replace_na(distinct_CDC_listed_SAR_unbinned),
+                            OperRes_unbinned = replace_na(OperRes_unbinned, 'No Restriction'))
+  ) #|> 
+ # left_join(subw_w_dat |> 
+             # st_drop_geometry() |> 
+             # dplyr::select(WATERSH = WATERSHED_,
+             #               distinct_SAR_value = distinct_SAR,
+             #               SummedDamCapacity_value = SummedDamCapacity))
+
+#Write out to W: drive.
+if(update_remote_output_files){
+  if(!dir.exists(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/"))){
+    dir.create(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/"),
+               recursive = T)
+  }
+  sf::write_sf(waterb_og_values_and_bins,
+           paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/Waterbodies_with_binned_and_original_values_golden_mussel.gpkg"))
+}
+
+queried_wbs<- waterb_og_values_and_bins |> 
+  filter(str_detect(GNIS_NA, "Kentucky|Alleyne")) |> 
+  st_drop_geometry()
+
+write.csv(queried_wbs, "./output/qeuried_wbs_golden_mussel.csv")
+
+```
+
+```{r drop_duplicated_rivers}
+#Find the river polygons that actually belong to the same water bodies. n = 39.
+duplicated_river_names = waterb_risk |> 
+                     filter(str_detect(GNIS_NA, "River"),
+                            GNIS_NA != "Elk River") |> 
+                     filter(duplicated(GNIS_NA)) |> 
+                     st_drop_geometry() |> 
+                     dplyr::select(GNIS_NA)
+
+duplicated_rivers = waterb_risk |> 
+ filter(GNIS_NA %in% all_of(duplicated_river_names$GNIS_NA)) |> 
+ dplyr::select(WATERSH,WATERBO,GNIS_NA)
+
+waterb_risk_rivers_to_merge = waterb_risk |> 
+ filter(paste0(WATERSH,WATERBO,GNIS_NA) %in% 
+          all_of(paste0(duplicated_rivers$WATERSH,
+                        duplicated_rivers$WATERBO,
+                        duplicated_rivers$GNIS_NA)))
+ 
+# Also double check that the rivers we're looking at are touching each other. Or, look at how far apart river pieces with the same name are.
+# If they are closer than the length of either river, join them up.
+unique_duplicated_river_names = unique(waterb_risk_rivers_to_merge$GNIS_NA)
+
+waterb_risk_rivers_merged = list()
+
+for(i in 1:length(unique_duplicated_river_names)){
+
+  if(interactive()) print(paste0(i, ' out of ',length(unique_duplicated_river_names)))
+  
+  the_name = unique_duplicated_river_names[i]
+  
+  the_rivers = waterb_risk_rivers_to_merge |> 
+    dplyr::filter(GNIS_NA == the_name)
+  
+  if(the_name %in% c('Fraser River','Columbia River','Kootenay River')){
+    
+    new_rivers = the_rivers |> 
+      group_by(GNIS_NA) |> 
+      arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+      summarise(across(!starts_with("geo"), first))
+    
+    waterb_risk_rivers_merged[[i]] = new_rivers
+  } else {
+    
+    rivers_product = list()
+    
+    for(y in 1:nrow(the_rivers)){
+      river_focus = the_rivers[y,]
+      river_length = river_focus |> 
+      st_cast("MULTILINESTRING") |> 
+      mutate(the_length = st_length(geom)) |> 
+      dplyr::pull(the_length)
+      
+      # Which of the other rivers should we merge?
+      rivers_to_merge = st_distance(the_rivers)[y,] <= river_length
+      
+      new_geom = the_rivers[rivers_to_merge,] |> 
+        arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+         summarise(across(!starts_with("geo"), first))
+
+      rivers_product[[y]] <- new_geom
+    }
+    
+    rivers_products_b = dplyr::bind_rows(
+      rivers_product
+    )
+    # Check to see if some rows are just subsets of other rows, in terms of geometry; remove such subsets...
+    subsets_to_remove = st_intersects(rivers_products_b) |> 
+      as.data.frame() |> 
+      dplyr::filter(row.id != col.id) |> 
+      mutate(combo = paste0(order(row.id, col.id), collapse = ',')) |> 
+      mutate(is_duplicated = duplicated(combo)) |> 
+      pull(is_duplicated)
+    
+    if(length(subsets_to_remove) > 0){
+      rivers_products_b = rivers_products_b[-subsets_to_remove,]
+    }
+    
+    waterb_risk_rivers_merged[[i]] =     dplyr::bind_rows(rivers_products_b)
+    }
+  }
+
+waterb_risk_rivers_merged = waterb_risk_rivers_merged |> 
+  dplyr::bind_rows()
+
+# waterb_risk_rivers_merged = waterb_risk_rivers_to_merge |> 
+#  group_by(GNIS_NA) |> 
+#  #Arrange the dataframe so that the highest risk section of each river comes first.
+#  arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+#  #Take the first value for each of our variables and set it as the default for each river (basically, homogenize the data in a nservative way), then merge polygons.
+#  summarise(across(!starts_with("geo"), first))
+rm(waterb_risk_rivers_to_merge)
+
+#Reattach rivers to the overall waterb_risk spatial object.
+waterb_risk = waterb_risk |> 
+ filter(!paste0(WATERSH,WATERBO,GNIS_NA) %in% 
+          all_of(paste0(duplicated_rivers$WATERSH,
+                        duplicated_rivers$WATERBO,
+                        duplicated_rivers$GNIS_NA))) |> 
+ #Add in the rivers.
+ bind_rows(waterb_risk_rivers_merged)
+rm(duplicated_river_names); rm(duplicated_rivers); rm(waterb_risk_rivers_merged)
+```
+
+```{r add_NR_Region_name_to_waterbodies}
+# nr_regions = bcmaps::nr_regions()
+nr_regions = sf::read_sf(paste0(lan_root,"2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/FLNRO_Fishing_Boundaries.shp"))
+
+waterb_risk_with_region = waterb_risk |> 
+ st_join(nr_regions |> dplyr::select(REGION_N),
+         join = st_intersects)
+
+waterb_risk_with_region = waterb_risk_with_region |> 
+#Some waterbodies fall on the border between 2+ FLNRO regions...
+ group_by(WATERSH,WATERBO,GNIS_NA) |> 
+ #For each unique grouping of watershed, waterbody id and name...
+ mutate(REGION_N = paste0(REGION_N, collapse = ", ")) |> 
+ distinct() |> 
+ ungroup()
+
+waterb_risk = waterb_risk_with_region
+rm(waterb_risk_with_region)
+```
+
+```{r drop_dry_storage_and_pac_ocean}
+# Drop Dry Storage and Pacific Ocean.
+waterb_risk = waterb_risk |> 
+ dplyr::filter(!str_detect(GNIS_NA, '(Dry Storage|Pacific Ocean)'))
+```
+
+```{r read_in_past_year_sampling}
+
+# library(tidyr)
+# library(officer)
+library(docxtractr)
+
+sample_protocol_2021 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2021/Updates to protocol_waterbody ranking/2021 priority waterbodies for sampling.xlsx"),sheet = "2021 FINAL LIST")
+
+# 2022 protocol
+sample_protocol_2022 <- get_wb_list_from_protocol_doc(
+  paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2022/Sampling protocol/2022 Invasive Mussel Field Protocol_Draft_V1.docx")
+)
+
+# 2023 protocol
+sample_protocol_2023 <- get_wb_list_from_protocol_doc(
+  paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2023/Sampling protocol/2023 Invasive Mussel Field Protocol_Draft_V1.docx")
+)
+
+# 2024 protocol
+sample_protocol_2024 <- get_wb_list_from_protocol_doc(
+  paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx")
+)
+
+# 2025 protocol
+sample_protocol_2025 <- get_wb_list_from_protocol_doc(
+  paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2025/Sampling protocol/2025 Invasive Mussel Field Protocol_V2.docx")
+)
+
+
+past_sample_protocols <- sample_protocol_2021 |> 
+  mutate(sampling_year = 2021) |> 
+  bind_rows(sample_protocol_2022 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2022)) |> 
+  bind_rows(sample_protocol_2023 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2023)) |> 
+  bind_rows(sample_protocol_2024 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2024)) |> 
+  bind_rows(sample_protocol_2025 |> mutate(Lat = as.numeric(Lat), Long = as.numeric(Long)) |> mutate(sampling_year = 2025))
+
+
+
+#We have some waterbodies with various sampling stations proposed. We just need 1 row per wb.
+sample_protocol = past_sample_protocols |>
+  group_by(Region,Waterbody,sampling_year) |>
+  slice(1) |> 
+  dplyr::ungroup()
+
+# Some names are spelled differently between this excel sheet and the BCG Warehouse waterbody layers. Fix these manually.
+
+sample_protocol <- sample_protocol %>%
+  mutate(
+    # replace anything that contains Coeur ... Alene ... Creek (case-insensitive)
+    Waterbody = if_else(
+      str_detect(Waterbody, regex("(?i)Coeur.*Alene.*Creek")),
+      "Coeur d’Alene Creek",
+      Waterbody
+    )
+  ) %>%
+  mutate(Waterbody = case_when(
+    Waterbody == "Atlin lake" ~ "Atlin Lake",
+    Waterbody == "Columbia River (Lower)" ~ "Columbia River",
+    Waterbody == "Kinaskan" ~ "Kinaskan Lake",
+    Waterbody == "Koocanusa Lake" ~ "Lake Koocanusa",
+    Waterbody == "Marquart & Lunbom Lakes" ~ "Marquart Lake",
+    TRUE ~ Waterbody
+  )) %>%
+  group_by(Region, Waterbody, sampling_year) %>%
+  slice(1) %>%
+  ungroup()
+
+
+# # Rename regions to match with inspection data regions.
+# sample_protocol = sample_protocol |> 
+#   dplyr::mutate(Region = replace(Region, Region == 'Okanagan', 'Thompson-Okanagan')) |> 
+#   dplyr::mutate(Region = str_replace(Region, 'Thompson-Nicola', 'Thompson-Okanagan')) |> 
+#   dplyr::mutate(Region = str_replace(Region, '(Vancouver Island|Lower Mainland)', 'South Coast')) |> 
+#   dplyr::mutate(Region = str_replace(Region, 'Kootenay', 'Kootenay-Boundary'))
+
+sample_protocol = sample_protocol |> 
+  dplyr::select(Region, Waterbody, sampling_year) |> 
+  dplyr::mutate(to_sample = TRUE) |> 
+  dplyr::mutate(sampling_year = paste0('on_',sampling_year,'_protocol_list')) |> 
+  pivot_wider(names_from = sampling_year, values_from = to_sample, values_fill = FALSE) |> 
+  ungroup() |> 
+  dplyr::rename(GNIS_NA = Waterbody,
+                REGION_NAME = Region) |> 
+  dplyr::select(REGION_NAME,GNIS_NA,paste0('on_',2021:my_opts$year,'_protocol_list'))
+
+rm(past_sample_protocols)
+```
+
+```{r add_past_sampling_to_waterb_risk}
+#Do a name match between "waterb_risk" and the protocol list
+waterb_risk = waterb_risk |>
+  dplyr::rename(REGION_NAME = REGION_N) |>
+ #Name join
+  left_join(sample_protocol, by = join_by(GNIS_NA, REGION_NAME)) |> 
+  dplyr::mutate(dplyr::across(dplyr::contains("_protocol_list"),\(x) tidyr::replace_na(x, F))) |> 
+  ungroup()
+rm(sample_protocol); rm(sample_protocol_2021); rm(sample_protocol_2022); rm(sample_protocol_2023); rm(sample_protocol_2024)
+```
+
+```{r add_lake_monitoring_lab_results}
+#2022 Lake monitoring lab results.
+lakes_monitored_2022 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2022/Lab Analysis/Final report and data/BC Veliger Sampling Inventory 2022_FinalReport.xlsx")) |> 
+  dplyr::mutate(`Total Volume Sampled (L)` = as.numeric(`Total Volume Sampled (L)`)) |> 
+  dplyr::mutate(Year = 2022)
+
+#2023 Lake monitoring lab results.
+lakes_monitored_2023 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2023/Lab results/BC Veliger Sampling Inventory 2023_11-20_Final Report.xlsx")) |> 
+  dplyr::filter(!is.na(Waterbody),
+                !stringr::str_detect(Waterbody,'[0-9]+'),
+                Waterbody != 'waterbodies') |> 
+  dplyr::mutate(Waterbody = stringr::str_squish(Waterbody)) |> 
+  dplyr::mutate(Waterbody = case_when(
+    Waterbody == 'Arrow Lake, Lower' ~ 'Lower Arrow Lake',
+    Waterbody == 'Arrow Lake, Upper' ~ 'Upper Arrow Lake',
+    Waterbody == 'Enid Lake' ~ 'Lake Enid',
+    Waterbody == 'Koocanusa Lake' ~ 'Lake Koocanusa',
+    Waterbody == 'Kootenay River (Nelson)' ~ 'Kootenay River',
+    Waterbody == 'Lower Fraser River' ~ 'Fraser River',
+    Waterbody == 'Lac La Hache' ~ 'Lac la Hache',
+    Waterbody == 'Lower Kettle River' ~ 'Kettle River',
+    Waterbody == 'Upper Kettle River' ~ 'Kettle River',
+    Waterbody == 'Norbury Lake' ~ 'Norbury Lakes',
+    Waterbody == 'Winderemere Lake' ~ 'Windermere Lake',
+    Waterbody == "Pend d'Oreille River" ~ "Pend-d'Oreille River",
+    T ~ Waterbody
+  )) |> 
+  dplyr::mutate(`# of Plankton tows` = as.character(`# of Plankton tows`)) |> 
+  dplyr::mutate(Year = 2023)
+
+# 2024 
+lakes_monitored_2024 = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Lab results/Final report/BC Veliger Sampling Inventory 2024_FINAL REPORT.xlsx")) |> 
+  dplyr::mutate(`Lat (Decimal degrees)` = as.numeric(`Lat (Decimal degrees)`),
+                `Long (Decimal degrees)` = as.numeric(`Long (Decimal degrees)`)) |> 
+  dplyr::mutate(`Water temperature (°C)*` = as.character(`Water temperature (°C)*`),
+                `pH (in water column)` = as.character(`pH (in water column)`),
+                `Total Volume Sampled (L)` = as.numeric(`Total Volume Sampled (L)`),
+                `Sample pH (at the time preserved)` = as.character(`Sample pH (at the time preserved)`)) |> 
+  dplyr::filter(!is.na(Waterbody),
+                !stringr::str_detect(Waterbody,'[0-9]+'),
+                Waterbody != 'waterbodies') |> 
+  dplyr::mutate(Waterbody = stringr::str_squish(Waterbody)) |> 
+  dplyr::mutate(Waterbody = case_when(
+    Waterbody == 'Alouette' ~ 'Alouette Lake',
+    Waterbody == 'Leighton' ~ 'Leighton Lake',
+    Waterbody == 'Wahleach' ~ 'Wahleach Lake',
+    Waterbody == 'Peter-Hope' ~ 'Peter Hope Lake',
+    Waterbody %in% c('St. Marys Lake',"St. Mary's Lake") ~ 'St. Mary Lake',
+    Waterbody %in% c('Surveyors Lake',"Surveyor's Lake") ~ 'Surveyors Lake',
+    Waterbody == 'Arrow Lake, Lower' ~ 'Lower Arrow Lake',
+    Waterbody == 'Arrow Lake, Upper' ~ 'Upper Arrow Lake',
+    Waterbody == 'Enid Lake' ~ 'Lake Enid',
+    Waterbody == 'Koocanusa Lake' ~ 'Lake Koocanusa',
+    stringr::str_detect(Waterbody, 'Kootenay River \\(*') ~ 'Kootenay River',
+    Waterbody == 'Lower Fraser River' ~ 'Fraser River',
+    Waterbody == 'Lac La Hache' ~ 'Lac la Hache',
+    Waterbody == 'Lac le Jeune' ~ 'Lac Le Jeune',
+    Waterbody == 'Lower Kettle River' ~ 'Kettle River',
+    Waterbody == 'Upper Kettle River' ~ 'Kettle River',
+    Waterbody == 'Norbury Lake' ~ 'Norbury Lakes',
+    Waterbody == 'Winderemere Lake' ~ 'Windermere Lake',
+    Waterbody == "Pend d'Oreille River" ~ "Pend-d'Oreille River",
+    T ~ Waterbody
+  )) |> 
+  dplyr::mutate(`# of Plankton tows` = as.character(`# of Plankton tows`)) |> 
+  dplyr::mutate(Year = 2024)
+
+# Find the natural resource region, add in for each wb.
+lakes_monitored = lakes_monitored_2022 |> 
+  dplyr::bind_rows(lakes_monitored_2023) |> 
+  dplyr::bind_rows(lakes_monitored_2024) |> 
+  dplyr::filter(!is.na(`Lat (Decimal degrees)`)) |> 
+  st_as_sf(coords = c('Long (Decimal degrees)',
+                      'Lat (Decimal degrees)'),
+           crs = 4326) |>
+  st_transform(3005) |> 
+  st_join(nr_regions |> 
+            dplyr::select(REGION_N)) |> 
+            # dplyr::mutate(REGION_N = stringr::str_remove_all(REGION_N,' Natural Resource Region')) |> 
+            # dplyr::mutate(REGION_N = replace(REGION_N, REGION_N == 'Northeast','Peace'))) |> 
+  st_transform(4326) |> 
+  dplyr::rename(GNIS_NA = Waterbody) |> 
+  st_drop_geometry() |> 
+  dplyr::select(GNIS_NA, REGION_N, Year) |> 
+  dplyr::distinct() |> 
+  dplyr::mutate(sampled = TRUE) |> 
+  dplyr::mutate(Year = paste0('Sampled_in_',Year)) |> 
+  pivot_wider(names_from = Year, values_from = sampled, values_fill = FALSE) |> 
+  dplyr::rename(REGION_NAME = REGION_N)
+
+waterb_risk = waterb_risk |>
+  dplyr::left_join(lakes_monitored, by = join_by(GNIS_NA, REGION_NAME)) |> 
+  dplyr::mutate(dplyr::across(dplyr::starts_with("Sampled_in_"),\(x) tidyr::replace_na(x, FALSE)))
+rm(lakes_monitored); rm(lakes_monitored_2022); rm(lakes_monitored_2023)
+```
+
+Prior to filtering out any waterbodies, there are `r nrow(waterb_risk)` waterbodies for which we have at least one risk variable. Note that at all filtering steps, all waterbodies with at least one record of a mussel-fouled boat were retained.
+
+Filtering Steps:
+
+```{r full_wb_table_for_exploring_wb_values}
+waterb_full_tbl = waterb_risk |> 
+  sf::st_drop_geometry() |> 
+  dplyr::left_join(sf::st_drop_geometry(waterb_og_values_and_bins))
+```
+
+```{r highlight_certain_waterbodies_to_keep}
+waterb_risk = waterb_risk |> 
+  dplyr::mutate(keep_me_always = dplyr::case_when(
+    GNIS_NA %in% c('Kootenay River') ~ T,
+    GNIS_NA %in% c('Alleyne Lake') ~ T,
+    GNIS_NA %in% c('Kentucky Lake') ~ T,
+    
+    T ~ F
+  ))
+```
+
+```{r filter_out_risk_bin_1_or_lvl_2_and_low_calcium}
+#Filtering steps outlined by Cass and Martina. First batch!
+waterb_risk_complete = waterb_risk
+
+waterb_risk = waterb_risk |> 
+  mutate(keep.me = case_when(
+    keep_me_always ~ 'keep',
+    paste0(GNIS_NA,WATERSH) %in% paste0(waterb_with_any_mf$GNIS_NA,waterb_with_any_mf$WATERSH) ~ 'keep',
+    InvasionRisk >= 2 ~ "keep",
+    # GNIS_NA == 'Jewel Lake' ~ 'keep',
+    InvasionRisk == 1 ~ "drop",
+    # InvasionRisk == 2 & calcium_bin == 0 & calcium_data == "Data present" ~ "drop",
+    T ~ "keep"
+  )) |> 
+  filter(keep.me == "keep") |> 
+  dplyr::select(-keep.me)
+```
+
+1.  Remove waterbodies with an estimated risk of ZQ Mussel invasion in bin 1 (`r nrow(waterb_risk)` waterbodies retained).
+
+```{r remove_use_below_1.5}
+#And now the actual second filtering step!
+waterb_risk = waterb_risk |>
+ filter(Use > 1.5 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH) | keep_me_always)
+```
+
+2.  Remove waterbodies with a binned value of the 'Use' category up to 1.5 (`r nrow(waterb_risk)` waterbodies retained)
+
+```{r remove_if_use_under_2_unless_highrisk_inspection}
+# waterb_risk = waterb_risk |> 
+#   filter(Highrisk > 0 | Use > 2 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH))
+# 3. Remove waterbodies with a binned value of the 'Use' category up to 2 unless they have at least one high-risk inspection (`r nrow(waterb_risk)` waterbodies retained)
+```
+
+```{r remove_kenai_creek_and_merge_Kinbasket_Lake}
+#Third filtering step: remove Kenai Creek and check for duplicated lakes.
+waterb_risk = waterb_risk |> 
+ filter(GNIS_NA != "Kenai Creek")
+
+#Just for Kinbasket Lake - merge the two rows, taking higher risk value data for most fields.
+waterb_risk = waterb_risk |> 
+ filter(GNIS_NA != "Kinbasket Lake") |> 
+ bind_rows(
+ waterb_risk |> 
+ filter(GNIS_NA == "Kinbasket Lake") |> 
+ group_by(GNIS_NA) |> 
+ arrange(GNIS_NA,desc(as.numeric(InvasionRisk))) |> 
+ summarise(across(!starts_with("geo"), first)) |> 
+ mutate(REGION_G = "4, 7O", REGION_N = "Kootenay, Omineca")
+ )
+
+# I seem to have duplicate columns from the FLNRORD natural resource regions...
+# drop those here.
+waterb_risk = waterb_risk |> 
+ dplyr::select(-REGION_N, -REGION_G)
+```
+
+3.  Remove Kenai Creek and merge multiple rows for Kinbasket Lake into one row (`r nrow(waterb_risk)` waterbodies retained)
+
+```{r filter_away_calcium_level_no_risk}
+waterb_risk = waterb_risk |> 
+  dplyr::filter(calcium_bin > 0 | keep_me_always)
+```
+
+4.  Remove waterbodies with a calcium risk bin of 0 (which equates to "No Risk"); (`r nrow(waterb_risk)` waterbodies retained)
+
+```{r write_to_W_drive}
+#Write to file
+waterb_risk = waterb_risk |>
+          ungroup() |>
+          # dplyr::select(-name_risk_ranking) |>
+          rename(OnProtocolList2021 = on_2021_protocol_list,
+                 OnProtocolList2022 = on_2022_protocol_list,
+                 OnProtocolList2023 = on_2023_protocol_list,
+                 OnProtocolList2024 = on_2024_protocol_list) |>
+          mutate(InvasionRisk = as.numeric(InvasionRisk),
+                 EVRisk = as.numeric(EVRisk)#,
+                 # OnProtocolList2022 = as.character(OnProtocolList2022),
+                 # Sampled2022 = as.character(Sampled2022)
+                 )
+
+if(update_remote_output_files){
+  if(!dir.exists(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/"))){
+    dir.create(paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/"))
+  }
+  write_sf(waterb_risk,
+           paste0(my_opts$remote_spatial_data,"Projects/ZQMussels/",my.year," IMDP Final Report/data/spatial/waterbodies_zqm_shortlist_risk_estimates.gpkg"))
+}
+```
+
+```{r make_final_table}
+# Add in waterbody surface area
+waterb_risk = waterb_risk |> 
+  mutate(wb_area_km_2 = as.numeric(sf::st_area(geom))/1000000)
+
+# Find centroid point of each waterbody. Add to table.
+waterbody_risk_table = st_centroid(waterb_risk) |> 
+ ungroup() |> 
+ st_transform(crs = 4326) |> 
+ mutate(Lat = st_coordinates(geom)[,2],
+        Long = st_coordinates(geom)[,1]) |>
+ st_drop_geometry() |> 
+ arrange(desc(InvasionRisk))
+```
+
+```{r add_unbinned_versions_of_variables_to_waterb_risk_table}
+waterbody_risk_table = waterbody_risk_table |> 
+  # dplyr::mutate(EVRisk = as.character(EVRisk)) |> 
+  left_join(sf::st_drop_geometry(waterb_og_values_and_bins))
+```
+
+```{r calculate_ratio_of_total_inspections_to_angler_days}
+waterbody_risk_table = waterbody_risk_table |> 
+  dplyr::mutate(inspections_angler_days_ratio = TotalInspections/days_fished_2023_survey)
+```
+
+```{r}
+#Replace the unique ID numbers of subwatersheds with their names.
+waterbodies = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/WatershedGroups_lowres.shp')) |> 
+ st_drop_geometry() |> 
+ reframe(WATERSH = WATERSHED_, WatershedName = WATERSHE_1)
+
+waterbody_risk_table = waterbody_risk_table |> 
+ left_join(waterbodies) |> 
+ dplyr::select(WatershedName, everything()) |> 
+ dplyr::select(-WATERSH)
+  
+```
+
+Here is the shortlist (which has `r nrow(waterbody_risk_table)` rows.)
+
+```{r show_risk_table_as_DT}
+DT::datatable(
+  waterbody_risk_table
+)
+```
+
+And here is a histogram of the waterbody surface area values.
+
+```{r wb_surface_area_histogram}
+ggplot(waterbody_risk_table) +
+  geom_histogram(aes(wb_area_km_2)) +
+  labs(x = "Waterbody Surface Area (km^2)", y = "Number of Waterbodies")
+```
+
+```{r write_excel_files_to_disk}
+# ---------------- #
+#      NOTE        #
+# ---------------- #
+# To run the code below (which generates an excel file wherein high-risk lakes that have not yet been sampled are highlighted in yellow), it will be necessary to first un-comment the section above to see which lakes were sampled in the previous year, as this section adds 2 columns to the waterbodies_risk table which are necessary for the code below to run successfully.
+
+my.wb = createWorkbook("waterbodies_risk")
+
+addWorksheet(wb = my.wb, sheetName = "Risk Estimates")
+
+writeDataTable(wb = my.wb,
+               sheet = "Risk Estimates",
+               x = waterbody_risk_table,
+               withFilter = T)
+
+# #Highlight any high-risk waterbodies that have not been sampled.
+# posStyle <- createStyle(fontColour = "#fa3232", bgFill = "#ffff31")
+# conditionalFormatting(wb=my.wb, sheet='Risk Estimates', cols=which(names(waterbody_risk_table) == paste0('OnProtocolList',my_opts$year)),
+#                      rows=1:nrow(waterbody_risk_table), rule="== FALSE",
+#                      type = "expression",style = posStyle)
+# conditionalFormatting(wb=my.wb, sheet='Risk Estimates', cols=which(names(waterbody_risk_table) == paste0('Sampled',my_opts$year)),
+#                      rows=1:nrow(waterbody_risk_table), rule="== FALSE",
+#                      type = "expression",style = posStyle)
+
+#Automatically adjust cell widths based on longest cell contents OR header.
+width_vec <- apply(waterbody_risk_table, 2,
+                  function(x) max(nchar(as.character(x)) + 2, na.rm = TRUE))
+width_vec_header <- nchar(colnames(waterbody_risk_table)) + 2
+max_vec_header <- pmax(width_vec, width_vec_header)
+setColWidths(my.wb, "Risk Estimates",
+            cols = 1:ncol(waterbody_risk_table), widths = max_vec_header)
+
+#Write a second sheet for metadata.
+addWorksheet(wb = my.wb,
+            sheetName = "Metadata")
+
+explanation_col = c("Name of waterbody's subwatershed according to BCG warehouse subwatershed layer",
+                                             "Unique identifying number of waterbody polygon in BCG Warehouse lake, river or man-made waterbody layers",
+                                             "Name of waterbody in BCG Warehouse lake, river or man-made waterbody layers",
+                                             "Risk estimate for Use variables (total inspections, angler days, and number of marinas)",
+                                             "Risk estimate for High-risk variables (High-risk inspections minus Transport Canada operation restrictions)",
+                                             "The number of high-risk inspections",
+                                             "Risk estimate (1 or 0) depending on mussel-fouled inspections or no",
+                                             "The summed dam capacity at the waterbody scale",
+                                             "The number of distinct species-at-risk in the waterbody",
+                                             "Subwatershed-scale dissolved calcium levels (<8 is low risk, 8-20 medium risk, 20+ high risk); bins are 0, 1 and 2",
+                                             "If calcium bin is 0, is this due to the calcium level being <8, or because that subwatershed lacked calcium data?",
+                                             "Overall risk estimate calculated by combining the use, high-risk, mussel-fouled and calcium_bin risk estimates",
+                                             "As last column, but binned into 3 bins",
+                                             "FLRNO region code",
+                                             "Was the waterbody included in the 2021 list of priority lakes to sample?",
+                                             "Was the waterbody included in the 2022 list of priority lakes to sample?",
+                                             "Was the lake sampled in 2022?",
+                                             "Was the lake sampled in 2023?",
+                                             "Latitude of centroid of polygon",
+                                             "Longitude of centroid of polygon")
+
+explanation_col = c(explanation_col, 
+                    rep('Unbinned variable', 
+                        ncol(waterbody_risk_table) - length(explanation_col))
+)
+
+writeDataTable(wb = my.wb, sheet = "Metadata",
+              x = data.frame(Variable = names(waterbody_risk_table),
+                             Explanation = explanation_col),
+              withFilter = F)
+
+setColWidths(my.wb, "Metadata",
+            cols = 1, widths = 17)
+
+# saveWorkbook(my.wb,
+#              "output/waterbodies with risk estimates post filtering.xlsx",
+#              overwrite = T)
+
+if(!dir.exists(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"))) {
+  dir.create(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/"), recursive = T)
+}
+
+saveWorkbook(my.wb,
+            paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,"_golden_mussel.xlsx"),
+            overwrite = T)
+```
+
+```{r final_waterbody_list}
+
+# Please see note in above chunk. It applies to this section as well, I'm fairly sure.
+
+final_waterbody_list = waterbody_risk_table |>
+ ungroup() |>
+  rename(Region = REGION_NAME,
+         Waterbody = GNIS_NA,
+         InvasionRisk_bin = InvasionRisk,
+    EVRisk_bin = EVRisk) |> 
+  dplyr::mutate(
+    `Veliger Sampling Frequency` = "Undecided",
+    Lat = round(Lat, 4),
+    Long = round(Long, 4)
+  ) |> 
+  dplyr::mutate(Region = stringr::str_remove_all(Region, ' Natural Resource Region'))
+
+fwl_rivers = final_waterbody_list |>
+ filter(str_detect(Waterbody, "River"))
+
+fwl_lakes = final_waterbody_list |>
+ filter(!str_detect(Waterbody, "River"))
+
+#Change coords for rivers to NA (delete fields!)
+fwl_rivers$Lat = NULL
+fwl_rivers$Long = NULL
+
+final_waterbody_list = fwl_lakes |>
+ arrange(Waterbody) |>
+ bind_rows(fwl_rivers |> arrange(Waterbody)) |>
+ arrange(Waterbody)
+
+# Add in the sampling frequency!
+final_waterbody_list = final_waterbody_list |> 
+  dplyr::mutate(Sampling_Frequency = dplyr::case_when(
+    InvasionRisk_bin == 3 | Highrisk == 3 ~ "Plankton Bi-weekly", 
+    Use < 2 ~ "Substrate Only",
+    T ~ "Plankton Monthly"))
+
+final_waterbody_list = final_waterbody_list |> 
+  dplyr::arrange(Sampling_Frequency, InvasionRisk_bin, Use)
+
+openxlsx::write.xlsx(final_waterbody_list,
+                    paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_golden_mussel.xlsx"),
+                    overwrite = T)
+
+# Add a sheet to this doc that has only the variables needed for the table in word.
+final_wb_wb = openxlsx::loadWorkbook(file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_golden_mussel.xlsx"))
+
+openxlsx::addWorksheet(final_wb_wb, sheetName = "table_for_word")
+
+openxlsx::writeDataTable(final_wb_wb,
+                         "table_for_word", 
+                         x = final_waterbody_list |>
+                           dplyr::select(Region,Waterbody,Sampling_Frequency,Lat,Long)
+)
+
+openxlsx::saveWorkbook(final_wb_wb, 
+                       file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_golden_mussel.xlsx"),
+                       overwrite = T)
+```
+
+```{r little_exploration_bit}
+# How many wbs are in bin 1 for inspections and bin 3 for angler days?
+insp_angler_binned_tbl = final_waterbody_list |> 
+  dplyr::select(Region,Waterbody,TotalInspections,days_fished_2023_survey) |> 
+  pivot_longer(-c(Region,Waterbody), names_to = "Variable") |> 
+  dplyr::left_join(
+    naturalbreaks
+  ) |> 
+  dplyr::mutate(
+    variable_bin = dplyr::case_when(
+      value > Natural_Break_1 & value <= Natural_Break_2 ~ 1,
+      value > Natural_Break_2 & value <= Natural_Break_3 ~ 2,
+      value > Natural_Break_3 & value <= Natural_Break_4 ~ 3,
+      is.na(value) ~ NA,
+      T ~ 99
+    )) |> 
+  dplyr::select(Region,Waterbody,Variable,variable_bin) |> 
+  pivot_wider(names_from = Variable, values_from = variable_bin) 
+
+insp_angler_binned_tbl |>
+  dplyr::count(TotalInspections,days_fished_2023_survey, sort = T) |> 
+  knitr::kable()
+
+# insp_angler_binned_tbl |> 
+#   dplyr::filter(TotalInspections == 1, days_fished_2023_survey == 3)
+
+```
+
+```{r make_comparison_files}
+# last_year_from_excel = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2024/Prioritization model/Final waterbody list based on risk estimates_2024.xlsx"))
+
+final_waterbody_list = final_waterbody_list |> 
+  mutate(region_wb = paste0(Region,'-',Waterbody))
+
+last_year = get_wb_list_from_protocol_doc(paste0(lan_root,"2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2025/Sampling protocol/2025 Invasive Mussel Field Protocol_V2.docx")) |> 
+  mutate(Waterbody = stringr::str_replace(Waterbody,"’","'")) |> 
+  mutate(region_wb = paste0(Region,'-',Waterbody))
+  
+last_year$only_on_last_years_list = FALSE
+
+for(i in 1:nrow(last_year)){
+  relevant_wbs = final_waterbody_list[final_waterbody_list$Waterbody == last_year[i,]$Waterbody,]
+  
+  if(nrow(relevant_wbs) == 0) {
+    last_year[i,]$only_on_last_years_list = TRUE
+  } else {
+    if(str_detect(paste0(relevant_wbs$Region,collapse=''),last_year[i,]$Region)){
+      last_year[i,]$only_on_last_years_list = FALSE
+    }
+  }
+}
+
+final_waterbody_list$new_on_this_years_list = FALSE
+
+for(i in 1:nrow(final_waterbody_list)){
+  
+  relevant_wbs = last_year[last_year$Waterbody == final_waterbody_list[i,]$Waterbody,]
+  
+  if(nrow(relevant_wbs) == 0) {
+    final_waterbody_list[i,]$new_on_this_years_list = TRUE
+  } else {
+    if(str_detect(paste0(relevant_wbs$Region,collapse=''),final_waterbody_list[i,]$Region)){
+      final_waterbody_list[i,]$new_on_this_years_list = FALSE
+    }
+  }
+}
+
+waterbodies_dropped_from_last_year = last_year[last_year$only_on_last_years_list == T,]
+waterbodies_added_this_year = final_waterbody_list[final_waterbody_list$new_on_this_years_list == T,]
+
+# Add a piece describing which of the lakes ONLY in last year's protocol (and dropped from this year's protocol)
+# were actually sampled.
+waterbodies_dropped_from_last_year$Sampled_in_2024 = "FALSE"
+for(i in 1:nrow(waterbodies_dropped_from_last_year)){
+  relevant_wbs = waterb_full_tbl[waterb_full_tbl$GNIS_NA == waterbodies_dropped_from_last_year[i,]$Waterbody,]
+  if(nrow(relevant_wbs) != 0) {
+    if(nrow(relevant_wbs) == 1){
+      waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = as.character(relevant_wbs$Sampled_in_2024)
+    } else {
+
+      point_for_search = waterbodies_dropped_from_last_year[i,] |> 
+        sf::st_as_sf(coords = c("Long","Lat"), crs = 4326)
+      
+      watershed_groups = bcdc_query_geodata('freshwater-atlas-watershed-groups') |> 
+        filter(WATERSHED_GROUP_ID %in% relevant_wbs$WATERSH) |> 
+        collect() |> 
+        sf::st_transform(4326)
+      
+      watershed_group_id_filter = watershed_groups |> 
+        sf::st_filter(point_for_search) |> 
+        pull(WATERSHED_GROUP_ID)
+      
+      if(length(watershed_group_id_filter) == 0){
+        waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = "Unknown"
+      } else {
+      waterbodies_dropped_from_last_year[i,]$Sampled_in_2024 = as.character(relevant_wbs[relevant_wbs$WATERSH ==  watershed_group_id_filter,]$Sampled_in_2024)
+      }
+    }
+  }
+}
+
+# Save results.
+my.wb = createWorkbook("annual_sampling_lists_comparison")
+addWorksheet(wb = my.wb, sheetName = "Only in last year")
+addWorksheet(wb = my.wb, sheetName = "Only in this year")
+
+writeDataTable(wb = my.wb,
+                   sheet = "Only in last year",
+                   x = waterbodies_dropped_from_last_year,
+                   withFilter = T)
+writeDataTable(wb = my.wb,
+                   sheet = "Only in this year",
+                   x = waterbodies_added_this_year |> arrange(Waterbody),
+                   withFilter = T)
+saveWorkbook(my.wb,
+            paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Sampling_list_comparison_",my.year,"_with_",my.year-1,"_golden_mussl.xlsx"),
+              overwrite = T)
+```
+
+This year, there are `r nrow(final_waterbody_list)` waterbodies on our protocol list. Last year, there were `r nrow(last_year)`.
+
+To identify the waterbodies for bi-weekly sampling, the final waterbody list (`r nrow(final_waterbody_list)`) was sorted by the overall invasion risk and also by the high-risk category score. All waterbodies with a score of 3 for invasion risk (the highest possible risk ranking) and/or a score of 3 for the “high risk” category (the highest possible risk ranking) were selected for bi-weekly sampling. This resulted in `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))` waterbodies being selected; one additional waterbody, the Kootenay River, was also selected because it flows into Idaho (of special concern following a reporting of Zebra-Quagga Mussels) and then back into BC. This resulted in a total of `r nrow(waterbody_risk_table |> filter(InvasionRisk == 3 | Highrisk == 3))+1` waterbodies in total being selected for bi-weekly sampling.

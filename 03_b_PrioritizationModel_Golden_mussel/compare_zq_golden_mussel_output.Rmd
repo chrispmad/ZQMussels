@@ -1,0 +1,104 @@
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(openxlsx)
+library(dplyr)
+library(data.table)
+library(kableExtra)
+
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+
+my.year = 2026
+zq<- read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,".xlsx"))
+
+golden<-read.xlsx(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year,"_golden_mussel.xlsx"))
+
+# waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg"))
+
+```
+
+# Differences in Model Output {.tabset}
+
+First, waterbodies that are on the final watebody list for Zebra Quagga Mussel. Then, those that are on the list for Golden Mussel, but NOT for Zebra Quagga mussel
+
+## Zebra Quaqqa not on Golden Mussel List
+
+pH range for Zebra Mussel: 7 to 9.6 
+
+Calcium for Zebra Mussel: 8 to 30+ mg/l
+
+Temperature: >10 degrees celcius
+
+
+```{r check_zq}
+
+zq_not_in_golden_full <- zq %>%
+  anti_join(
+    golden,
+    by = c("WatershedName", "GNIS_NA")
+  )
+
+DT::datatable(zq_not_in_golden_full,
+              options = list(autoWidth = FALSE,
+    scrollX = TRUE,
+    pageLength = 10,
+    lengthChange = FALSE))
+
+
+write.xlsx(zq_not_in_golden_full, "./output/zq_not_on_golden.xlsx")
+
+```
+
+## Golden Mussel not on Zebra Quagga List
+
+pH range for Zebra Mussel: 6 to 9
+
+Calcium for Zebra Mussel: 1 to 12+ mg/l
+
+Temperature: >15 degrees celcius
+
+```{r check_golden}
+
+golden_not_zq_full <- golden %>%
+  anti_join(
+    zq,
+    by = c("WatershedName", "GNIS_NA")
+  )
+
+DT::datatable(golden_not_zq_full,
+              options = list(autoWidth = FALSE,
+    scrollX = TRUE,
+    pageLength = 10,
+    lengthChange = FALSE))
+
+
+write.xlsx(golden_not_zq_full, "./output/golden_not_on_zq.xlsx")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
