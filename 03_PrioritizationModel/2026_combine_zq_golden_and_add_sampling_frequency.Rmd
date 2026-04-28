@@ -1,0 +1,153 @@
+---
+title: "2025 ZQ and Golden Mussel Combined Sampling"
+author: "John Phelan"
+date: "2026-01-09"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(readxl)
+library(terra)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(sf)
+library(leaflet)
+library(BAMMtools)
+library(RColorBrewer)
+library(openxlsx)
+library(diffdf)
+library(bcdata)
+library(readr)
+library(bcdata)
+library(DT)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year + 1
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.height = 10,
+	fig.width = 10,
+	message = FALSE,
+	warning = FALSE,
+	root.dir = paste0(my_opts$zqm_operations_data_folder,"Watercraft Inspection Data/Multiyear data/")
+)
+# 
+# if(interactive()){
+#   if(stringr::str_extract(getwd(),"[0-9]{2}_.*") != "03_PrioritizationModel"){
+#     setwd(paste0(stringr::str_remove(getwd(),"[0-9]{2}_.*")))
+#   }
+# }
+
+update_remote_output_files = T
+
+library(here)
+source(here("03_PrioritizationModel", "utility_functions.R"))
+
+my_path = ifelse(interactive(), "./03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+source(here(paste0('03_PrioritizationModel/utility_functions.R')))
+```
+
+```{r files}
+
+waterb_zq = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/waterbodies with risk estimates post filtering_",my.year," - Copy.xlsx")) |> 
+  rename(waterbody = GNIS_NA) |> 
+  mutate(list_source = "ZQ")
+
+# Drop the ZQ where it is Y
+waterb_zq <- waterb_zq |>
+  filter(is.na(`Remove from list Y`) | `Remove from list Y` != "Y")
+
+
+waterb_golden = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/golden_not_on_zq_Beck_edits.xlsx")) |> 
+  filter(`Add to waterbody list` == "Y") |> 
+  select(-c(`Add to waterbody list`, Veliger.Sampling.Frequency, Sampling_Frequency, Region)) |> 
+  mutate(list_source = "Golden") |> 
+  rename(waterbody = Waterbody, InvasionRisk = InvasionRisk_bin, EVRisk = EVRisk_bin)
+
+
+waterb = bind_rows(waterb_zq, waterb_golden)
+
+```
+
+```{r write_sampling}
+
+final_waterbody_list = waterb |>
+ ungroup() |>
+  rename(Region = REGION_NAME,
+         Waterbody = waterbody,
+         InvasionRisk_bin = InvasionRisk,
+    EVRisk_bin = EVRisk) |> 
+  dplyr::mutate(
+    `Veliger Sampling Frequency` = "Undecided",
+    Lat = round(Lat, 4),
+    Long = round(Long, 4)
+  ) |> 
+  dplyr::mutate(Region = stringr::str_remove_all(Region, ' Natural Resource Region'))
+
+fwl_rivers = final_waterbody_list |>
+ filter(str_detect(Waterbody, "River"))
+
+fwl_lakes = final_waterbody_list |>
+ filter(!str_detect(Waterbody, "River"))
+
+#Change coords for rivers to NA (delete fields!)
+fwl_rivers$Lat = NULL
+fwl_rivers$Long = NULL
+
+final_waterbody_list = fwl_lakes |>
+ arrange(Waterbody) |>
+ bind_rows(fwl_rivers |> arrange(Waterbody)) |>
+ arrange(Waterbody)
+
+# Add in the sampling frequency!
+final_waterbody_list = final_waterbody_list |> 
+  dplyr::mutate(Sampling_Frequency = dplyr::case_when(
+    InvasionRisk_bin == 3 | Highrisk == 3 ~ "Plankton Bi-weekly",
+    
+    Use < 2 ~ "Substrate Only",
+    
+    T ~ "Plankton Monthly"))
+
+final_waterbody_list = final_waterbody_list |> 
+  dplyr::arrange(Sampling_Frequency, InvasionRisk_bin, Use)
+
+openxlsx::write.xlsx(final_waterbody_list,
+                    paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_combined_sampling_priority.xlsx"),
+                    overwrite = T)
+
+# Add a sheet to this doc that has only the variables needed for the table in word.
+final_wb_wb = openxlsx::loadWorkbook(file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_combined_sampling_priority.xlsx"))
+
+openxlsx::addWorksheet(final_wb_wb, sheetName = "table_for_word")
+
+openxlsx::writeDataTable(final_wb_wb,
+                         "table_for_word", 
+                         x = final_waterbody_list |>
+                           dplyr::select(Region,Waterbody,Sampling_Frequency,Lat,Long)
+)
+
+openxlsx::saveWorkbook(final_wb_wb, 
+                       file = paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/",my.year,"/Prioritization model/Final waterbody list based on risk estimates_",my.year,"_combined_sampling_priority.xlsx"),
+                       overwrite = T)
+
+```
+
+
+```{r make_table_for_word}
+# 
+# final_waterbody_list_reduced <- final_waterbody_list |> 
+#   select(Region, Waterbody, Sampling_Frequency, Lat, Long) |> 
+#   rename(`Sampling method and frequency` = Sampling_Frequency) |> 
+#   mutate(across(everything(), ~ if_else(is.na(.), "NA", as.character(.))))
+# 
+# write.xlsx(final_waterbody_list_reduced, paste0("./output/Report_final_table",my.year,".xlsx"))
+
+```
+
+
+
