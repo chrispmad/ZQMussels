@@ -47,8 +47,8 @@ def wait_for_download(directory, file_pattern, timeout=60, check_interval=5):
 # %%
 ## Read in options file that has log-in info for metabase
 my_opts_filename = (
-    #"C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv"
-    sys.argv[1]
+    "C:\\Users\\JPHELAN\\Documents\\R_projects\\long_term_projects\\AIS_ZQMussels\\Options.csv"
+    #sys.argv[1]
 )
 
 print(my_opts_filename)
@@ -59,8 +59,8 @@ the_year = int(my_opts["year"].iloc[0])
 # Create the WebDriver instance outside the loop
 driver = webdriver.Chrome()
 
-#url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/466-2025-mussel-summary-csv-export"
-url = sys.argv[2]
+url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/466-2025-mussel-summary-csv-export"
+#url = sys.argv[2]
 url2 = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/467-get-blowby-table"
 
 # Define the path to the Downloads folder
