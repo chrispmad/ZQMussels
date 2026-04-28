@@ -1,0 +1,242 @@
+---
+title: "Search for Mussel Fouled Boats"
+author: "John Phelan"
+date: "2026-02-26"
+output: html_document
+---
+
+```{r set_up, echo = F, include=FALSE, message = F, warning = F}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+
+library(kableExtra)
+library(DT)
+
+source(here::here("02_IMDP_Figure_Generator/utils/initialise_plots.R"))
+
+#What is the sheet name of the destination regions for the mussel fouled tracking sheet?
+if(my.year != 2024){
+  MF_tracker_sheet = "DestRegions"
+}
+if(my.year == 2024){
+  MF_tracker_sheet = "Final List"
+}
+
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "load_figure_data.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "station_manipulation.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "dat_to_stations.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "compliance_dat.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "compliance_total_data.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "blowbys_by_hour.R"))
+
+source(here::here("02_IMDP_Figure_Generator", "utils", "high_risk_by_station.R"))
+
+
+
+```
+
+
+
+```{r fix_data}
+
+if (!exists('dat')) {
+  dat <- read.xlsx(paste0(my.data.folder, '/figure_dat.xlsx')) |> 
+    mutate(TimeOfInspection = convertToDateTime(TimeOfInspection)) |> 
+    as_tibble() #|> 
+  # mutate(
+  #   Station = case_when(
+  #     Station == "Penticton Roving" ~ "Penticton",
+  #     Station == "Lower Mainland Roving" ~ "Lower Mainland",
+  #     TRUE ~ Station
+  #   )
+  # )
+}
+
+
+```
+
+
+## Data Exploration {.tabset}
+
+### Watercraft Inspection ID to be Investigated
+
+150651 was explored for any inconsistencies and there was nothing in the database to suggest that this was mussel fouled.
+
+### Comment Exploration
+
+
+To explore the comments, we look for: mussel - fouled - zebra - ZQ - dreissinid. Any instances of these will return the comments. There are no mentions of these in the start or end comments. 6 entries were found for 2025 with these words in the comments. 
+
+135441 had high risk indicated. It had marine mussels (barnacles) found on inspection. It originated from a high risk area. It was previously in dry storage. Decon order issued (2042). Seal was issued (6875).  "No decontamination - pressure washer not working." 
+
+
+```{r explore comments}
+
+
+keywords <- c("mussel", "fouled", "zebra", "ZQ", "dreissinid", "quagga")
+
+# dat |>
+#   filter(str_detect(
+#     Shift_Start_Comment,
+#     regex(paste(keywords, collapse = "|"), ignore_case = TRUE)
+#   ))
+# 
+# 
+# dat |>
+#   filter(str_detect(
+#     Shift_End_Comment,
+#     regex(paste(keywords, collapse = "|"), ignore_case = TRUE)
+#   ))
+
+
+dat |>
+  mutate(General_Comment = as.character(General_Comment)) |>
+  filter(str_detect(
+    General_Comment,
+    regex(paste(keywords, collapse = "|"), ignore_case = TRUE)
+  )) |>
+  # select(Watercraft_Risk_Assessment_ID, MusselsFound_Ind, High_Risk_AIS_Ind, 
+  #        Station, General_Comment, Shift_Start_Comment, Shift_End_Comment, Watercraft_Has_Drainplugs_Ind, Drainplug_Removed_at_Inspection_Ind, Decontamination_Performed_Ind, Quarantine_Period_Issued_Ind, Dreissenid_mussels_found_during_previous_inspection, Clean_Drain_Dry_After_Inspection_Ind, Seal_Issued_Ind, DryStorage, ) |> 
+  datatable(
+    options = list(
+      pageLength = 10,
+      autoWidth = TRUE
+    ),
+    rownames = FALSE
+  )
+
+
+
+
+```
+
+
+
+
+
+
+```{r get_data}
+
+# ### Initial Data Exploration - Mount Robson
+# 
+# Initial counts and data exploration - short summary of what we have for Mount Robson.
+# 
+# There were no blow bys recorded in the main table - I might need to look elsewhere for these.
+# 
+# mt_robson = dat |> 
+#   filter(str_detect(Station, "Robson"))
+# # what are the comments 
+# unique(mt_robson$Shift_Start_Comment)
+# 
+# tbl_mussels <- mt_robson |> 
+#   count(MusselsFound_Ind, name = "Mussels Found")
+# 
+# tbl_mussels |>
+#   kable(caption = "Mussels Found - Mount Robson") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_highrisk <- mt_robson |> 
+#   count(High_Risk_AIS_Ind, name = "High Risk")
+# 
+# tbl_highrisk |>
+#   kable(caption = "High Risk Watercraft - Mount Robson") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_drainplug <- mt_robson |> 
+#   count(Watercraft_Has_Drainplugs_Ind, name = "Watercraft has Drainplug")
+# 
+# tbl_drainplug |>
+#   kable(caption = "Watercraft with Drainplug") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_removed <- mt_robson |> 
+#   filter(Watercraft_Has_Drainplugs_Ind == TRUE) |> 
+#   count(Drainplug_Removed_at_Inspection_Ind, name = "Drainplugs Pulled")
+# 
+# tbl_removed |>
+#   kable(caption = "Drainplugs Removed at Inspection") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_previous <- mt_robson |>
+#   count(Previous_Waterbody_1_Province_Or_State,
+#         name = "Previous Province or State") |>
+#   arrange(desc(`Previous Province or State`))
+# 
+# tbl_previous |>
+#   kable(caption = "Previous Province or State") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_destination <- mt_robson |>
+#   count(Destination_Waterbody_1_Province_Or_State,
+#         name = "Destination Province or State") |>
+#   arrange(desc(`Destination Province or State`))
+# 
+# tbl_destination |>
+#   kable(caption = "Destination Province or State") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_complexity <- mt_robson |>
+#   select(
+#     Non_Motorized_Counter,
+#     Simple_Counter,
+#     Complex_Counter,
+#     Very_Complex_Counter
+#   ) |>
+#   pivot_longer(everything(),
+#                names_to = "variable",
+#                values_to = "value") |>
+#   group_by(variable, value) |>
+#   summarise(n = n(), .groups = "drop")
+# 
+# tbl_complexity |>
+#   kable(caption = "Watercraft Complexity Summary") |>
+#   kable_styling(full_width = FALSE)
+# 
+# # tbl_blowby <- mt_robson |> 
+# #   select(Non_Motorized_Blow_Bys_Counter,
+# #          Motorized_Blow_Bys_Counter,
+# #          Total_BlowBys)|>
+# #   dplyr::mutate(
+# #     dplyr::across(dplyr::everything(), as.numeric)
+# #   ) |> 
+# #   pivot_longer(everything(),
+# #                names_to = "variable",
+# #                values_to = "value") |>
+# #   group_by(variable, value) |>
+# #   summarise(n = n(), .groups = "drop")
+# # 
+# # tbl_blowby |> 
+# #   kable(caption = "Blowbys") |>
+# #   kable_styling(full_width = FALSE)
+# 
+# tbl_decon <- mt_robson |> 
+#   count(Decontamination_Performed_Ind, name = "Decon performed")
+# 
+# tbl_decon |>
+#   kable(caption = "Decon performed - Mount Robson") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_quar <- mt_robson |> 
+#   count(Quarantine_Period_Issued_Ind, name = "Quarantine order issued")
+# 
+# tbl_quar |>
+#   kable(caption = "Quarantine issued - Mount Robson") |>
+#   kable_styling(full_width = FALSE)
+# 
+# tbl_dress <- mt_robson |> 
+#   count(Dreissenid_mussels_found_during_previous_inspection, name = "Dreissenid found previously")
+# 
+# tbl_dress |>
+#   kable(caption = "Dreissenid found previously - Mount Robson") |>
+#   kable_styling(full_width = FALSE)
+
+
+
+```
+

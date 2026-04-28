@@ -1,0 +1,173 @@
+---
+title: "2025 Veliger Sampling Locations"
+author: "John Phelan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = F, warning = F, message = F)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(sf)
+library(bcdata)
+library(bcmaps)
+library(readxl)
+library(leaflet)
+library(leafpop)
+library(leaflet.extras)
+library(janitor)
+library(here)
+library(openxlsx)
+library(htmlwidgets)
+
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/"
+
+
+dat<-openxlsx::read.xlsx(here::here("./data/Copy of BC Veliger Sampling Inventory 2025.xlsx"))
+
+
+```
+
+
+```{r data grab}
+
+dat <- dat |> 
+  clean_names()
+
+dat<- dat |> 
+  rename(count =  x1)
+
+dat<- dat |> 
+  mutate(date_collected_yyyy_mm_dd = as.Date(as.numeric(date_collected_yyyy_mm_dd), origin = "1899-01-01"))
+
+dat_complete<-dat |> 
+  filter(!is.na(lat_decimal_degrees) | !is.na(long_decimal_degrees))
+dat_missing<-dat |> 
+  filter(is.na(lat_decimal_degrees) | is.na(long_decimal_degrees))
+
+
+#fix wrong longs - all should be negative
+dat_complete<-dat_complete |> 
+  mutate(long_decimal_degrees = ifelse(long_decimal_degrees > 0, long_decimal_degrees * -1, long_decimal_degrees))
+
+
+dat_sf<-st_as_sf(dat_complete, coords = c("long_decimal_degrees", "lat_decimal_degrees"), crs = 4326)
+
+```
+
+```{r First Nations Polygons}
+
+firstNationsPIP<-st_read(paste0(lan_root, "FN_PIP_Consultation_Areas.shp"), quiet = T)
+
+firstNationsPIP<- st_transform(firstNationsPIP, crs = 4326)
+firstNationsPIP <- st_make_valid(firstNationsPIP)
+# ggplot()+
+#   geom_sf(data = firstNationsPIP)
+
+```
+
+
+```{r manipulations}
+
+#lets only keep Nations that overlap with where sampling has occurred?
+Nations_involved <- st_filter(firstNationsPIP, dat_sf, .predicate = st_intersects)
+  
+Nations_involved <- Nations_involved |> 
+  rename(Nation = CNSLTN_A_1)
+# ggplot() +
+#   geom_sf(data = Nations_involved, fill = "lightblue", color = "black") +
+#   geom_sf(data = dat_sf, color = "red")
+
+overlap_list <- st_intersects(Nations_involved)
+
+# Create a column that lists all overlapping nations for each polygon
+Nations_involved$all_overlapping_nations <- sapply(seq_along(overlap_list), function(i) {
+  inds <- overlap_list[[i]]
+  paste(unique(Nations_involved$Nation[inds]), collapse = ", ")
+})
+
+
+###############
+# --------------- These polygons below do not help - too small and poor coverage
+##############
+
+
+# ls<-bcdc_list()
+# 
+# ls_filtered <- ls[str_detect(ls, regex("nations", ignore_case = TRUE))]
+# 
+# ls_filtered
+# 
+# nations_lands<- bcdc_get_data("first-nations-treaty-lands")
+# 
+# nations_lands<- st_transform(nations_lands, 4326)
+# # small amount of data
+# #plot(st_geometry(nations_lands))
+# 
+# nations_areas<- bcdc_get_data("first-nations-treaty-areas")
+# 
+# nations_areas<- st_transform(nations_areas, 4326)
+# small amount of data
+# plot(st_geometry(nations_areas))
+# no overlap
+# Nations_involved <- st_filter(nations_areas, dat_sf, .predicate = st_intersects)
+
+
+
+```
+
+## Overlap of Veliger Sampling and First Nations territories
+
+From the veliger sampling data, `r nrow(dat_complete)` samples were returned with latitude and longitude, and `r nrow(dat_missing)` were without co-ordinates.
+
+From the [Profiles of Indigenous Peoples (PIP)](https://catalogue.data.gov.bc.ca/dataset/profiles-of-indigenous-peoples-pip-consultation-areas-public-map-service), there are a total of `r nrow(Nations_involved)` First Nations with territories that overlap with the 2025 Zebra/Quagga veliger sampling being conucted in BC.
+
+```{r leaflet map, fig.width=10, fig.height=8}
+
+leaflet() |> 
+  addTiles(group = "OSM") |> 
+  addProviderTiles(providers$CartoDB.Positron, group = "CartoDB") |> 
+  addLayersControl(
+    position = 'bottomleft',
+    baseGroups = c("CartoDB","OSM"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) |> 
+  addPolygons(
+    data = Nations_involved,
+    color = "black",
+    fillColor = "lightblue",
+    fillOpacity = 0.5,  # transparent to see overlaps
+    weight = 1,
+    label = ~Nation,  # hover label
+    popup = leafpop::popupTable(
+      Nations_involved,
+      zcol = "all_overlapping_nations"
+    )
+  ) |> 
+  addCircleMarkers(
+    data = dat_sf,
+    color = "purple",
+    fillOpacity = 0.8,
+    radius = 2,
+    label = ~paste0(waterbody, ", ", date_collected_yyyy_mm_dd),
+    popup = leafpop::popupTable(
+      dat_sf,
+      zcol = c(
+        "waterbody",
+        "location_site_name",
+        "date_collected_yyyy_mm_dd",
+        "secchi_depth_m",
+        "water_temperature_c",
+        "p_h_in_water_column",
+        "zebra_quagga_mussels_veligers",
+        "sampling_group_agency"
+      )
+    )
+  )
+
+
+```
+
+
+

@@ -1,0 +1,417 @@
+---
+title: "Mapping DFO Survey ZQ Observations"
+author: "John Phelan"
+date: "2025-12-29"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(data.table)
+
+library(readxl)
+library(openxlsx)
+
+library(sf)
+library(terra)
+library(leaflet)
+library(bcmaps)
+library(bcdata)
+
+library(kableExtra)
+library(diffdf)
+
+library(BAMMtools)
+library(RColorBrewer)
+
+library(docxtractr)
+library(here)
+library(officer)
+
+
+data_raw<-read.xlsx("//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Notification_process/Public reports/Extract_Survey_FY2024-25_Freshwaters_invasive_mussel_reports_v1.xlsx")
+
+root_loc<-"//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Notification_process/Public reports/"
+
+```
+
+```{r data_cleaning}
+
+## what columns do we care about? They are coloured in the excel file that has been loaded above
+# WE and WF are the ones that mention Zebra mussels, Quagga mussels, or Other invasive mussels
+# Locations start in column YD - it looks like they can select a named location, or that they can use "Manual map selection" to 
+# locate a point on the map where they fished. Lets reorganise these. We will have the first column be "AIS""Name", then "long" and then "lat".
+# in the first row, there are names - FW6A_lakes.1, FW6A_lng.1, FW6A_lat.1. The numbers will increase for other entries. Anywhere these names are mentioned are points on the map we will want to gather
+
+data_long <- data_raw %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(
+    cols = matches("^FW6"),          # matches any column starting with FW6
+    names_to = c(".value", "set"),  
+    names_pattern = "(FW6[^\\.]+)\\.(\\d+)"  # capture FW6A, FW6B, etc. before the dot
+  )
+  
+data_to_plot<- data_long |> 
+  select(
+    ID,
+    AIS3M1,
+    AIS3M2,
+    matches("FW6")
+  )
+
+
+data_collapsed <- data_to_plot %>%
+  pivot_longer(
+    cols = matches("^FW6"),
+    names_to = c("FW6_set", "type"),
+    names_pattern = "FW6([A-Z])_(.*)"
+  ) %>%
+  pivot_wider(
+    names_from = type,
+    values_from = value,
+    values_fn = function(x) {
+      v <- na.omit(x)          # remove NA
+      if(length(v) == 0) NA else v[1]  # return first non-NA, or NA if none
+    }
+  ) %>%
+  rename(location = lakes) %>%
+  select(ID, AIS3M1, AIS3M2, name, location, lng, lat, reg) %>%
+  filter(if_any(c(lng, lat), ~ !is.na(.)))
+
+
+## now we load the waterbodies list
+waterb = readRDS("Z:/2 SCIENCE - Invasives/AIS_R_Projects/LargeDataFiles/named_lakes_and_rivers_merged.rds")
+
+nr_regions = sf::read_sf(paste0("Z:/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/FLNRO_Fishing_Boundaries.shp"))
+
+
+nr_regions<-st_transform(nr_regions,4326)
+
+waterb = waterb |> 
+  st_join(nr_regions)
+
+```
+
+# Reported Locations of ZQ Mussels {.tabset}
+
+## Main Map
+
+```{r locations}
+
+## convert the data_cllapsed to sf object
+
+data_sf <- data_collapsed %>%
+  mutate(
+    lng = as.numeric(lng),
+    lat = as.numeric(lat)
+  ) %>%
+  st_as_sf(
+    coords = c("lat", "lng"),
+    crs = 4326,
+    remove = FALSE
+  )
+
+
+## for each location, get the overlap with waterb and attached the "name" to data_sf as "waterbody_name" 
+data_sf <- st_join(
+  data_sf,
+  waterb %>% select(waterbody, geometry) %>% st_transform(4326),
+  join = st_intersects,
+  left = TRUE
+) %>%
+  rename(waterbody_name = waterbody)
+
+missing<-data_sf[is.na(data_sf$waterbody_name),]
+
+nearest_idx <- st_nearest_feature(missing, waterb)
+
+# Attach waterbody names
+missing <- missing %>%
+  mutate(waterbody_name = waterb$waterbody[nearest_idx])
+
+found<-data_sf[!is.na(data_sf$waterbody_name),]
+
+data_sf<-bind_rows(found, missing)
+
+
+```
+
+```{r get_past_sampling}
+
+my_path = ifelse(interactive(), "./03_PrioritizationModel/","")
+lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/"
+
+
+source(here("03_PrioritizationModel", "utility_functions.R"))
+
+# 2024 protocol
+sample_protocol_2024 <- get_wb_list_from_protocol_doc(
+  paste0("Z:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2024/Sampling protocol/2024 Invasive Mussel Field Protocol_Final.docx")
+)
+
+# 2025 protocol
+sample_protocol_2025 <- get_wb_list_from_protocol_doc(
+  paste0("Z:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Operations/Lake Monitoring/2025/Sampling protocol/2025 Invasive Mussel Field Protocol_V2.docx")
+)
+
+# # lets add regions to the data_sf
+# bc_regions<-nr_regions() %>%
+#   st_transform(4326)
+
+data_sf<- data_sf |> 
+  st_join(nr_regions |> select(REGION_N)) |> 
+  rename(REGION_NAME = REGION_N)
+
+
+# data_sf<- data_sf |> 
+  # mutate(REGION_NAME = str_remove(REGION_NAME,' Natural Resource Region'))
+
+
+data_sf <- data_sf %>%
+  mutate(
+    REGION_NAME = str_to_title(REGION_NAME),
+    waterbody_name = str_to_title(waterbody_name)
+  )
+
+
+sample_protocol_2024 <- sample_protocol_2024 %>%
+  # Split REGION by commas
+  separate_rows(Region, sep = ",") %>%
+  # Trim whitespace
+  mutate(Region = str_trim(Region)) %>%
+  # Capitalize to match data_sf
+  mutate(Region = str_to_title(Region),
+         Waterbody = str_to_title(Waterbody))
+
+sample_protocol_2025 <- sample_protocol_2025 %>%
+  mutate(
+    Region = str_to_title(Region),
+    Waterbody = str_to_title(Waterbody)
+  )
+
+sample_keys <- sample_protocol_2024 %>%
+  distinct(
+    REGION_NAME = Region,
+    waterbody_name = Waterbody
+  ) %>%
+  mutate(sampled_2024 = TRUE)
+
+data_sf_joined <- data_sf %>%
+  left_join(
+    sample_keys,
+    by = c("REGION_NAME", "waterbody_name")
+  ) %>%
+  mutate(
+    sampled_2024 = if_else(is.na(sampled_2024), FALSE, TRUE)
+  )
+
+sample_keys <- sample_protocol_2025 %>%
+  distinct(
+    REGION_NAME = Region,
+    waterbody_name = Waterbody
+  ) %>%
+  mutate(sampled_2025 = TRUE)
+
+data_sf_joined <- data_sf_joined %>%
+  left_join(
+    sample_keys,
+    by = c("REGION_NAME", "waterbody_name")
+  ) %>%
+  mutate(
+    sampled_2025 = if_else(is.na(sampled_2025), FALSE, TRUE)
+  )
+
+data_sf_joined = data_sf_joined |>
+  mutate(
+    sampled = coalesce(sampled_2024, FALSE) | coalesce(sampled_2025, FALSE)
+  )
+
+
+```
+
+
+```{r leaflet map,  fig.width=8, fig.height=6}
+
+
+pal_manual <- colorFactor(
+  palette = c("FALSE" = "orange", "TRUE" = "blue"),
+  domain = c(FALSE, TRUE)
+)
+
+## now we will add it to a leaflet map
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    data = nr_regions,
+    fillOpacity = 0.5,
+    color = "black",
+    fill = NA,
+    weight = 0.7
+  ) %>%
+  addCircleMarkers(
+    data = data_sf_joined,
+    radius = 5,
+    color = ~pal_manual(sampled),
+    fillOpacity = 0.8,
+    popup = ~ paste0(
+      "<strong>ID:</strong> ", ID, "<br>",
+      "<strong>AIS3M1:</strong> ", AIS3M1, "<br>",
+      "<strong>AIS3M2:</strong> ", AIS3M2, "<br>",
+      "<strong>Name entered:</strong> ", name, "<br>",
+      "<strong>Location:</strong> ", location, "<br>",
+      "<strong>Region:</strong> ", reg, "<br>",
+      "<strong>Waterbody Name:</strong> ", waterbody_name, "<br>",
+      "<strong>Sampled 2024?:</strong> ", sampled_2024, "<br>",
+      "<strong>Sampled 2025?:</strong> ", sampled_2025
+    )
+  ) |> 
+  addLegend(
+    position = "bottomright",
+    colors = c("blue", "orange"),
+    labels = c("Sampled", "Not sampled"),
+    title = "Sampling status",
+    opacity = 0.8
+  )
+
+```
+
+
+```{r write_ouput}
+## write the output of the locations to a csv
+if (!dir.exists("output")) {
+  dir.create("output")
+}
+data_to_write <- data_sf_joined |> 
+  st_drop_geometry() |> 
+  rename(name_entered = name, waterbody_name_from_point = waterbody_name)
+
+write.xlsx(data_to_write, "./output/DFO_survey_ZQ_locations.xlsx")
+
+```
+
+
+## Single ID entry
+
+For where there was only one waterbody ID'd by someone that said they observed Zebra/Quagga mussels while fishing
+
+```{r}
+
+unique_data_sf <- data_sf_joined |> 
+  group_by(ID) |> 
+  filter(n() == 1) |>
+  ungroup()
+
+## now we will add it to a leaflet map
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(
+    data = nr_regions,
+    fillOpacity = 0.5,
+    color = "black",
+    fill = NA,
+    weight = 0.7
+  ) %>%
+  addCircleMarkers(
+    data = unique_data_sf,
+    radius = 5,
+    color = ~pal_manual(sampled),
+    fillOpacity = 0.8,
+    popup = ~ paste0(
+      "<strong>ID:</strong> ", ID, "<br>",
+      "<strong>AIS3M1:</strong> ", AIS3M1, "<br>",
+      "<strong>AIS3M2:</strong> ", AIS3M2, "<br>",
+      "<strong>Name entered:</strong> ", name, "<br>",
+      "<strong>Location:</strong> ", location, "<br>",
+      "<strong>Region:</strong> ", reg, "<br>",
+      "<strong>Waterbody Name:</strong> ", waterbody_name, "<br>",
+      "<strong>Sampled 2024?:</strong> ", sampled_2024, "<br>",
+      "<strong>Sampled 2025?:</strong> ", sampled_2025
+    )
+  ) |> 
+  addLegend(
+    position = "bottomright",
+    colors = c("blue", "orange"),
+    labels = c("Sampled", "Not sampled"),
+    title = "Sampling status",
+    opacity = 0.8
+  )
+
+data_to_write <- unique_data_sf |> 
+  st_drop_geometry() |> 
+  rename(name_entered = name, waterbody_name_from_point = waterbody_name)
+
+write.xlsx(data_to_write, "./output/DFO_survey_ZQ_locations_unique_waterbody_entry.xlsx")
+
+
+```
+
+
+## Nearest Waterbodies For Bad Geometries
+
+```{r check_nearest_waterbody}
+
+missing_proj <- missing %>%
+  st_transform(3005)
+
+waterb_proj <- waterb %>%
+  st_transform(3005)
+
+# Index of nearest waterbody for each missing point
+nearest_idx <- st_nearest_feature(missing_proj, waterb_proj)
+
+# Attach nearest waterbody name
+missing_proj <- missing_proj %>%
+  mutate(
+    nearest_waterbody = waterb_proj$waterbody[nearest_idx]
+  )
+
+nearest_waterb <- waterb_proj[nearest_idx, ] %>%
+  mutate(point_id = row_number())
+
+missing_proj <- missing_proj %>%
+  mutate(point_id = row_number())
+
+library(ggplot2)
+
+missing_leaf <- missing_proj %>% st_transform(4326)
+nearest_waterb_leaf <- nearest_waterb %>% st_transform(4326)
+
+leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+
+  # Nearest waterbody polygons
+  addPolygons(
+    data = nearest_waterb_leaf,
+    fillColor = "lightblue",
+    fillOpacity = 0.6,
+    color = "blue",
+    weight = 2,
+    label = ~waterbody,
+    group = "Nearest Waterbody"
+  ) %>%
+
+  # Missing points
+  addCircleMarkers(
+    data = missing_leaf,
+    radius = 5,
+    color = "black",
+    fillColor = "black",
+    fillOpacity = 1,
+    label = ~paste0("Assigned: ", nearest_waterbody),
+    group = "Missing Points"
+  ) %>%
+
+  addLayersControl(
+    overlayGroups = c("Nearest Waterbody", "Missing Points"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+```
+

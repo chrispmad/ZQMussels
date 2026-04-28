@@ -1,0 +1,106 @@
+---
+title: "Find waterbodies"
+author: "John Phelan"
+date: "2026-01-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(data.table)
+
+library(readxl)
+library(openxlsx)
+
+library(sf)
+library(terra)
+library(leaflet)
+library(bcmaps)
+library(bcdata)
+
+library(kableExtra)
+library(diffdf)
+
+library(BAMMtools)
+library(RColorBrewer)
+
+library(docxtractr)
+library(here)
+library(officer)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year
+watersheds = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/WatershedGroups_lowres.shp')) |> 
+ st_drop_geometry() |> 
+ reframe(WATERSH = WATERSHED_, WatershedName = WATERSHE_1)
+
+
+waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg")) |> 
+  select(WATERSH, GNIS_NA, geom) |> 
+  st_transform(4326)
+
+```
+
+```{r}
+
+risk_list <-read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2026/Prioritization model/golden_not_on_zq_monthly_temp.xlsx"))
+
+
+macD = risk_list |> 
+  filter(Waterbody == "Macdonald Lake") |> 
+  rename(GNIS_NA = Waterbody)
+
+nr_regions = sf::read_sf(paste0("Z:/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/FLNRO_Fishing_Boundaries.shp"))
+
+nr_regions<-st_transform(nr_regions,4326)
+
+waterb <- waterb |>
+  st_join(
+    nr_regions |> select(REGION_N),
+    left = TRUE
+  )
+  
+macD<- macD |> 
+  rename(REGION_N = WatershedName)
+
+macD_sf <- waterb |>
+  left_join(
+    macD |> select(GNIS_NA, REGION_N),
+    by = c("GNIS_NA", "REGION_N")
+  )
+
+macD_sf = macD_sf |> filter(GNIS_NA == "Macdonald Lake")
+
+
+```
+
+
+```{r leaflet}
+
+
+## plot macD in leaflet
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron", group = "Light") %>%
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>%
+  addPolygons(
+    data = macD_sf,
+    color = "blue",
+    weight = 2,
+    fillOpacity = 0.5,
+    popup = ~GNIS_NA,
+    group = "Macdonald Lake"
+  ) %>%
+  addLayersControl(
+    baseGroups = c("Light","Satellite"),
+    overlayGroups = c("Macdonald Lake"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+

@@ -1,0 +1,123 @@
+---
+title: "Final Pirority List 2026"
+author: "John Phelan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readr)
+library(data.table)
+
+library(readxl)
+library(openxlsx)
+
+library(sf)
+library(terra)
+library(leaflet)
+library(bcmaps)
+library(bcdata)
+
+library(kableExtra)
+library(diffdf)
+
+library(BAMMtools)
+library(RColorBrewer)
+
+library(docxtractr)
+library(here)
+library(officer)
+
+my_opts = read_csv(paste0(here::here(),"/Options.csv"))
+
+my.year = my_opts$year
+watersheds = read_sf(paste0(my_opts$remote_spatial_data,'shared_data_sets/WatershedGroups_lowres.shp')) |> 
+ st_drop_geometry() |> 
+ reframe(WATERSH = WATERSHED_, WatershedName = WATERSHE_1)
+
+
+waterb = read_sf(paste0(my_opts$base_dir,"03_PrioritizationModel/data/waterb_with_data.gpkg")) |> 
+  select(WATERSH, GNIS_NA, WATERBO, geom) |> 
+  st_transform(4326)
+
+```
+
+```{r}
+
+risk_list <-read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monitoring/2026/Prioritization model/Final waterbody list based on risk estimates_2026_combined_sampling_priority.xlsx"))
+
+
+
+
+nr_regions = sf::read_sf(paste0("Z:/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/FLNRO_Fishing_Boundaries.shp"))
+
+nr_regions<-st_transform(nr_regions,4326)
+
+waterb <- waterb |>
+  st_join(
+    nr_regions |> select(REGION_N),
+    left = TRUE
+  )
+  
+risk_list <- risk_list |> 
+  left_join(
+    waterb |> select(WATERBO, geom),
+    by = "WATERBO"
+  )
+
+risk_list_sf <- st_as_sf(
+  risk_list,
+  sf_column_name = "geom",
+  crs = 4326   # IMPORTANT: Leaflet requires lon/lat
+)
+
+```
+
+
+```{r leaflet, fig.height= 8, fig.width=10}
+
+
+popup <- leafpop::popupTable(
+  risk_list_sf,
+  zcol = c(
+    "Waterbody", "Use", "Highrisk", "MusselFouled", "calcium_bin", "InvasionRisk_bin",
+    "EVRisk_bin", "Sampling_Frequency"
+  )
+)
+
+pal_sampling <- colorFactor(
+  palette = "Set2",
+  domain  = risk_list_sf$Sampling_Frequency,
+  na.color = "#cccccc"
+)
+
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron", group = "Light") %>%
+  addProviderTiles("Esri.WorldImagery", group = "Satellite") %>%
+  addPolygons(
+    data = risk_list_sf,
+    color = ~pal_sampling(Sampling_Frequency),
+    fillColor = ~pal_sampling(Sampling_Frequency),
+    weight = 7,
+    fillOpacity = 0.8,
+    popup = popup
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = pal_sampling,
+    values = risk_list_sf$Sampling_Frequency,
+    title = "Sampling Frequency",
+    opacity = 1
+  ) %>%
+  addLayersControl(
+    baseGroups = c("Light", "Satellite"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+

@@ -1,0 +1,95 @@
+---
+title: "Temperature Exploration"
+author: "John Phelan"
+date: "2025-12-31"
+output: html_document
+---
+
+# Sections {.tabset}
+
+## Cleaning 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+# Load libraries
+library(terra)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(ggspatial)
+library(ggthemes)
+library(bcdata)
+library(DBI)
+library(RSQLite)
+library(tidyhydat)
+```
+
+```{r read_and_set_options}
+my_opts = read_csv(paste0(here::here(),"/Options.csv")) %>% 
+  as.data.frame()
+
+my.year = my_opts$year
+
+temp_limit = my_opts$zqm_risk_temp_limit
+climate_model = my_opts$zqm_risk_climate_model
+
+#Do we want to make monitoring location and water body level calcium shapefiles?
+#interim_shapefile_output = F #F if no, T if yes.
+
+# setwd(paste0(my_opts$base_dir,"01_DataCleaning/"))
+# mywd = getwd()
+
+#Create organizational folders in your working directory, if they don't exist.
+#data...
+if(!dir.exists(paste0(getwd(),"/data/"))) {
+  dir.create(paste0(getwd(),"/data/"))
+}
+
+#shapefiles...
+data.path = paste0(my_opts$base_dir,"01_DataCleaning/","data/")
+
+# if(!dir.exists(paste0(data.path,"shapefiles"))) {
+#   dir.create(paste0(data.path,"shapefiles"))
+# }
+
+#output...
+if(!dir.exists(paste0(getwd(),"/output/"))) {
+  dir.create(paste0(getwd(),"/output/"))
+}
+```
+
+
+```{r load_in_shapefiles}
+# BC shapefile
+bc_shp = bcmaps::bc_bound() %>% 
+  st_transform(crs = 4326) |> 
+  dplyr::summarise()
+
+model <- "MRI-ESM2-0"
+scenario <- my_opts$zqm_risk_climate_model  # "ssp245" or "ssp370"
+period <- "2021-2040"
+var <- "bio"
+res <- "2.5m"
+
+file_prefix <- sprintf("wc2.1_%s_%s_%s_%s", res, var, model, scenario, period)
+bio10_filename <- paste0(file_prefix, "_10.tif")
+bio10_filepath <- file.path(data.path, bio10_filename)
+
+
+# WorldClim future temperature raster data. 
+if(my_opts$zqm_risk_climate_model == "ssp245"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp245_2021-2040.tif"))
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+} else if(my_opts$zqm_risk_climate_model == "ssp370"){
+  tempr <- rast(paste0(data.path,"wc2.1_2.5m_bioc_MRI-ESM2-0_ssp370_2021-2040.tif"))
+  tempr = mask(crop(tempr, bc_shp), vect(bc_shp))
+}
+
+
+```
+
+
+```{r plot_temps}
+
+
+```
+
