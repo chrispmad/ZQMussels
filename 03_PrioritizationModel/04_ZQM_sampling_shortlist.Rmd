@@ -498,22 +498,37 @@ waterb_risk = waterb_risk |>
 #And now the actual second filtering step!
 waterb_risk = waterb_risk |>
  filter(Use > 1.5 | GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH) | keep_me_always)
-# 2.  Remove waterbodies with a binned value of the 'Use' category up to 1.5 (`r nrow(waterb_risk)` waterbodies retained)
+
 ```
 
-
+2.  Remove waterbodies with a binned value of the 'Use' category up to 1.5 (`r nrow(waterb_risk)` waterbodies retained)
 
 ```{r remove_LowUse_and_LowCalcium}
 
 ### we will also filter out any waterbodies that have calcium < 2 and Use < 2
 
-waterb_risk = waterb_risk |>
- filter(Use >= 2 & calcium_bin >=2 | 
-          GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH) | keep_me_always)
+# waterb_risk_high = waterb_risk |>
+#  filter(Use >= 2 & calcium_bin >= 2 | 
+#           GNIS_NA %in% unique(waterb_with_any_mf$GNIS_NA) & WATERSH %in% unique(waterb_with_any_mf$WATERSH) | keep_me_always)
+# 
+# waterb_risk_low <- waterb_risk |>
+#   st_drop_geometry() |>
+#   anti_join(
+#     waterb_risk_high |>
+#       st_drop_geometry(),
+#     by = c("GNIS_NA", "WATERSH")
+#   )
+# 
+# waterb_risk_low = waterb_risk_low |> 
+#   st_drop_geometry()
+# 
+# write.xlsx(waterb_risk_low, "./output/low_use_low_calcium_waterbodies.xlsx")
 
+
+# 2.  Keep waterbodies with a binned value of the 'Use' category > 2 combined with binned calcium > 2 results in (`r nrow(waterb_risk)` waterbodies retained)
 ```
 
-2.  Keep waterbodies with a binned value of the 'Use' category > 2 combined with binned calcium > 2 results in (`r nrow(waterb_risk)` waterbodies retained)
+
 
 ```{r remove_if_use_under_2_unless_highrisk_inspection}
 # waterb_risk = waterb_risk |> 
@@ -750,8 +765,10 @@ final_waterbody_list = fwl_lakes |>
 # Add in the sampling frequency!
 final_waterbody_list = final_waterbody_list |> 
   dplyr::mutate(Sampling_Frequency = dplyr::case_when(
-    InvasionRisk_bin == 3 | Highrisk == 3 ~ "Plankton Bi-weekly", 
+    InvasionRisk_bin == 3 | Highrisk == 3 ~ "Plankton Bi-weekly",
+    
     Use < 2 ~ "Substrate Only",
+    
     T ~ "Plankton Monthly"))
 
 final_waterbody_list = final_waterbody_list |> 
