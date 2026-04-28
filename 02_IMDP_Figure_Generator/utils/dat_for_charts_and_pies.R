@@ -29,8 +29,10 @@ station_types = station_types |>
 fig3_data = dat |> 
   dplyr::filter(Station %in% stations.to.include) |> 
   filter(!Station %in% rovers_to_drop) |> 
-  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
-         shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
+  mutate(
+    shift_start_time = lubridate::parse_date_time(Start_Time, orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM")),
+    shift_end_time   = lubridate::parse_date_time(End_Time,   orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM"))
+  ) |> 
   group_by(Station,Shift_ID) |> 
   reframe(NumberInsp = n(),
           shift_hours = shift_end_time - shift_start_time) |>
@@ -62,8 +64,10 @@ mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
 
 fig3b_data = dat |> 
   dplyr::filter(Station %in% permanent.stations) |> 
-  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
-         shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
+  mutate(
+    shift_start_time = lubridate::parse_date_time(Start_Time, orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM")),
+    shift_end_time   = lubridate::parse_date_time(End_Time,   orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM"))
+  ) |> 
   group_by(Station,Shift_ID) |> 
   reframe(NumberInsp = n(),
           shift_hours = shift_end_time - shift_start_time) |>
@@ -97,8 +101,10 @@ fig3c_data = dat |>
   dplyr::filter(Station %in% stations.to.include) |> 
   dplyr::filter(!Station %in% permanent.stations) |> 
   dplyr::filter(!Station %in% rovers_to_drop) |> 
-  mutate(shift_start_time = openxlsx::convertToDateTime(Start_Time),
-         shift_end_time = openxlsx::convertToDateTime(End_Time)) |> 
+  mutate(
+    shift_start_time = lubridate::parse_date_time(Start_Time, orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM")),
+    shift_end_time   = lubridate::parse_date_time(End_Time,   orders = c("ymd HMS", "mdy HMS", "ymd HM", "mdy HM"))
+  )|> 
   group_by(Station,Shift_ID) |> 
   reframe(NumberInsp = n(),
           shift_hours = shift_end_time - shift_start_time) |>
@@ -385,6 +391,10 @@ p8 = dat |>
     "Douglas Crossing" = "Douglas"
   ))
 
+dat <- dat |>
+  mutate(TimeOfInspection = force_tz(TimeOfInspection, tzone = "UTC")) |> 
+  mutate(TimeOfInspection = with_tz(TimeOfInspection, tzone = "America/Vancouver"))
+
 p9 = dat |> 
   mutate(the.hour = hour(TimeOfInspection)) |>
   group_by(the.hour) |> 
@@ -411,10 +421,29 @@ p9 = dat |>
   ) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
-  scale_x_discrete(labels = c(
-    "Douglas Crossing" = "Douglas"
-  ))
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")
+
+
+p9.lowrisk = dat |> 
+  filter(High_Risk_AIS_Ind != T) |> 
+  mutate(the.hour = hour(TimeOfInspection)) |>
+  group_by(the.hour) |> 
+  summarise(Number_Insp = n()) |> 
+  ggplot() + 
+  geom_col(aes(x=the.hour,y=Number_Insp),fill = my.grey,
+           width = 0.40) +
+  geom_text_repel(
+    size = 3.5,
+    aes(x=the.hour,y=Number_Insp,#+max(Number_Insp)*0.05,
+        label=round(Number_Insp,0)),
+    min.segment.length = 0.1,
+    force = .01,
+    force_pull = 100,
+    nudge_y = 100
+  ) +
+  theme_classic() +
+  scale_x_continuous(breaks = seq(0,23,1)) +
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")
 
 p9.2 = dat |> 
   filter(High_Risk_AIS_Ind == T) |> 
@@ -428,10 +457,7 @@ p9.2 = dat |>
                 label=round(Number_Insp,0))) +
   theme_classic() +
   scale_x_continuous(breaks = seq(0,23,1)) +
-  labs(x = "", y = "Watercraft Encounters (# of inspections)")+
-  scale_x_discrete(labels = c(
-    "Douglas Crossing" = "Douglas"
-  ))
+  labs(x = "", y = "Watercraft Encounters (# of inspections)")
 
 p9.3 = dat |> 
   filter(Station == "Golden") |> 
@@ -489,3 +515,4 @@ p11 = dat |>
   scale_x_discrete(labels = c(
     "Douglas Crossing" = "Douglas"
   ))
+
