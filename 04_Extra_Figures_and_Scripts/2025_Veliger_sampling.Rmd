@@ -24,7 +24,7 @@ library(htmlwidgets)
 lan_root = "//SFP.IDIR.BCGOV/S140/S40203/WFC AEB/General/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/shared_data_sets/"
 
 
-dat<-openxlsx::read.xlsx(here::here("./data/BC Veliger Sampling Inventory 2025_FINAL_REPORT.xlsx.xlsx"))
+dat<-openxlsx::read.xlsx(here::here("./data/BC Veliger Sampling Inventory 2025_FINAL_REPORT.xlsx"))
 
 
 ```
@@ -42,8 +42,12 @@ dat<- dat |>
   mutate(date_collected_yyyy_mm_dd = as.Date(as.numeric(date_collected_yyyy_mm_dd), origin = "1899-01-01"))
 
 dat_complete<-dat |> 
+  mutate(long_decimal_degrees = as.numeric(long_decimal_degrees),
+         lat_decimal_degrees = as.numeric(lat_decimal_degrees)) |> 
   filter(!is.na(lat_decimal_degrees) | !is.na(long_decimal_degrees))
 dat_missing<-dat |> 
+  mutate(long_decimal_degrees = as.numeric(long_decimal_degrees),
+         lat_decimal_degrees = as.numeric(lat_decimal_degrees)) |> 
   filter(is.na(lat_decimal_degrees) | is.na(long_decimal_degrees))
 
 
@@ -54,22 +58,40 @@ dat_complete<-dat_complete |>
 
 dat_sf<-st_as_sf(dat_complete, coords = c("long_decimal_degrees", "lat_decimal_degrees"), crs = 4326)
 
+
+############## 
+# --------- we also want the eDNA samples taken in 2025
+
+
+
 ```
-
-
-
-
-## Veliger Sampling 2025
 
 
 
 ```{r leaflet map, fig.width=10, fig.height=8}
 
+
+sampling_levels <- unique(dat_sf$sampling_group_agency)
+
 pal_sampling <- colorFactor(
-  palette = "Set2",
-  domain  = dat_sf$sampling_group_agency,
+  palette = c(
+    "CLSS"   = "#66c2a5",
+    "CSISS"  = "#fc8d62",
+    "ONA"    = "#e78ac3",  # <-- pink (high contrast to water)
+    "FVISS"  = "#a6d854",
+    "MLWRS"  = "#ffd92f",
+    "ISCBC"  = "#e5c494",
+    "CKISS"  = "#b3b3b3",
+    "EKISC"  = "#1b9e77",
+    "BISS"   = "#d95f02",
+    "OASISS" = "#7570b3",
+    "ISCMV"  = "#66a61e",
+    "MOE"    = "#e7298a"
+  ),
+  domain   = sampling_levels,
   na.color = "#cccccc"
 )
+
 
 leaflet() |> 
   addTiles(group = "OSM") |> 
