@@ -35,8 +35,10 @@ big_text = theme_minimal() +
         plot.title = element_text(hjust = 0.475, size = 18, face = 'bold', colour = 'black'))
 
 # Read in options file.
-my_opts = read_csv('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv')
+#my_opts = read_csv('C:/Users/CMADSEN/Downloads/LocalR/long_term_projects/ZQMussels/Options.csv')
 
+
+my_opts = read.csv("C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/long_term_projects/AIS_ZQMussels/Options.csv")
 # all_dat = openxlsx::read.xlsx(paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.xlsx'))
 # readr::write_csv(all_dat, paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.csv'))
 all_dat = vroom::vroom(paste0(my_opts$zqm_figure_local_folder,'data/figure_dat_all.csv'))
@@ -194,13 +196,14 @@ summ_table[summ_table$Year == 2015,'Mussel Fouled'] <- 15 # was 11
 # summ_table[summ_table$Year == 2016,'Tickets'] <- 7 # was 0
 # summ_table[summ_table$Year == 2016,'Warnings'] <- 7 # was 0
 
+# Martina will provide these numbers - 2025 is not correct
 summ_table = summ_table |> 
   left_join(
     tibble(
       Year = c(2015:most_rec_year),
-      `Advanced Notification` = c(7,10,20,20,16,13,7,7,6,5),
-      Tickets = c(NA,46,59,82,113,101,85,63,NA,NA),
-      Warnings = c(NA,36,86,50,113,76,45,66,NA,NA)
+      `Advanced Notification` = c(7,10,20,20,16,13,7,7,6,5, -999),
+      Tickets = c(NA,46,59,82,113,101,85,63,NA,NA, -999),
+      Warnings = c(NA,36,86,50,113,76,45,66,NA,NA, -999)
     )
   ) |> 
   mutate(across(c("Total Watercraft Inspected","People Interactions"), \(x) round(x,-2)))
@@ -874,9 +877,9 @@ compliance_trendline
 ## Total Inspections, Blowbys, and Compliance by Station (2024)
 
 ```{r}
-blowb = vroom::vroom("C:/Users/CMADSEN/Downloads/metabase_2024_blowbys.csv") |> 
+blowb = vroom::vroom("C:/Users/JPHELAN/OneDrive - Government of BC/R_projects/long_term_projects/AIS_ZQMussels/data/metabase_2024_blowbys.csv") |> 
   purrr::set_names(snakecase::to_snake_case) |> 
-  dplyr::mutate(observer_work_flow_id = as.character(observer_work_flow_id))
+  dplyr::mutate(observer_work_flow_id = as.character(observer_workflow_id))
 
 # Get station name through link with observer workflow id 
 
@@ -1509,11 +1512,11 @@ ggplotly(blowbys_by_total_insp_station_fig,
 ```{r}
 
 # non-2024 data
-cos_d = openxlsx::read.xlsx("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2023/GIS Maps and Excel Figures/2023_CBSA_sorting_results_MB.xlsx",
+cos_d = openxlsx::read.xlsx("Z:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2023/GIS Maps and Excel Figures/2023_CBSA_sorting_results_MB.xlsx",
                             sheet = "summary_figure")
 
 # 2024
-cos_24 = openxlsx::read.xlsx("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2024/GIS Maps and Excel Figures/ExcelFigures/COS inbox notifications 2024.xlsx",
+cos_24 = openxlsx::read.xlsx("Z:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2024/GIS Maps and Excel Figures/ExcelFigures/COS inbox notifications 2024.xlsx",
                             sheet = "sorted")
 
 cos_24 = cos_24[,c(6,7)]
