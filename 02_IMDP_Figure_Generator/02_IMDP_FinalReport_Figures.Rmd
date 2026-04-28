@@ -8,7 +8,9 @@ fig_width: 8
 
 ```{r setup, include=FALSE}
 
-  source("02_IMDP_Figure_Generator/utils/initialise_plots.R")
+library(DT)
+
+  source(here::here("02_IMDP_Figure_Generator/utils/initialise_plots.R"))
 
 #What is the sheet name of the destination regions for the mussel fouled tracking sheet?
 if(my.year != 2024){
@@ -17,6 +19,11 @@ if(my.year != 2024){
 if(my.year == 2024){
   MF_tracker_sheet = "Final List"
 }
+if(my.year == 2025){
+  MF_tracker_sheet = "Query result"
+}
+
+
 
 ```
 
@@ -26,6 +33,15 @@ if(my.year == 2024){
 ```{r load in data}
 
 source(here::here("02_IMDP_Figure_Generator", "utils", "load_figure_data.R"))
+
+
+dat = dat |> 
+  mutate(Start_Time = as.POSIXct(
+    Start_Time * 86400,
+    origin = "1899-12-30",
+    tz = "UTC"
+  ))
+
 
 ```
 
@@ -44,6 +60,35 @@ source(here::here("02_IMDP_Figure_Generator", "utils", "station_manipulation.R")
 ```
 
 
+
+```{r dat_to_stations}
+source(here::here("02_IMDP_Figure_Generator", "utils", "dat_to_stations.R"))
+```
+
+
+```{r find_Douglas}
+
+# blank_comments <- dat |> 
+#   filter(str_detect(Station, "Other|Emergency|Project")) 
+#   
+# ## The date sare 4 5 6 18 19 July 27 28 Jun 
+# blank_comments = blank_comments |> 
+#   filter()
+# 
+# datatable(
+#   blank_comments |> 
+#     select(Station, Watercraft_Risk_Assessment_ID, MusselsFound_Ind, High_Risk_AIS_Ind,
+#            High_Risk_Area_Ind, Start_Time, End_Time, TimeOfInspection,Shift_Start_Comment, Shift_End_Comment,
+#            General_Comment),
+#   options = list( pageLength = 10, scrollX = T, autowidth = T),
+#   rownames = F
+# )
+
+```
+
+
+
+
 ```{r numbers_for_exec_summary}
 
 # this may not be needed- but run the script in isolation to get the tables and the associated values. Chris has relied on Metabase for these numbers so maybe just look there.
@@ -53,8 +98,6 @@ source(here::here("02_IMDP_Figure_Generator", "utils", "get_exec_summary.R"))
 ```
 
 ### Map 1. Inspection Stations by Type
-
-
 
 
 ```{r map1_plotting, fig.width=800}
@@ -67,7 +110,7 @@ p1<-ggplot()+
   geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+
     geom_sf_label(data = station_labels, aes(label = map_label),
               size = 3, fill = "white", color = "black", label.size = 0.1)+
-  scale_fill_manual(name = "2024 Watercraft \n Inspection Stations", 
+  scale_fill_manual(name = "2025 Watercraft \n Inspection Stations", 
                     values = c(
                       "Permanent Inspection Station" = "lightblue", 
                       "Roving Inspection Crew" = "purple",
@@ -118,7 +161,7 @@ if((my_opts$year+1) %in% unique(dat_all$Year)){
 
 ```{r map2_total_inspections_by_station}
 
-source(here::here("02_IMDP_Figure_Generator", "utils", "dat_to_stations.R"))
+#source(here::here("02_IMDP_Figure_Generator", "utils", "dat_to_stations.R"))
 p3 <- ggplot() +
   tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour) +
   geom_sf(data = stations_sf, 
@@ -209,12 +252,13 @@ if(!interactive()) {
 
 ```{r map2c_total_inspections_by_roving_station}
 
-my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[5:1]
+my_colors = RColorBrewer::brewer.pal(n = 5, name = "Spectral")[1:5]
+
 
 p5 = ggplot() +
   tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour) +
   geom_sf(
-    data = stations_rs_sf,
+    data = stations_rs_sf |> dplyr::arrange(desc(num_insp_b)),
     aes(fill = factor(num_insp_b), size = log(num_insp_b)+1),
     shape = 21, color = "black"
   ) +
@@ -1198,7 +1242,8 @@ if(!interactive()) {
 ### Map 6. Destination locations of High Risk Inspections
 
 ```{r dest_location_high_risk_inspections}
-dest_wb = read_sf(paste0('W:/CMadsen/Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Waterbodies_with_Inspection_Data_Summaries_',my.year,'.gpkg')) |> 
+
+dest_wb = read_sf(paste0('Z:/2 SCIENCE - Invasives/AIS_R_Projects/CMadsen_Wdrive/Projects/ZQMussels/',my.year,' IMDP Final Report/data/spatial/Waterbodies_with_Inspection_Data_Summaries_',my.year,'.gpkg')) |> 
   st_transform(crs = 4326)
 
 dest_wb_hr = dest_wb |> 
@@ -1417,7 +1462,7 @@ if(file.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/Fig
 #If that file does not yet exist...
 if(!file.exists(paste0(my.external.output.folder,"/GIS Maps and Excel Figures/Fig24_MusselFouled_byMonth_2017-",my.year,".xlsx"))){
 #Read in the hand-cleaned excel sheet from 2020 report, and add more recent data to it.
-mf_time_table = read_excel("J:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2020/GIS Maps and Excel Figures/ExcelFigureData/2019_Fig24_MusselFouled_byMonth_2017-2020.xlsx",sheet = "dat_for_R")
+mf_time_table = read_excel("Z:/2 SCIENCE - Invasives/SPECIES/Zebra_Quagga_Mussel/Communications/Inspection data reporting/Final report/2020/GIS Maps and Excel Figures/ExcelFigureData/2019_Fig24_MusselFouled_byMonth_2017-2020.xlsx",sheet = "dat_for_R")
 
 #Add my.year (and any intervening years between 2020 and my.year, if there are any)'s mf data to the excel sheet.
 mf_time_table = mf_time_table |> 
@@ -1493,6 +1538,13 @@ if(my.year == 2024){
   p25_dat = tibble(Province_or_State = factor(c("Ontario","Utah","Arizona","Michigan","Manitoba","Quebec")),
        NumberBoats = c(4,1,2,2,2,1))
 }
+
+if(my.year == 2025){
+  p25_dat = tibble(Province_or_State = factor(c("Ontario", "North Dakota")),
+       NumberBoats = c(5,1))
+}
+
+
 p25 = p25_dat |>
   arrange(desc(Province_or_State)) |> 
   # mutate(Province_or_State = forcats::fct_rev(Province_or_State)) |> 
@@ -1588,6 +1640,29 @@ if(my.year == 2024){
     labs(fill = "Destination Region") +
     theme(legend.position = "none")
 }
+
+
+if(my.year == 2025){
+    p26 = tibble(Region = factor(c("Skeena", 
+                                   "Thompson \nOkanagan",
+                                   "Alaska",
+                                   "South Coast"
+                                   )),
+               Number = c(1,3,1,1)) |>
+    arrange(desc(Region)) |> 
+    mutate(lab.ypos = cumsum(Number) - 0.5*Number) |> 
+    ggplot(aes(x = "", y = Number, 
+               fill = Region)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0)+
+    geom_text_repel(aes(y = lab.ypos, x = 1.49, label = paste0(Region,"\n",Number)), color = "black",nudge_x=0.4)+
+    theme_void() + 
+    scale_fill_brewer(palette = "Dark2") + 
+    labs(fill = "Destination Region") +
+    theme(legend.position = "none")
+}
+
+
 p26
 
 if(!interactive()) {
@@ -1969,7 +2044,7 @@ if(my.year == 2024){
 }
 
 if(my.year == 2025){
-  lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab results/Final report/BC Veliger Sampling Inventory 2025_FINAL REPORT.xlsx'))
+  lab_dat = read_excel(paste0(my_opts$zqm_operations_data_folder,'Lake Monitoring/',my.year,'/Lab Results/Final report/BC Veliger Sampling Inventory 2025_FINAL_REPORT.xlsx'))
 }
 
 lab_dat =  lab_dat |> 
@@ -2022,6 +2097,12 @@ if(my.year == 2024){
   lab_sf = lab_sf |> 
     dplyr::rename(`Type of plankton tow (Vertical or Horizontal)` = `Type of plankton tow (vertical or horizontal)`)
 }
+
+if(my.year == 2025){
+  lab_sf = lab_sf |> 
+    dplyr::rename(`Type of plankton tow (Vertical or Horizontal)` = `Type of plankton tow (vertical or horizontal)`)
+}
+
 # Make excel sheet for updating final report appendix!
 lab_sf |> 
   # Join the Natural Resource regions (n = 8) to the lakes.
