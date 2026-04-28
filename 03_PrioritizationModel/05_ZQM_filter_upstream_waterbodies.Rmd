@@ -67,7 +67,9 @@ waterb_golden = read_excel(paste0(my_opts$zqm_operations_data_folder,"Lake Monit
   mutate(list_source = "Golden") |> 
   rename(waterbody = Waterbody, InvasionRisk = InvasionRisk_bin, EVRisk = EVRisk_bin)
 
-
+# waterb_golden = waterb_golden |> 
+#   filter(Use >= 2 & calcium_bin >= 2 )
+  
 
 waterb = bind_rows(waterb_zq, waterb_golden)
 
@@ -132,7 +134,7 @@ upstream_pairs <- waterb2 %>%
     )
   )
 
-upstream_waterbodies = upstream_pairs |> 
+upstream_waterbodies = upstream_pairs |>
   select(WatershedName, waterbody_down, waterbody_up, geometry_up, geometry_down)
 
 # New dataframe of upstream waterbodies
@@ -146,6 +148,8 @@ waterb_remaining <- waterb %>%
     waterb_upstream,
     by = "FWA_WATERSHED_CODE"
   )
+
+## For each watershed, strip away Lake/River. If the remaining name is the same, we keep the the downstream section.
 
 ```
 
