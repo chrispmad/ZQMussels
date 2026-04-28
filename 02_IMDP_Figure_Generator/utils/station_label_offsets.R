@@ -7,7 +7,7 @@ offsets <- tibble::tribble(
   "Douglas",      -0.50,        -0.80,
   "Sumas",            -0.50,         0.50,
   "Keremeos",                NA,            -0.5,
-  "Osoyoos",                 -0.5,            -0.5,
+  "Osoyoos",                 -0.5,            0.5,
   
 )
 
