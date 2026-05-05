@@ -40,6 +40,11 @@ dat = dat |>
     Start_Time * 86400,
     origin = "1899-12-30",
     tz = "UTC"
+  )) |> 
+  mutate(End_Time = as.POSIXct(
+    End_Time * 86400,
+    origin = "1899-12-30",
+    tz = "UTC"
   ))
 
 
@@ -56,6 +61,45 @@ source(here::here("02_IMDP_Figure_Generator", "utils", "getting_boat_launch_data
 ```{r change_station_names_and_establish_list_of_rovers}
 
 
+## rename these to be Douglas
+dat <- dat |>
+  mutate(
+    Station = if_else(
+      (
+        str_detect(Shift_Start_Comment, "DFO") |
+        str_detect(Shift_End_Comment, "DFO")
+      ) &
+      as_date(TimeOfInspection) %in% as.Date(c(
+        "2025-07-04", "2025-07-05", "2025-07-06",
+        "2025-07-18", "2025-07-19",
+        "2025-06-27", "2025-06-28",
+        "2025-08-28", "2025-08-29", "2025-08-30"
+      )) &
+      Station != "Pacific",
+      "Douglas Crossing",
+      Station
+    )
+  )
+
+dat_all = dat_all |> 
+  mutate(
+    Station = if_else(
+      (
+        str_detect(Shift_Start_Comment, "DFO") |
+        str_detect(Shift_End_Comment, "DFO")
+      ) &
+      as_date(TimeOfInspection) %in% as.Date(c(
+        "2025-07-04", "2025-07-05", "2025-07-06",
+        "2025-07-18", "2025-07-19",
+        "2025-06-27", "2025-06-28",
+        "2025-08-28", "2025-08-29", "2025-08-30"
+      )) &
+      Station != "Pacific",
+      "Douglas Crossing",
+      Station
+    )
+  )
+
 source(here::here("02_IMDP_Figure_Generator", "utils", "station_manipulation.R"))
 ```
 
@@ -68,21 +112,66 @@ source(here::here("02_IMDP_Figure_Generator", "utils", "dat_to_stations.R"))
 
 ```{r find_Douglas}
 
-# blank_comments <- dat |> 
-#   filter(str_detect(Station, "Other|Emergency|Project")) 
-#   
-# ## The date sare 4 5 6 18 19 July 27 28 Jun 
-# blank_comments = blank_comments |> 
-#   filter()
-# 
+blank_comments <- dat |>
+  filter(str_detect(Station, "Other|Emergency|Project|Lower Mainland - Scheduled Inspection|Lower Mainland Roving - Scheduled Inspection|Lower Mainland Roving - Douglas|Lower Mainland - Douglas"))
+
+
+### These are the Peace Arch 
+# dfo_comments = dat |> 
+#   filter(str_detect(Shift_Start_Comment, "DFO")|
+#          str_detect(Shift_End_Comment, "DFO")) |> 
+#   filter(as_date(TimeOfInspection) %in% as.Date(c(
+#     "2025-07-04",
+#     "2025-07-05",
+#     "2025-07-06",
+#     "2025-07-18",
+#     "2025-07-19",
+#     "2025-06-27",
+#     "2025-06-28",
+#     "2025-08-28",
+#     "2025-08-29",
+#     "2025-08-30"
+#     
+#     
+#     
+#   ))) |> 
+#   filter(Station != "Pacific")
+
+
+
+
+
+## The dates are 4 5 6 18 19 July 27 28 Jun
+
+# douglas_dates <- blank_comments |>
+#   filter(as_date(TimeOfInspection) %in% as.Date(c(
+#     "2025-07-04",
+#     "2025-07-05",
+#     "2025-07-06",
+#     "2025-07-18",
+#     "2025-07-19",
+#     "2025-06-27",
+#     "2025-06-28",
+#     "2025-08-28",
+#     "2025-08-29",
+#     "2025-08-30"
+#     
+#     
+#     
+#   )))
+
+
 # datatable(
-#   blank_comments |> 
+#   douglas_dates |>
 #     select(Station, Watercraft_Risk_Assessment_ID, MusselsFound_Ind, High_Risk_AIS_Ind,
 #            High_Risk_Area_Ind, Start_Time, End_Time, TimeOfInspection,Shift_Start_Comment, Shift_End_Comment,
 #            General_Comment),
 #   options = list( pageLength = 10, scrollX = T, autowidth = T),
 #   rownames = F
 # )
+
+## For those dates - lets set the location to Douglas!
+
 
 ```
 
