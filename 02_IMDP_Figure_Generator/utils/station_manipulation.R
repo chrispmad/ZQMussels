@@ -72,7 +72,7 @@ if (my.year == 2025) {
     Station = c(
       "Hwy 97c", "Keremeos", "Greenwood", "Kaleden",
       "Lower Mainland", "Pacific", "Sumas",
-      "Penticton", "Cutts (Hwy 93)"
+      "Penticton", "Cutts (Hwy 93)","Douglas Crossing"
     ),
     StationType = "Roving"
   )
@@ -251,6 +251,23 @@ station_labels = adjust_station_labels(
 # ------------------------------------------------------------------------------
 
 stations_active_this_year = dat_all |> 
+  mutate(
+    Station = if_else(
+      (
+        str_detect(Shift_Start_Comment, "DFO") |
+          str_detect(Shift_End_Comment, "DFO")
+      ) &
+        as_date(TimeOfInspection) %in% as.Date(c(
+          "2025-07-04", "2025-07-05", "2025-07-06",
+          "2025-07-18", "2025-07-19",
+          "2025-06-27", "2025-06-28",
+          "2025-08-28", "2025-08-29", "2025-08-30"
+        )) &
+        Station != "Pacific",
+      "Douglas Crossing",
+      Station
+    )
+  ) |> 
   dplyr::mutate(
     Station = dplyr::case_when(
       str_detect(Station, "Lower Mainland") ~ "Lower Mainland Roving",
