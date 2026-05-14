@@ -95,7 +95,7 @@ edna_results_sf <- st_as_sf(
 # Add this Z:\2 SCIENCE - Invasives\GENERAL\Budget\Canada Nature fund 2023-2026\Year 2 (2025-2026)\eDNA ZQM Pylet Lab\Sample collection & results
 # ZQM data Batch 1 complete.xlsx
 
-pylet_locations<- read_excel("Z:/2 SCIENCE - Invasives/GENERAL/Budget/Canada Nature fund 2023-2026/Year 2 (2025-2026)/eDNA ZQM Pylet Lab/Sample collection & results/ZQM data Batch 1 complete.xlsx",
+pylet_locations<- read_excel("Z:/2 SCIENCE - Invasives/GENERAL/Budget/Canada Nature fund 2023-2026/Year 2 (2025-2026)/eDNA ZQM Pylet Lab/Sample collection & results/ZQM data Batch 1 complete_with-WB-TALLY.xlsx",
                              sheet = "COS")
 
 pylet_locations = pylet_locations |> 
@@ -118,7 +118,7 @@ pylet_locations_sf <- st_as_sf(
 
 bc_stations_basemap_trimmed <- terra::trim(bc_stations_basemap_white)
 raster_bbox_df <- as.list(terra::ext(bc_stations_basemap_trimmed))
-bc_bound = bc_bound() |> st_transform(4326)
+bc_bound = bcmaps::bc_bound() |> st_transform(4326)
 
 
 map_9_ggplot <- ggplot() +
