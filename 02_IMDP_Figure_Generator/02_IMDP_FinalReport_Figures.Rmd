@@ -103,6 +103,101 @@ dat_all = dat_all |>
 source(here::here("02_IMDP_Figure_Generator", "utils", "station_manipulation.R"))
 ```
 
+```{r 2025_station_changes}
+# This should be elsewhere, but here we are.
+# Douglas is Douglas Crossing, for now. It gets changed later
+
+lw <- dat |>
+  filter(Year == 2025) |>
+  filter(
+    str_detect(
+      Station,
+      "Lower Mainland.*(Outreach|Scheduled Inspection|Roving)|^Lower Mainland$"
+    ),
+    !str_detect(Station, "Douglas|Huntington")
+  )
+
+p_insp <- lw |>
+  mutate(the.month = month(TimeOfInspection, label = TRUE, abbr = FALSE)) |>
+  filter(!(the.month %in% c("March","November") & Year == 2024)) |>
+  group_by(the.month, Station) |>
+  summarise(Number_Insp = n(), .groups = "drop") |>
+  ggplot(aes(x = the.month, y = Number_Insp, fill = Station)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(
+    aes(label = Number_Insp),
+    position = position_dodge(width = 0.7),
+    vjust = -0.3,
+    size = 3
+  ) +
+  theme_classic() +
+  labs(x = "", y = "Watercraft Encounters (# of inspections)") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+p_effort <- lw |>
+  filter(!Station %in% rovers_to_drop) |>
+  mutate(the.month = month(TimeOfInspection, label = TRUE, abbr = FALSE)) |>
+  filter(!(the.month %in% c("March","November") & Year == 2024)) |>
+  select(the.month, Station, Shift_ID, Shift_hours) |>
+  distinct() |>
+  filter(Shift_hours > 0) |>
+  group_by(the.month, Station) |>
+  summarise(TotalEffort = sum(Shift_hours), .groups = "drop") |>
+  ggplot(aes(x = the.month, y = TotalEffort, fill = Station)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(
+    aes(label = round(TotalEffort, 0)),
+    position = position_dodge(width = 0.7),
+    vjust = -0.3,
+    size = 3
+  ) +
+  theme_classic() +
+  labs(x = "", y = "Total Effort (hours)") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+p5 <- ggarrange(p_insp, p_effort, ncol = 2, nrow = 1)
+
+
+if(!interactive()) {
+  # tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+  ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Lower_Mainland_Outreach_Sch.jpg'), p5, width = 7.6, height = 6.4, dpi = 300)
+}
+
+
+# if(!interactive()) {
+#   # tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)
+#   ggsave(paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Penticton_Outreach_Sch.jpg'), p5, width = 7.6, height = 6.4, dpi = 300)
+# }
+
+
+### Okay lets fix some names
+
+dat = dat |> 
+  mutate(Station = case_when(
+      Station == "Lower Mainland Roving - Douglas"      ~ "Douglas Crossing",
+      Station == "Lower Mainland - Douglas"      ~ "Douglas Crossing",
+      Station == "Lower Mainland - Huntington"      ~ "Sumas (Huntington)",
+      Station == "Lower Mainland - Scheduled Inspection"      ~ "Lower Mainland",
+      Station == "Lower Mainland Roving - Outreach"      ~ "Lower Mainland",
+      Station == "Lower Mainland Roving - Huntington"      ~ "Sumas (Huntington)",
+      TRUE ~ Station
+  ))
+
+dat_all = dat_all |> 
+  mutate(Station = case_when(
+      Station == "Lower Mainland Roving - Douglas"      ~ "Douglas Crossing",
+      Station == "Lower Mainland - Douglas"      ~ "Douglas Crossing",
+      Station == "Lower Mainland - Huntington"      ~ "Sumas (Huntington)",
+      Station == "Lower Mainland - Scheduled Inspection"      ~ "Lower Mainland",
+      Station == "Lower Mainland Roving - Outreach"      ~ "Lower Mainland",
+      Station == "Lower Mainland Roving - Huntington"      ~ "Sumas (Huntington)",
+      TRUE ~ Station
+  ))
+
+
+
+```
+
 
 
 ```{r dat_to_stations}
@@ -186,31 +281,156 @@ blank_comments <- dat |>
 source(here::here("02_IMDP_Figure_Generator", "utils", "get_exec_summary.R"))
 ```
 
+```{r}
+# # still haveing issues with Sumas - quick fix here
+# station_labels = station_labels |> 
+#   mutate(
+#     station_type = case_when(
+#       map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+#       TRUE ~ station_type
+#     )
+#   )
+# 
+# station_labels_this_year = station_labels_this_year |> 
+#   mutate(
+#     station_type = case_when(
+#       map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+#       TRUE ~ station_type
+#     )
+#   )
+# 
+# stations_for_maps = stations_for_maps |> 
+#   mutate(
+#     station_type = case_when(
+#       map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+#       TRUE ~ station_type
+#     )
+#   )
+# 
+# stations_for_maps_this_year = stations_for_maps_this_year |> 
+#   mutate(
+#     station_type = case_when(
+#       map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+#       TRUE ~ station_type
+#     )
+#   )
+
+```
+
+
 ### Map 1. Inspection Stations by Type
 
 
 ```{r map1_plotting, fig.width=800}
 
 
+
+
 source(here::here("02_IMDP_Figure_Generator", "utils", "get_basemaps.R"))
 
-p1<-ggplot()+
-  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour)+
-  geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+
-    geom_sf_label(data = station_labels, aes(label = map_label),
-              size = 3, fill = "white", color = "black", label.size = 0.1)+
-  scale_fill_manual(name = "2025 Watercraft \n Inspection Stations", 
-                    values = c(
-                      "Permanent Inspection Station" = "lightblue", 
-                      "Roving Inspection Crew" = "purple",
-                      "Part-time Inspection Station" = '#E8DE51'))+
-  ggspatial::annotation_scale()+
-  ggthemes::theme_map()+
-  theme(legend.position = c(0.68,0.72),
-        legend.background = element_rect(colour = 'black')
-        )
-  
+library(ggpattern)
+
+p1 <- ggplot() +
+  tidyterra::geom_spatraster_rgb(
+    data = bc_stations_basemap_colour
+  ) +
+
+  geom_sf_pattern(
+    data = st_buffer(stations_for_maps, 20000),
+
+    aes(
+      fill = station_type,
+      pattern = station_type
+    ),
+
+    shape = 21,
+
+    colour = "black",
+    linewidth = 0.35,
+
+    # Make patterns lighter / cleaner
+    pattern_fill = "black",
+    pattern_colour = "black",
+    pattern_density = 0.35,
+    pattern_spacing = 0.01,
+    pattern_size = 0.08,
+
+    alpha = 0.8
+  ) +
+
+  geom_sf_label(
+    data = station_labels,
+    aes(label = map_label),
+    size = 3,
+    fill = "white",
+    color = "black",
+    label.size = 0.1
+  ) +
+
+  scale_pattern_manual(
+    name = "2025 Watercraft\nInspection Stations",
+
+    values = c(
+      "Permanent Inspection Station" = "none",
+      "Part-time Inspection Station" = "stripe",
+      "Roving Inspection Crew" = "circle"
+    )
+  ) +
+
+  scale_fill_manual(
+    name = "2025 Watercraft\nInspection Stations",
+
+    values = c(
+      "Permanent Inspection Station" = "#0072B2",
+      "Part-time Inspection Station" = "#F0E442",
+      "Roving Inspection Crew" = "#CC79A7"
+    )
+  ) +
+
+  guides(
+    fill = "none",
+
+    pattern = guide_legend(
+      override.aes = list(
+
+        fill = c(
+          "#0072B2",
+          "#F0E442",
+          "#CC79A7"
+        ),
+
+        pattern = c(
+          "none",
+          "stripe",
+          "circle"
+        ),
+
+        pattern_fill = "black",
+        pattern_colour = "black"
+      )
+    )
+  ) +
+
+  ggspatial::annotation_scale() +
+
+  ggthemes::theme_map() +
+
+  theme(
+    legend.position = c(0.68, 0.72),
+
+    legend.key.size = unit(0.6, "cm"),
+
+    legend.background = element_rect(
+      fill = "white",
+      colour = "black"
+    )
+  )
+
 p1
+
+### Old plot
+
+# p1<-ggplot()+ tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_colour)+ geom_sf(data = st_buffer(stations_for_maps,20000), aes(fill = as.factor(station_type)))+ geom_sf_label(data = station_labels, aes(label = map_label), size = 3, fill = "white", color = "black", label.size = 0.1)+ scale_fill_manual(name = "2025 Watercraft \n Inspection Stations", values = c( "Permanent Inspection Station" = "lightblue", "Roving Inspection Crew" = "purple", "Part-time Inspection Station" = ' #E8DE51'))+ ggspatial::annotation_scale()+ ggthemes::theme_map()+ theme(legend.position = c(0.68,0.72), legend.background = element_rect(colour = 'black') ) p1
 
 if(!interactive()) {
   # tmap_save(tm = map_1_tmap, filename = paste0(my.external.output.folder,'/GIS Maps and Excel Figures/ExcelFigures/Map1_Stations_by_Type.jpg'), width = 7.6, height = 6.4, dpi = 300)

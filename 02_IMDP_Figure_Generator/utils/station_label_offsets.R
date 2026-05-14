@@ -5,10 +5,10 @@ offsets <- tibble::tribble(
   "Cutts (Hwy 93)",          -0.10,         1.25,
   "Yahk",                    -0.50,         NA,
   "Douglas",      -0.50,        -0.80,
-  "Sumas",            -0.50,         0.50,
+  "Sumas",            -0.50,         1,
   "Keremeos",                NA,            -0.5,
   "Osoyoos",                 -0.5,            0.5,
-  
+  "Sumas (Huntington)",  -0.50,         1,
 )
 
 adjust_station_labels <- function(data, offsets, base_lat_offset = 0.25) {

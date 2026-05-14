@@ -47,7 +47,7 @@ if(!exists('dat_hr')){
 dat_hr = dat_hr |> 
   mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",
                              Station == "Penticton Roving" ~ "Penticton",
-                             Station == "Sumas Border" ~ "Sumas",
+                             Station == "Sumas Border" ~ "Sumas (Huntington)",
                              Station == "Lower Mainland Roving" ~ "Lower Mainland",
                              Station == "Peace Arch Crossing" ~ "Douglas Crossing",
                              TRUE ~ Station),
@@ -65,7 +65,7 @@ if(!exists('dat_mf')){
 dat_mf = dat_mf |> 
   mutate(Station = case_when(Station == "Keremeos (Hwy 3)" ~ "Keremeos",
                              Station == "Penticton Roving" ~ "Penticton",
-                             Station == "Sumas Border" ~ "Sumas",
+                             Station == "Sumas Border" ~ "Sumas (Huntington)",
                              Station == "Lower Mainland Roving" ~ "Lower Mainland",
                              Station == "Peace Arch Crossing" ~ "Douglas Crossing",
                              TRUE ~ Station),

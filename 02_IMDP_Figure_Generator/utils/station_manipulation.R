@@ -27,7 +27,10 @@ stations_active = dat |>
   dplyr::count(Station) |> 
   dplyr::filter(n >= 2) |> 
   dplyr::pull(Station)
-
+  
+  stations_active <- c("Lower Mainland", stations_active)
+  stations_active <- c("Sumas (Huntington)", stations_active)
+  
 # stations_active <- gsub("Keremeos (Hwy 3)", "Keremeos", stations_active)
 
 
@@ -94,6 +97,13 @@ station_types = bind_rows(
     StationType = "Permanent"
   )
 )
+  
+station_types = station_types |> 
+  mutate(Station = 
+           case_when(
+             Station == "Sumas" ~ "Sumas (Huntington)",
+             T ~ Station
+           ))
 
 rm(rovers)
 
@@ -196,7 +206,8 @@ stations = stations |>
     station_name = case_when(
       station_name == "Keremeos (Hwy 3)"      ~ "Keremeos",
       station_name == "Penticton Roving"      ~ "Penticton",
-      station_name == "Sumas Border"          ~ "Sumas",
+      station_name == "Sumas"          ~ "Sumas (Huntington)",
+      station_name == "Sumas Border"          ~ "Sumas (Huntington)",
       station_name == "Lower Mainland Roving" ~ "Lower Mainland",
       station_name == "Peace Arch Crossing"   ~ "Douglas Crossing",
       TRUE ~ station_name
@@ -215,6 +226,15 @@ stations = stations |>
 
 stations_current = stations |> 
   dplyr::filter(!station_name %in% rovers_to_drop)
+
+stations_current = stations_current |> 
+  mutate(
+    station_name = case_when(
+      station_name == "Sumas"          ~ "Sumas (Huntington)",
+      station_name == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ station_name
+    )
+  )
 
 stations_for_maps = stations_current |> 
   mutate(
@@ -240,10 +260,75 @@ source(
   )
 )
 
+
+# still haveing issues with Sumas - quick fix here
+
+
+
+
+stations_for_maps = stations_for_maps |> 
+  mutate(
+    station_name = case_when(
+      station_name == "Sumas"          ~ "Sumas (Huntington)",
+      station_name == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ station_name
+    )
+  ) |> 
+  mutate(
+    map_label = case_when(
+      station_name == "Sumas (Huntington)"          ~ "Sumas (Huntington)",
+      station_name == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ map_label
+    )
+  ) |> 
+  mutate(
+    station_type = case_when(
+      map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+      TRUE ~ station_type
+    )
+  )
+
+
+
+
 station_labels = adjust_station_labels(
   stations_for_maps,
   offsets
 )
+
+station_labels = station_labels |> 
+  mutate(
+    map_label = case_when(
+      map_label == "Sumas"          ~ "Sumas (Huntington)",
+      map_label == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ map_label
+    )
+  )
+
+station_labels = station_labels |> 
+  mutate(
+    station_type = case_when(
+      map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+      TRUE ~ station_type
+    )
+  )
+
+
+stations_for_maps = stations_for_maps |> 
+  mutate(
+    map_label = case_when(
+      map_label == "Sumas"          ~ "Sumas (Huntington)",
+      map_label == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ map_label
+    )
+  )
+stations_for_maps = stations_for_maps |> 
+  mutate(
+    station_type = case_when(
+      map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+      TRUE ~ station_type
+    )
+  )
 
 
 # ------------------------------------------------------------------------------
@@ -289,11 +374,13 @@ stations_active_this_year = dat_all |>
 stations_active_this_year = c(
   stations_active_this_year,
   "Radium",
-  "Sumas Border"
+  "Sumas (Huntington)"
 )
 
-stations[stations$station_name == "Sumas Border", ]$map_label   = "Sumas"
-stations[stations$station_name == "Sumas Border", ]$station_type =
+stations[stations$station_name == "Sumas Border", ]$map_label   = "Sumas (Huntington)"
+stations[stations$station_name == "Sumas", ]$map_label   = "Sumas (Huntington)"
+stations[stations$station_name == "Sumas (Huntington)", ]$map_label   = "Sumas (Huntington)"
+stations[stations$station_name == "Sumas (Huntington)", ]$station_type =
   "Part-time Inspection Station"
 
 
@@ -313,12 +400,34 @@ stations_for_maps_this_year = stations_this_year |>
     )
   )
 
+stations_for_maps_this_year = stations_for_maps_this_year |> 
+  mutate(
+    station_type = case_when(
+      map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+      TRUE ~ station_type
+    )
+  )
+
 station_labels_this_year = adjust_station_labels(
   stations_for_maps_this_year,
   offsets
 )
+station_labels_this_year = station_labels_this_year |> 
+  mutate(
+    map_label = case_when(
+      map_label == "Sumas"          ~ "Sumas (Huntington)",
+      map_label == "Sumas Border"          ~ "Sumas (Huntington)",
+      TRUE ~ map_label
+    )
+  )
 
-
+station_labels_this_year = station_labels_this_year |> 
+  mutate(
+    station_type = case_when(
+      map_label == "Sumas (Huntington)"          ~ "Part-time Inspection Station",
+      TRUE ~ station_type
+    )
+  )
 # ------------------------------------------------------------------------------
 # Roving stations from previous years
 # ------------------------------------------------------------------------------

@@ -5,14 +5,14 @@ dat <- dat |>
   dplyr::mutate(Station = dplyr::case_when(
     str_detect(Station,"Lower Mainland Roving") ~ "Lower Mainland",
     str_detect(Station,"Penticton Roving") ~ "Penticton",
-    str_detect(Station,"Sumas Border") ~ "Sumas",
+    str_detect(Station,"Sumas Border") ~ "Sumas (Huntington)",
     T ~ Station
   ))
 
 stations.to.include <- dplyr::case_when(
   grepl("Lower Mainland Roving", stations.to.include) ~ "Lower Mainland",
   grepl("Penticton Roving", stations.to.include) ~ "Penticton",
-  grepl("Sumas Border", stations.to.include) ~ "Sumas",
+  grepl("Sumas Border", stations.to.include) ~ "Sumas (Huntington)",
   TRUE ~ stations.to.include
 )
 
@@ -22,9 +22,11 @@ station_types = station_types |>
   dplyr::mutate(Station = dplyr::case_when(
     str_detect(Station,"Lower Mainland Roving") ~ "Lower Mainland",
     str_detect(Station,"Penticton Roving") ~ "Penticton",
-    str_detect(Station,"Sumas Border") ~ "Sumas",
+    str_detect(Station,"Sumas Border") ~ "Sumas (Huntington)",
     T ~ Station
   ))
+
+
 
 fig3_data = dat |> 
   dplyr::filter(Station %in% stations.to.include) |> 
@@ -60,7 +62,9 @@ fig3_data = dat |>
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
   mutate(col.width = replace(col.width, col.width == 3, 4)) |> 
-mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
+mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas")) |> 
+  mutate(StationLabel = str_replace(StationLabel, "Sumas \\(Huntington\\)\\*", "Sumas (Huntington)"))
+
 
 fig3b_data = dat |> 
   dplyr::filter(Station %in% permanent.stations) |> 
@@ -95,7 +99,8 @@ fig3b_data = dat |>
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
   mutate(col.width = replace(col.width, col.width == 3, 4))|> 
-  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
+  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas")) |> 
+  mutate(StationLabel = str_replace(StationLabel, "Sumas \\(Huntington\\)\\*", "Sumas (Huntington)"))
 
 fig3c_data = dat |> 
   dplyr::filter(Station %in% stations.to.include) |> 
@@ -132,7 +137,8 @@ fig3c_data = dat |>
   mutate(StationLabel = fct_inorder(StationLabel)) |> 
   mutate(col.width = as.numeric(cut(log10(NumberInsp),3))) |> 
   mutate(col.width = replace(col.width, col.width == 3, 4))|> 
-  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas"))
+  mutate(StationLabel = str_replace(StationLabel, "Douglas Crossing*", "Douglas")) |> 
+  mutate(StationLabel = str_replace(StationLabel, "Sumas \\(Huntington\\)\\*", "Sumas (Huntington)"))
 
 p3.x = dat_all |> 
   filter(Year %in% c((my.year-2):my.year)) |> 
@@ -159,6 +165,7 @@ p3.x = dat_all |>
   scale_fill_brewer(palette = "Dark2")+
   scale_x_discrete(labels = c(
     "Douglas Crossing" = "Douglas"
+    
   ))
   
 
@@ -185,9 +192,12 @@ p3.x_b = dat_all |>
     "Douglas Crossing" = "Douglas"
   ))
 
+rovers = c("Radium", "Cutts (Hwy 93)", "Penticton", "Lower Mainland", "Pacific", "Sumas (Huntington)",
+           "Douglas Crossing")
+
 p3.x_c = dat_all |> 
   filter(Year %in% c((my.year-2):my.year)) |> 
-  dplyr::filter(Station %in% roving.stations) |> 
+  dplyr::filter(Station %in% rovers) |> 
   group_by(Year, Station) |> 
   summarise(NumberInsp = n()) |> 
   group_by(Station) |> 
@@ -246,7 +256,8 @@ p5 = ggarrange(
     labs(x = "", y = "Watercraft Encounters (# of inspections)") +
     theme(axis.text.x = element_text(angle = 45,vjust=1,hjust=1))+
     scale_x_discrete(labels = c(
-      "Douglas Crossing" = "Douglas"
+      "Douglas Crossing" = "Douglas",
+      "Sumas" = "Sumas (Huntington)"
     )),
   
   dat |> 

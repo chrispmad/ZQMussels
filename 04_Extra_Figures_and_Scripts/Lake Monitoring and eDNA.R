@@ -121,72 +121,110 @@ raster_bbox_df <- as.list(terra::ext(bc_stations_basemap_trimmed))
 bc_bound = bcmaps::bc_bound() |> st_transform(4326)
 
 
+# Distinct shapes for 12 sampling groups
+shape_values <- c(
+  "CLSS" = 0,"OASISS" =  1,"ONA" = 2,"ISCBC" =  3,"EKISC" =  5,
+  "CSISS" =  6,"CKISS" =  14,"MOE" =  8,"FVISS" =  15,"ONA" =  16,"MLWRS" =  17,"ISCMV" =  18
+)
+
+# names(shape_values) <- unique(lab_sf$`sampling group/agency`)
+
+lab_sf <- lab_sf |>
+  mutate(
+    sampling_label = paste(`sampling group/agency`, "(Plankton)")
+  )
+
+names(shape_values) <- paste(
+  names(shape_values),
+  "(Plankton)"
+)
+
 map_9_ggplot <- ggplot() +
-  tidyterra::geom_spatraster_rgb(data = bc_stations_basemap_trimmed) +
-  geom_sf(data = bc_bound, color = "grey", fill = NA, linewidth = 1) +
   
-  # Existing lab points
-  geom_sf(
-    data = lab_sf,
-    aes(fill = `sampling group/agency`),
-    shape = 21,
-    color = "black",
-    size = 3,
-    stroke = 0.2
+  # Basemap
+  tidyterra::geom_spatraster_rgb(
+    data = bc_stations_basemap_trimmed,
+    alpha = 0.45
   ) +
   
-  # eDNA points (black, different shape)
+  # BC boundary
+  geom_sf(
+    data = bc_bound,
+    color = "grey40",
+    fill = NA,
+    linewidth = 1
+  ) +
+  
+  # Plankton tow sampling points
+  geom_sf(
+    data = lab_sf,
+    aes(shape = sampling_label),
+    color = "black",
+    fill = "white",
+    size = 4,
+    stroke = 0.8
+  ) +
+  
+  # eDNA points
   geom_sf(
     data = edna_results_sf,
     aes(shape = "eDNA sampling"),
-    fill  = "transparent",
-    color = "#0e148a",
-    size  = 3,
-    linewidth = 3
-  )+
+    color = "black",
+    size = 7,
+    stroke = 1.2
+  ) +
+  
   geom_sf(
     data = pylet_locations_sf,
     aes(shape = "eDNA sampling"),
-    fill  = "transparent",
-    color = "#0e148a",
-    size  = 3,
-    linewidth = 3
-  )+
-  scale_shape_manual(
-    name = NULL,
-    values = c("eDNA sampling" = 22)
-  )+
+    color = "black",
+    size = 7,
+    stroke = 1.2
+  ) +
   
-  scale_fill_manual(
-    name = paste0(my.year, " Plankton\n Tow Sampling"),
-    values = setNames(
-      legend_df_lab$my_colors,
-      legend_df_lab$`sampling group/agency`
+  # Shape scale
+  scale_shape_manual(
+    name = "Sampling Type",
+    values = c(
+      shape_values,
+      "eDNA sampling" = 4  # X symbol
     )
   ) +
   
+  # Map extent
   coord_sf(
     xlim = c(raster_bbox_df$xmin, raster_bbox_df$xmax),
     ylim = c(raster_bbox_df$ymin, raster_bbox_df$ymax),
     expand = FALSE
   ) +
+  
+  # Scale bar
   ggspatial::annotation_scale(location = "bl") +
+  
+  # Theme
   ggthemes::theme_map() +
+  
   theme(
-    legend.position = c(0.95, 0.95),
+    legend.position = c(0.97, 0.97),
     legend.justification = c("right", "top"),
+    
     legend.background = element_rect(
-      fill = alpha("white", 0.7),
+      fill = scales::alpha("white", 0.85),
       color = "black"
     ),
-    legend.key = element_blank()
+    
+    legend.key = element_blank(),
+    
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 9),
+    
+    legend.key.size = unit(0.8, "cm")
   )
 
 map_9_ggplot
 
-
   # tmap_save(tm = map_9_tmap, filename = 'Map9_Map_of_Lake_Sampling.jpg', width = 7.6, height = 6.4, dpi = 300)
-ggsave(filename = './images/Map9_Map_of_Lake_Sampling_andeDNA.jpg',map_9_ggplot, width = 7.6, height = 6.4, dpi = 300)
+ggsave(filename = './images/Map9_Map_of_Lake_Sampling_andeDNA.jpg',map_9_ggplot, width = 12, height = 10, dpi = 300)
 
 # 
 # lab_sf
@@ -365,6 +403,8 @@ map_10_ggplot <- ggplot() +
     size = 3,
     stroke = 0.2
   ) +
+  
+  
   
   scale_shape_manual(
     name = NULL,

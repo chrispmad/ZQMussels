@@ -25,7 +25,7 @@ stations.to.change <- tibble(
   Station  = c("Fraser Valley Roving", "Penticton Roving",
                "Sumas Border", "Keremeos (Hwy 3)"),
   new_name = c("Lower Mainland", "Penticton",
-               "Sumas", "Keremeos")
+               "Sumas (Huntington)", "Keremeos")
 )
 
 # -----------------------------------------------------
@@ -84,7 +84,7 @@ year_config <- list(
               "Okanagan","Penticton Roving - Hwy 33",
               "Penticton Roving - Inspection Event"),
     leaflet = c("Golden","Olsen","Dawson Creek","Mt. Robson",
-                "Radium","Sumas","Penticton","Osoyoos",
+                "Radium","Sumas (Huntington)","Penticton","Osoyoos",
                 "Lower Mainland","Yahk","Pacific","Keremeos",
                 "Hwy 97c","Cutts (Hwy 93)",
                 "Douglas Crossing")
@@ -105,11 +105,11 @@ permanent.stations <- c("Dawson Creek" ,"Mt. Robson",
                         "Golden","Olsen","Yahk",
                         "Osoyoos")
 
-roving.stations <- c("Penticton","Lower Mainland","Sumas",
+roving.stations <- c("Penticton","Lower Mainland",
                      "Pacific","Cutts (Hwy 93)",
                      "Douglas Crossing")
 
-part.time.stations <- c("Sumas","Pacific","Cutts (Hwy 93)",
+part.time.stations <- c("Sumas (Huntington)","Pacific","Cutts (Hwy 93)",
                         "Radium","Douglas Crossing",
                         "Hwy 97c","Keremeos")
 
