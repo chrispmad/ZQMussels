@@ -59,7 +59,7 @@ the_year = int(my_opts["year"].iloc[0])
 # Create the WebDriver instance outside the loop
 driver = webdriver.Chrome()
 
-url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/466-2025-mussel-summary-csv-export"
+url = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/510-2026-mussel-summary-csv-export"
 #url = sys.argv[2]
 url2 = "https://metabase-7068ad-prod.apps.silver.devops.gov.bc.ca/question/467-get-blowby-table"
 
@@ -123,16 +123,25 @@ for the_url in [url, url2]:
         download_button.click()
 
         # New popup
+        # Wait for download popup
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "PopoverContainer"))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-element-id="mantine-popover"]')
+            )
         )
-        new_popup = driver.find_element(By.CLASS_NAME, "PopoverContainer")
 
-        # Find the CSV download button (it's the first of these 'forms')
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, "form")))
-        csv_download_button = driver.find_element(By.TAG_NAME, "form")
+# Wait for and click Download button
+        download_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, '[data-testid="download-results-button"]')
+            )
+        )
 
-        csv_download_button.click()
+        
+        download_button.click()
+        
+
+        
 
         # Wait for 3 minutes for download, just in case it takes that long.
         if the_url == url:
